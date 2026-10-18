@@ -163,3 +163,13 @@ def test_the_device_mixes_the_voices_inside_full_scale():
 def test_the_device_is_deterministic_and_never_nan():
     t = chip()
     assert np.array_equal(ttavdog(t, 4.0, SR, 3), ttavdog(t, 4.0, SR, 3)) and np.isfinite(ttavdog(t, 4.0, SR, 0)).all()
+
+
+def test_the_parameters_are_the_pitch_the_shape_and_the_undulations_rate_and_decay():
+    from tensixinet.music.ttavdog import avdog_parameters
+    t = chip(thm_limit_throttle=65.0)
+    pitch, shape, rate_hz, decay_s = avdog_parameters(t)
+    beat = 60.0 / aiclk_to_bpm(t.aiclk)
+    assert pitch == temp_to_pitch_hz(t.asic_temperature) and shape == chip_pressure(t)
+    assert rate_hz == pytest.approx(SHOCK_RATE_BEATS / beat) and decay_s == pytest.approx(SHOCK_DECAY_BEATS * beat)
+

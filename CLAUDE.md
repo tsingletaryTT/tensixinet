@@ -259,3 +259,8 @@ legacy/        first prototype scripts, kept for reference
     a shape test that changed the pitch along with the pressure, and nothing checking that the red voice uses the inverse slope.
   * Adding a device changed three tests that assumed eight slots (soloist test, the pressure-mentions list, and the
     board-power and busy fields, which reach the audio through who solos, so a one-second render may not show them).
+* **2026-10-18, `ttavdog` kernel:** matches the device to 1.2e-7 in the simulator; nine kernel breakages and eight host-helper
+  breakages failed. One host survivor: nothing exercised a full-pressure chip, where the wave shape is clipped to 0.98 so the
+  saw's slope stays finite (without the clip the host divides by zero). The test now includes a chip at full pressure.
+  * The full-pressure test also found a latent bug: `pressure()` divided by zero when the throttle limit equalled the 40 C floor.
+    `_unit` now treats a degenerate range as a step.

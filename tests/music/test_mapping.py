@@ -198,3 +198,9 @@ def test_rates_add_to_pressure_and_chaos_stops_at_one():
 def test_the_full_rates_are_one_degree_a_second_and_twenty_five_watts_a_second():
     assert rate_activity(1.0, 0.0) == 1.0 and rate_activity(0.5, 0.0) == 0.5
     assert rate_activity(0.0, 25.0) == 1.0 and rate_activity(0.0, 5.0) == pytest.approx(0.2)
+
+
+def test_a_limit_at_or_below_the_floor_is_full_pressure_for_a_chip_past_it_and_none_before_it():
+    assert pressure(60, 0, 40, 125) == 1.0 and pressure(60, 0, 30, 125) == 1.0  # past a limit that sits on or under the 40 C floor
+    assert pressure(35, 0, 40, 125) == 0.0 and pressure(35, 0, 30, 125) == 1.0  # not yet at the floor; 35 is past a 30 C limit
+    assert pressure(40, 0, 40, 125) == 1.0  # exactly at the limit counts

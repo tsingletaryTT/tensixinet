@@ -32,6 +32,7 @@ KERNELS_UNDER_TEST = [
     ("ttshimmer.py", 44100, 1e-5),
     ("ttmix.py", 24000, 1e-6),
     ("ttgong.py", 72000, 1e-5),
+    ("ttavdog.py", 80000, 1e-5),
 ]
 
 

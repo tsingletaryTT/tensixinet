@@ -25,6 +25,8 @@ DDR_LANE_SIDES = (3, 4, 5, 6)
 
 
 def _unit(x: float, lo: float, hi: float) -> float:
+    if hi <= lo:  # a degenerate range is a step: 0 before it, 1 from it
+        return 1.0 if x >= hi else 0.0
     return min(1.0, max(0.0, (x - lo) / (hi - lo)))
 
 

@@ -24,7 +24,7 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    100 in `media/llm.py`) or send several prompts so tt-toplike shows load for longer.
 6. **Align audio to the LLM reply.** The soundtrack starts at video time 0, but telemetry is
    sampled after the reply.
-7. **Run the devices as TT-Lang kernels.** Started: `ttshock` (the drone's ripple), `ttshimmer`, `ttgong` (up to five partials, three overlapping strikes) and `ttmix` (the
+7. **Run the devices as TT-Lang kernels.** Started: `ttshock` (the drone's ripple), `ttshimmer`, `ttgong` (up to five partials, three overlapping strikes), `ttavdog` and `ttmix` (the
    mixer, up to four chips) match their numpy devices to better than 3e-7 in the TT-Lang simulator (`kernels/README.md` says how to
    run them). Next, in order: the ttsidrax bounce, ttrollz's blips, the lead, the EQ (a convolution, which is a matmul),
    and a mixer for more than four chips. Every one needs a first run on a chip, a gozer lease and a turn agreed with tt-orchard, and a

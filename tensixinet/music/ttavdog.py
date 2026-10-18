@@ -46,14 +46,21 @@ def skewed_triangle(phase: np.ndarray, shape: float) -> np.ndarray:
     return 2 * np.minimum(x / peak, (1 - x) / (1 - peak)) - 1
 
 
+def avdog_parameters(t: Telemetry) -> Tuple[float, float, float, float]:
+    """(the dogtone's pitch in Hz, its wave shape, the undulation's rate in Hz, its decay time in s). The kernel's host side
+    reads the same numbers."""
+    beat = 60.0 / aiclk_to_bpm(t.aiclk)
+    # the shape is a triangle at rest and skews toward a saw near a limit
+    return temp_to_pitch_hz(t.asic_temperature), chip_pressure(t), SHOCK_RATE_BEATS / beat, SHOCK_DECAY_BEATS * beat
+
+
 def avdog_voices(t: Telemetry, duration: float, sample_rate: int) -> Tuple[np.ndarray, np.ndarray]:
     """(the white voice, the red voice). Each is the dogtone under the envelope of one half of the undulation, so they
     never sound together. The red voice has the inverse wave shape."""
     n = int(duration * sample_rate)
-    beat = 60.0 / aiclk_to_bpm(t.aiclk)
-    u = undulation(seconds_since(strike_times(t, duration), n, sample_rate), SHOCK_RATE_BEATS / beat, SHOCK_DECAY_BEATS * beat)
-    phase = temp_to_pitch_hz(t.asic_temperature) * np.arange(n) / sample_rate
-    shape = chip_pressure(t)  # a triangle at rest, toward a saw near a limit
+    pitch, shape, rate_hz, decay_s = avdog_parameters(t)
+    u = undulation(seconds_since(strike_times(t, duration), n, sample_rate), rate_hz, decay_s)
+    phase = pitch * np.arange(n) / sample_rate
     white = skewed_triangle(phase, shape) * np.maximum(u, 0.0)
     red = skewed_triangle(phase, -shape) * np.maximum(-u, 0.0)
     return white, red

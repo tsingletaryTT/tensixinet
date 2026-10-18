@@ -212,3 +212,36 @@ def test_three_overlapping_strikes_are_enough_for_the_closest_strikes_the_device
     strikes = strike_times(t, 60.0)
     spacing = np.diff(strikes).min()
     assert g.length / 8000 / spacing <= GONG_OVERLAP  # a strike never overlaps more than the three runs can hold
+
+
+# --- the AVDog: the dogtone under the two halves of the undulation ------------------------------------------------------
+
+from tensixinet.kernels.packing import avdog_inputs, avdog_on_host  # noqa: E402
+from tensixinet.music.ttavdog import AVDOG_LEVEL, RED_GAIN, avdog_parameters, ttavdog  # noqa: E402
+
+
+def test_the_avdog_inputs_are_ten_tiles_with_the_constants_folded_so_no_scalar_reaches_the_chip():
+    import dataclasses
+    t = dataclasses.replace(FALLBACK, asic_temperature=60.0, thm_limit_throttle=65.0)
+    pitch, shape, rate_hz, decay_s = avdog_parameters(t)
+    since = np.array([np.inf, 0.0, 0.1])
+    tiles = avdog_inputs(since, rate_hz, decay_s, pitch, shape, 3, 8000)
+    assert len(tiles) == 10 and all(x.shape == tiles[0].shape and x.dtype == np.float32 for x in tiles)
+    x, ox, ip, iq, pu, e, aw2, aw, ar2, ar = (tile.ravel()[:3] for tile in tiles)
+    assert (x + ox == pytest.approx([1, 1, 1])) and e[0] == SNAP_FLOOR and e[1] == 0.0 and pu[0] == 0.0
+    peak = (1 + shape) / 2
+    assert ip[0] == pytest.approx(1 / peak) and iq[0] == pytest.approx(1 / (1 - peak))
+    assert aw2[0] == pytest.approx(2 * AVDOG_LEVEL) and aw[0] == pytest.approx(AVDOG_LEVEL)
+    assert ar2[0] == pytest.approx(2 * AVDOG_LEVEL * RED_GAIN) and ar[0] == pytest.approx(AVDOG_LEVEL * RED_GAIN)
+
+
+@pytest.mark.parametrize("pressure_limit", [120.0, 65.0, 61.0, 40.0])  # the last is full pressure, past the point where a saw would need an infinite slope
+def test_the_chips_formula_on_the_hosts_inputs_is_the_ttavdog_device(pressure_limit):
+    import dataclasses
+    t = dataclasses.replace(FALLBACK, asic_temperature=60.0, power=50.0, thm_limit_throttle=pressure_limit)
+    n = 8000 * 10
+    pitch, shape, rate_hz, decay_s = avdog_parameters(t)
+    since = seconds_since(strike_times(t, 10.0), n, 8000)
+    got = avdog_on_host(avdog_inputs(since, rate_hz, decay_s, pitch, shape, n, 8000), n)
+    assert np.allclose(got, ttavdog(t, 10.0, 8000, 0), atol=2e-4)
+

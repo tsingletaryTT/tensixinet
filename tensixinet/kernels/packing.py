@@ -18,6 +18,7 @@ from typing import List, Sequence, Tuple
 
 import numpy as np
 
+from ..music.ttavdog import AVDOG_LEVEL, RED_GAIN, SHAPE_LIMIT
 from ..music.devices import (
     GONG_ATTACK_S,
     GONG_SAG_DEPTH,
@@ -171,3 +172,42 @@ def gong_on_host(tiles: Sequence[np.ndarray], n: int) -> np.ndarray:
 def gong_combine(runs: Sequence[np.ndarray]) -> np.ndarray:
     """The device's last step over the overlapping strikes: add them, `0.6 * tanh`."""
     return 0.6 * np.tanh(sum(runs))
+
+
+def avdog_inputs(
+    since: np.ndarray, rate_hz: float, decay_s: float, pitch_hz: float, shape: float, n: int, sample_rate: int
+) -> List[np.ndarray]:
+    """What the chip needs for the AVDog voices, ten packed tiles: the dogtone's phase in cycles `x` and `1 - x`, the two
+    slopes `ip = 1 / peak` and `iq = 1 / (1 - peak)` that skew the triangle, the undulation's phase and decay exponent, and
+    four constants that carry the level and the red gain, because block maths takes no Python numbers: `aw2 = 2 level`,
+    `aw = level`, and the same two times the red gain. The chip computes
+    `relu(u) * (min(x ip, ox iq) aw2 - aw) + relu(-u) * (min(x iq, ox ip) ar2 - ar)` with `u = sin(pu) exp(e)`: the white
+    voice under the up half of the undulation, the red under the down half with the slopes swapped."""
+    since = np.asarray(since, dtype=np.float64)
+    live = np.isfinite(since)
+    tau = np.where(live, since, 0.0)
+    x = np.mod(pitch_hz * np.arange(n) / sample_rate, 1.0)
+    peak = (1 + float(np.clip(shape, -SHAPE_LIMIT, SHAPE_LIMIT))) / 2
+    const = lambda value: pack(np.full(n, value))
+    return [
+        pack(x),
+        pack(1.0 - x),
+        const(1.0 / peak),
+        const(1.0 / (1.0 - peak)),
+        pack(np.mod(2 * math.pi * rate_hz * tau, 2 * math.pi)),
+        pack(np.where(live, -tau / decay_s, SNAP_FLOOR)),
+        const(2 * AVDOG_LEVEL),
+        const(AVDOG_LEVEL),
+        const(2 * AVDOG_LEVEL * RED_GAIN),
+        const(AVDOG_LEVEL * RED_GAIN),
+    ]
+
+
+def avdog_on_host(tiles: Sequence[np.ndarray], n: int) -> np.ndarray:
+    """The chip's formula for the AVDog voices, in float32 numpy."""
+    x, ox, ip, iq, pu, e, aw2, aw, ar2, ar = tiles
+    u = np.sin(pu) * np.exp(e)
+    white = np.maximum(u, 0) * (np.minimum(x * ip, ox * iq) * aw2 - aw)
+    red = np.maximum(-u, 0) * (np.minimum(x * iq, ox * ip) * ar2 - ar)
+    return unpack(white + red, n)
+
