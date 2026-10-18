@@ -41,6 +41,9 @@ class Telemetry:
     thm_limit_throttle: float = 90.0  # deg C where the chip starts to throttle
     tdp_limit: float = 125.0  # W
     busy: Optional[int] = None  # processes using this chip, or None when the snapshot does not say
+    # Live mode fills these from two readings. One snapshot has no rate, so they stay 0.
+    temp_rate: float = 0.0  # deg C per second since the previous reading
+    power_rate: float = 0.0  # W per second since the previous reading
 
 
 # Neutral values used for any field the device does not report.

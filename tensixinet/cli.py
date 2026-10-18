@@ -10,7 +10,9 @@ import time
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
+from .live import run_live
 from .media import llm
+from .media.player import PLAYERS, PlayerError, make_sink as default_make_sink
 from .music.patch import DEFAULT_PATCH, draw_patch, load_patch, save_patch, seed_from_telemetry
 from .run import run
 from .narrate.runlog import RunLog
@@ -46,7 +48,8 @@ def _positive_int(text: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="tensixinet", description="Play your Tenstorrent chips as a chorus.")
     p.add_argument("prompt", nargs="?", help="send this to the LLM first, so its load shows up in the telemetry")
-    p.add_argument("--duration", type=float, default=60.0, help="seconds of audio (default 60)")
+    p.add_argument("--duration", type=float, default=60.0,
+                   help="seconds of audio (default 60; with --live, 0 plays until Ctrl-C)")
     p.add_argument("--sample-rate", type=int, default=44100)
     p.add_argument("--out", help="WAV path (default audio/tensixinet_<time>.wav)")
     p.add_argument("--log-dir", default="logs", help="where the run log goes (default logs/)")
@@ -58,6 +61,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--patch-seed", type=int, metavar="N", help="draw the patch from this seed instead of from the chips and entropy")
     p.add_argument("--no-normalise", action="store_true",
                    help="write the render at the level the chips' power gives it, with no loudness gain")
+    p.add_argument("--live", action="store_true",
+                   help="read the chips again every turn and play as it goes (the default renders one file from one reading)")
+    p.add_argument("--player", choices=("auto", "none") + PLAYERS, metavar="NAME",
+                   help="with --live, where the sound goes: auto (the first of %s that is installed), none (no sound, "
+                        "at the speed of the music), or one of those players. --out still records what is played"
+                        % ", ".join(PLAYERS))
     p.add_argument("--endpoint", default="http://127.0.0.1:8011", help="OpenAI-compatible LLM endpoint")
     p.add_argument("--model", help="model name (default: whatever the endpoint serves)")
     return p
@@ -68,9 +77,12 @@ def main(
     ask: Optional[Callable] = None,
     sample: Optional[Callable] = None,
     entropy: Optional[Callable] = None,
+    make_sink: Optional[Callable] = None,
 ) -> int:
     parser = build_parser()
     a = parser.parse_args(argv)
+    if a.player and not a.live:
+        parser.error("--player needs --live: an offline run writes a file and plays nothing")
     if a.mock_faults and not a.mock_chips:
         parser.error("--mock-faults needs --mock-chips: real chips report their own errors")
     stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -119,7 +131,7 @@ def main(
                           "continuing with telemetry only; the chorus does not need the LLM to play")
         try:
             chips = sample()
-            if not chips:  # run() logs that there is nothing to play and raises
+            if not chips:  # run() and run_live() log that there is nothing to play and raise
                 patch, patch_source = DEFAULT_PATCH, "no chips, so no patch was drawn"
             elif replay is not None:
                 patch, patch_source = replay, f"replayed from {a.patch}, so this run sounds like the one that saved it"
@@ -134,10 +146,26 @@ def main(
                                 "so no two runs match")
             if chips:
                 save_patch(patch, log_dir / f"patch_{stamp}.json")
-            run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source,
-                normalise=not a.no_normalise)
+            if a.live:
+                try:
+                    sink, where = (make_sink or default_make_sink)(a.player or "auto", a.sample_rate, out)
+                except PlayerError as e:
+                    log.event("player", f"the audio output could not be used: {e}", "a live run ends when it has nowhere to play")
+                    return 3
+                log.event("live", f"live mode: {where}",
+                          "the chips are read again every turn and each turn is played as soon as it is made")
+                try:
+                    run_live(sample, sink, log, a.sample_rate, duration=a.duration or None, source=source, patch=patch,
+                             patch_source=patch_source, normalise=not a.no_normalise)
+                except PlayerError:
+                    return 3  # run_live has logged what stopped
+            else:
+                run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source,
+                    normalise=not a.no_normalise)
         except ValueError:
             return 2
         return 0
+    except KeyboardInterrupt:
+        return 130  # Ctrl-C before the run started; once a live run is playing it stops itself
     finally:
         log.close()

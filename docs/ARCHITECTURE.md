@@ -21,7 +21,10 @@
         WAV (run.py) ──► media/mux ──► video soundtrack
 ```
 
-`run.py` wires the pieces and `cli.py` parses arguments. Nothing in `telemetry/`, `music/` or
+`run.py` wires the pieces and `cli.py` parses arguments. `live.py` is the live twin of `run.py`: where `run.py` reads the chips
+once, it reads them every turn, renders one turn at a time with `render_chorus(..., segment=k, soloists=[slot])`,
+cross-fades the turns together (`music/live.py`), and hands the audio to a sink (`media/player.py`) from a second
+thread. The sink's writes block at the speed of the music, which paces the loop. Nothing in `telemetry/`, `music/` or
 `narrate/` touches the network, the filesystem or the device, apart from `fetch_snapshot`, which
 runs `tt-smi -s`.
 
@@ -41,19 +44,21 @@ runs `tt-smi -s`.
 | | `lead.py` | The lead voice and its shift/invert transforms |
 | | `events.py` | Tick, breath and sweep sounds for memory errors and thermal trips; silent on a healthy chip |
 | | `turns.py` | Who solos each turn, and the gain curves |
-| | `loudness.py` | One gain for a finished render: -18 dBFS RMS, peak under -1 dBFS, at most +20 dB |
+| | `loudness.py` | One gain for a finished render: -18 dBFS RMS, peak under -1 dBFS, at most +20 dB. `LiveGain` follows the music as it plays |
 | | `patch.py` | The `Patch` (every drawn choice of a run), drawing it from a seed and the chips, JSON save and load |
-| | `chorus.py` | Deals device slots to chips, plans turns, mixes |
+| | `chorus.py` | Deals device slots to chips, plans turns (`turn_seconds`, `slot_weights`), mixes. `render_chorus` takes a segment number and a named soloist for live mode |
+| | `live.py` | Live mode's pure pieces: `advance` (rates and new errors from two readings) and `Stitcher` (cross-fades turns together) |
 | `narrate/` | `explain.py` | Plain-language what/why for every choice, built from the same functions the audio uses |
 | | `runlog.py` | JSONL for programs, wrapped left-bar text for people |
 | `media/` | `llm.py` | Prompts any OpenAI-compatible endpoint |
 | | `mux.py` | Puts the WAV under a video with ffmpeg |
+| | `player.py` | Where live audio goes: a `paplay`, `aplay` or `ffplay` process, a growing WAV, or no sound at the speed of the music |
 
 ## Dependencies run one way
 
 `telemetry` depends on nothing in the package. `music` depends on `telemetry`. Inside `music`, `devices.py` builds on
 `rolzer`, `sidrax` and `quantussy`, and `mwtrs.py` builds on `devices.py` for the strike helpers. `narrate` depends on
-`music` and `telemetry`. `media` depends on nothing. `run.py` and `cli.py` depend on all of them.
+`music` and `telemetry`. `media` depends on nothing. `run.py`, `live.py` and `cli.py` depend on all of them.
 Keep it that way: `music` must never import `narrate`.
 
 ## Why the tests are shaped like this

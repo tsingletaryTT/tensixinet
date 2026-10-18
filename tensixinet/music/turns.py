@@ -7,20 +7,18 @@ still gets some turns, and nobody takes two turns in a row.
 """
 from __future__ import annotations
 
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
 import numpy as np
 
 GOLDEN = 0.6180339887498949  # frac(k * GOLDEN) spreads picks evenly without a random generator
 
 
-def soloists(weights: Sequence[float], n_turns: int) -> List[int]:
-    """Pick one voice per turn, in proportion to `weights`.
+def pick_soloist(weights: Sequence[float], k: int, previous: Optional[int]) -> int:
+    """The soloist for turn `k`, given who soloed in the turn before (`None` for the first).
 
-    A voice with weight 0 never solos. If every weight is 0 they are treated as
-    equal. When the pick would repeat the previous soloist, the floor is drawn again
-    from the other voices, still in proportion to their weights.
-    """
+    `soloists` plans a whole run with this. Live mode calls it once per turn, because the weights change
+    as the chips do and nobody should solo twice in a row whatever they were before."""
     w = np.maximum(np.asarray(weights, dtype=float), 0.0)
     if w.sum() == 0:
         w = np.ones(len(w))
@@ -30,15 +28,25 @@ def soloists(weights: Sequence[float], n_turns: int) -> List[int]:
         cum = np.cumsum(weights) / weights.sum()
         return int(min(np.searchsorted(cum, u, side="right"), len(weights) - 1))
 
+    u = ((k + 1) * GOLDEN) % 1.0
+    pick = draw(w, u)
+    if previous is not None and pick == previous and len(live) > 1:
+        others = w.copy()
+        others[pick] = 0.0
+        pick = draw(others, (u * 7) % 1.0)  # a second, different draw from everyone else
+    return pick
+
+
+def soloists(weights: Sequence[float], n_turns: int) -> List[int]:
+    """Pick one voice per turn, in proportion to `weights`.
+
+    A voice with weight 0 never solos. If every weight is 0 they are treated as
+    equal. When the pick would repeat the previous soloist, the floor is drawn again
+    from the other voices, still in proportion to their weights.
+    """
     out: List[int] = []
     for k in range(n_turns):
-        u = ((k + 1) * GOLDEN) % 1.0
-        pick = draw(w, u)
-        if out and pick == out[-1] and len(live) > 1:
-            others = w.copy()
-            others[pick] = 0.0
-            pick = draw(others, (u * 7) % 1.0)  # a second, different draw from everyone else
-        out.append(pick)
+        out.append(pick_soloist(weights, k, out[-1] if out else None))
     return out
 
 

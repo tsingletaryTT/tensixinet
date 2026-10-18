@@ -30,21 +30,19 @@ def _dbfs(audio: np.ndarray) -> float:
     return 20 * math.log10(max(float(np.sqrt(np.mean(np.square(audio, dtype=np.float64)))), 1e-9))
 
 
-def run(
+def describe_readings(
     telemetry: Sequence[Telemetry],
     duration: float,
-    out_path: Path,
     log: RunLog,
-    sample_rate: int = 44100,
-    source: str = "the telemetry source",
-    patch: Patch = DEFAULT_PATCH,
-    patch_source: str = "the built-in default patch",
-    normalise: bool = True,
-) -> np.ndarray:
-    if not telemetry:
-        log.event("discover", "no chips found, nothing to play",
-                  f"{source} returned zero devices; refusing to invent any")
-        raise ValueError("no chips in telemetry")
+    source: str,
+    patch: Patch,
+    patch_source: str,
+    turns: bool = True,
+) -> None:
+    """Log what the readings and the patch decide, one line each with its reason.
+
+    `turns` adds the plan for every turn of a `duration` render, which a live run leaves out because it
+    picks each turn's soloist as it goes."""
     n = len(telemetry)
     log.event("discover", f"found {n} chip{'' if n == 1 else 's'}",
               f"the chip count comes from {source}; nothing in the synth assumes a number")
@@ -63,8 +61,27 @@ def run(
         log.event("mix", d.what, d.why, chip=i)
     for i, d in enumerate(explain_turn_weights(telemetry)):
         log.event("weight", d.what, d.why, chip=i)
-    for k, d in enumerate(explain_turns(telemetry, duration, patch=patch)):
-        log.event("turn", d.what, d.why, turn=k)
+    if turns:
+        for k, d in enumerate(explain_turns(telemetry, duration, patch=patch)):
+            log.event("turn", d.what, d.why, turn=k)
+
+
+def run(
+    telemetry: Sequence[Telemetry],
+    duration: float,
+    out_path: Path,
+    log: RunLog,
+    sample_rate: int = 44100,
+    source: str = "the telemetry source",
+    patch: Patch = DEFAULT_PATCH,
+    patch_source: str = "the built-in default patch",
+    normalise: bool = True,
+) -> np.ndarray:
+    if not telemetry:
+        log.event("discover", "no chips found, nothing to play",
+                  f"{source} returned zero devices; refusing to invent any")
+        raise ValueError("no chips in telemetry")
+    describe_readings(telemetry, duration, log, source, patch, patch_source)
     log.event("render", f"rendering {duration:g}s at {sample_rate} Hz",
               "all chips are rendered, scaled by power, then mixed by current")
     audio = render_chorus(telemetry, duration, sample_rate, patch=patch)

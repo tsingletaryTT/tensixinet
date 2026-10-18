@@ -239,3 +239,63 @@ def test_each_chip_gets_its_own_event_seed_so_two_sick_chips_do_not_tick_in_unis
     monkeypatch.setattr(chorus_module, "error_events", lambda t, d, sr, seed: seen.append(seed) or real(t, d, sr, seed))
     render_chorus([FALLBACK] * 3, 0.3, SR)
     assert len(seen) == 3 and len(set(seen)) == 3
+
+
+# --- live mode renders one segment at a time ---------------------------------------------------------------
+
+from tensixinet.music.chorus import slot_weights, turn_seconds  # noqa: E402
+from tensixinet.music.patch import DEFAULT_PATCH  # noqa: E402
+
+
+def test_turn_seconds_is_bars_per_turn_at_the_mean_tempo_and_plan_turns_agrees():
+    fast, slow = dataclasses.replace(FALLBACK, aiclk=1350.0), dataclasses.replace(FALLBACK, aiclk=400.0)
+    mean_bpm = (aiclk_to_bpm(1350.0) + aiclk_to_bpm(400.0)) / 2
+    assert turn_seconds([fast, slow], DEFAULT_PATCH) == pytest.approx(DEFAULT_PATCH.bars_per_turn * 4 * 60 / mean_bpm)
+    assert plan_turns([fast, slow], 30.0)[1] == turn_seconds([fast, slow], DEFAULT_PATCH)
+
+
+def test_slot_weights_gives_each_slot_its_chips_weight():
+    busy, idle = dataclasses.replace(FALLBACK, power=150.0), dataclasses.replace(FALLBACK, power=10.0)
+    w = slot_weights([busy, idle])  # 2 chips, 8 slots: slot s belongs to chip s % 2
+    assert len(w) == len(DEVICES) and w[0] == w[2] == w[4] == w[6] > w[1] == w[3] == w[5] == w[7] > 0
+
+
+def test_the_default_segment_and_soloists_leave_the_whole_render_unchanged():
+    a = render_chorus(chips(3), 1.0, SR)
+    assert np.array_equal(a, render_chorus(chips(3), 1.0, SR, segment=0))
+
+
+def test_each_segment_has_its_own_seed_so_a_live_run_does_not_loop():
+    seg0, seg1 = render_chorus(chips(3), 1.0, SR, segment=0), render_chorus(chips(3), 1.0, SR, segment=1)
+    assert not np.allclose(seg0, seg1)
+    assert np.array_equal(seg1, render_chorus(chips(3), 1.0, SR, segment=1))
+
+
+def test_a_segment_gives_the_floor_to_the_slot_it_is_told_to(monkeypatch):
+    from tensixinet.music import chorus as chorus_module
+    seen = []
+    real = chorus_module.turn_gains
+    monkeypatch.setattr(chorus_module, "turn_gains", lambda solo, *a, **k: seen.append(list(solo)) or real(solo, *a, **k))
+    render_chorus(chips(2), 0.5, SR, soloists=[5])
+    assert seen == [[5]]
+    assert not np.allclose(render_chorus(chips(2), 0.5, SR, soloists=[5]), render_chorus(chips(2), 0.5, SR, soloists=[6]))
+
+
+def test_event_sounds_get_a_new_seed_in_every_segment_and_on_every_chip(monkeypatch):
+    from tensixinet.music import chorus as chorus_module
+    seeds = []
+    real = chorus_module.error_events
+    monkeypatch.setattr(chorus_module, "error_events", lambda t, d, sr, seed: seeds.append(seed) or real(t, d, sr, seed=seed))
+    for segment in (0, 1):
+        render_chorus(chips(2), 0.3, SR, segment=segment)
+    assert len(set(seeds)) == 4  # two chips, two segments, none alike
+
+
+def test_device_seeds_move_with_the_segment_by_the_stride(monkeypatch):
+    from tensixinet.music import chorus as chorus_module
+    from tensixinet.music.chorus import SEGMENT_SEED_STRIDE
+    seen = []
+    real = chorus_module.assign_device
+    monkeypatch.setattr(chorus_module, "assign_device", lambda s: (lambda t, d, sr, seed, patch: seen.append(seed) or real(s)(t, d, sr, seed=seed, patch=patch)))
+    render_chorus(chips(1), 0.2, SR, segment=3)
+    assert seen == [3 * SEGMENT_SEED_STRIDE + s for s in range(len(DEVICES))]

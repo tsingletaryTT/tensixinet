@@ -69,6 +69,8 @@ HEARTBEAT_STEPS = 16
 BUSY_WEIGHT_PER_PROCESS = 0.5
 BUSY_WEIGHT_MAX_PROCESSES = 3
 PRESSURE_WEIGHT = 2.0
+RATE_FULL_TEMP_C_PER_S = 1.0  # a chip heating or cooling this fast is as unsettled as a chip can sound
+RATE_FULL_POWER_W_PER_S = 25.0  # and so is one whose power moves this fast
 
 
 def pressure(temp_c: float, power_w: float, throttle_c: float, tdp_w: float) -> float:
@@ -82,6 +84,21 @@ def pressure(temp_c: float, power_w: float, throttle_c: float, tdp_w: float) -> 
 def chip_pressure(t) -> float:
     """`pressure` for one chip's telemetry."""
     return pressure(t.asic_temperature, t.power, t.thm_limit_throttle, t.tdp_limit)
+
+
+def rate_activity(temp_rate: float, power_rate: float) -> float:
+    """0 (readings holding still) to 1 (moving at the full rate), whichever reading is moving faster.
+    A reading that falls counts the same as one that rises."""
+    return max(
+        _unit(abs(temp_rate), 0.0, RATE_FULL_TEMP_C_PER_S),
+        _unit(abs(power_rate), 0.0, RATE_FULL_POWER_W_PER_S),
+    )
+
+
+def chip_chaos(t) -> float:
+    """The Sidrax chaos knob: the chip's pressure plus how fast its readings are moving, up to 1.
+    A snapshot has no rates, so offline this is the pressure."""
+    return min(1.0, chip_pressure(t) + rate_activity(t.temp_rate, t.power_rate))
 
 
 def personality(t) -> int:

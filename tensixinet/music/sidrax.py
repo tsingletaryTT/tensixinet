@@ -21,7 +21,7 @@ from typing import Sequence, Tuple
 import numpy as np
 
 from .lead import degree_to_semitones
-from .mapping import aiclk_to_bpm, chip_pressure, norm_temp, temp_to_pitch_hz
+from .mapping import aiclk_to_bpm, chip_chaos, norm_temp, temp_to_pitch_hz
 from .patch import DEFAULT_PATCH, Patch
 from .rolzer import barre_bpm
 from ..telemetry import Telemetry
@@ -114,7 +114,7 @@ def sidrax(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Pa
     n = int(duration * sample_rate)
     bpm = aiclk_to_bpm(t.aiclk)
     base = temp_to_pitch_hz(t.asic_temperature) * t.arcclk / FALLBACK_ARCCLK
-    chaos = chip_pressure(t)
+    chaos = chip_chaos(t)
     nyquist_limit = 0.45 * sample_rate
     freqs = [min(barre_frequency(base, b, patch.scale), nyquist_limit) for b in range(N_BARRES)]
     bounds = [barre_bounds(t.gddr_temps, b) for b in range(N_BARRES)]

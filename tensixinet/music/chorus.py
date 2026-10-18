@@ -11,7 +11,7 @@ work get the floor more often.
 from __future__ import annotations
 
 import math
-from typing import Callable, List, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -22,7 +22,7 @@ from .mwtrs import mwtrs
 from .mapping import aiclk_to_bpm, chip_pressure, power_to_volume, turn_weight
 from .patch import DEFAULT_PATCH, Patch
 from ..telemetry import Telemetry
-from .turns import soloists, turn_gains
+from .turns import soloists as plan_soloists, turn_gains
 
 DEVICES = (rollz, sidrax, cocoquantus, plumbutter_drone, lead, gong, ultrasonic_shimmer, mwtrs)
 
@@ -44,39 +44,59 @@ def chip_devices(chip_index: int, n_chips: int) -> List[Callable]:
     return [assign_device(s) for s in range(n_slots(n_chips)) if slot_chip(s, n_chips) == chip_index]
 
 
-def plan_turns(telemetry: Sequence[Telemetry], duration: float, patch: Patch = DEFAULT_PATCH) -> Tuple[List[int], float]:
-    """(soloist slot for each turn, turn length in seconds).
+def turn_seconds(telemetry: Sequence[Telemetry], patch: Patch = DEFAULT_PATCH) -> float:
+    """A turn lasts `patch.bars_per_turn` bars at the average chip tempo."""
+    mean_bpm = sum(aiclk_to_bpm(t.aiclk) for t in telemetry) / len(telemetry)
+    return patch.bars_per_turn * 4 * 60.0 / mean_bpm
 
-    A turn lasts `patch.bars_per_turn` bars at the average chip tempo. A slot's weight is
-    `mapping.turn_weight` for its chip: the power it draws, raised by a heavier board load,
-    by pressure near a limit and by processes using it, so busier chips solo more often.
-    """
+
+def slot_weights(telemetry: Sequence[Telemetry]) -> List[float]:
+    """How often each slot solos. A slot's weight is `mapping.turn_weight` for its chip: the power it
+    draws, raised by a heavier board load, by pressure near a limit and by processes using it, so
+    busier chips solo more often."""
     n = len(telemetry)
-    mean_bpm = sum(aiclk_to_bpm(t.aiclk) for t in telemetry) / n
-    turn_s = patch.bars_per_turn * 4 * 60.0 / mean_bpm
     mean_board = sum(t.board_power for t in telemetry) / n
     chip_weight = [turn_weight(t.power, t.board_power, mean_board, chip_pressure(t), t.busy) for t in telemetry]
-    weights = [chip_weight[slot_chip(s, n)] for s in range(n_slots(n))]
-    return soloists(weights, max(1, math.ceil(duration / turn_s))), turn_s
+    return [chip_weight[slot_chip(s, n)] for s in range(n_slots(n))]
+
+
+def plan_turns(telemetry: Sequence[Telemetry], duration: float, patch: Patch = DEFAULT_PATCH) -> Tuple[List[int], float]:
+    """(soloist slot for each turn, turn length in seconds)."""
+    turn_s = turn_seconds(telemetry, patch)
+    return plan_soloists(slot_weights(telemetry), max(1, math.ceil(duration / turn_s))), turn_s
+
+
+SEGMENT_SEED_STRIDE = 10_007  # a prime, so no device seed of one segment lands on another segment's
 
 
 def render_chorus(
-    telemetry: Sequence[Telemetry], duration: float, sample_rate: int = 44100, patch: Patch = DEFAULT_PATCH
+    telemetry: Sequence[Telemetry],
+    duration: float,
+    sample_rate: int = 44100,
+    patch: Patch = DEFAULT_PATCH,
+    segment: int = 0,
+    soloists: Optional[Sequence[int]] = None,
 ) -> np.ndarray:
-    """Render every device, give the soloist the floor, add each chip's event sounds, scale by power, mix by current."""
+    """Render every device, give the soloist the floor, add each chip's event sounds, scale by power, mix by current.
+
+    Live mode renders one segment at a time. `segment` moves every seed on by a fixed stride, so the
+    segments are not copies of each other, and `soloists` names the slot (or slots, one per turn) that has the
+    floor instead of planning it from the readings."""
     if not telemetry:
         raise ValueError("render_chorus needs at least one chip's telemetry")
     n = len(telemetry)
     n_samples = int(duration * sample_rate)
-    solo_slots, turn_s = plan_turns(telemetry, duration, patch)
+    planned, turn_s = plan_turns(telemetry, duration, patch)
+    solo_slots = planned if soloists is None else list(soloists)
+    seed_base = segment * SEGMENT_SEED_STRIDE
     gains = turn_gains(solo_slots, n_slots(n), n_samples, sample_rate, turn_s, floor=patch.floor)
     per_chip = [np.zeros(n_samples) for _ in range(n)]
     for s in range(n_slots(n)):
         chip = slot_chip(s, n)
-        per_chip[chip] += gains[s] * assign_device(s)(telemetry[chip], duration, sample_rate, seed=s, patch=patch)
+        per_chip[chip] += gains[s] * assign_device(s)(telemetry[chip], duration, sample_rate, seed=seed_base + s, patch=patch)
     signals = []
     for chip, t in enumerate(telemetry):
         voices = len(chip_devices(chip, n))
-        events = error_events(t, duration, sample_rate, seed=1000 + chip)  # not part of the turns
+        events = error_events(t, duration, sample_rate, seed=seed_base + 1000 + chip)  # not part of the turns
         signals.append((per_chip[chip] / math.sqrt(voices) + events) * power_to_volume(t.power))
     return current_mix(signals, [t.current for t in telemetry]).astype(np.float32)

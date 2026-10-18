@@ -44,7 +44,7 @@ PRESSURE_FIELDS = frozenset({"asic_temperature", "power", "thm_limit_throttle", 
 IDENTITY_FIELDS = frozenset({"tensix_mask", "eth_mask"})
 DEVICE_INPUTS = {
     "rollz": frozenset({"asic_temperature", "aiclk", "ddr_status", "eth_mask"}),
-    "sidrax": frozenset({"asic_temperature", "gddr_temps", "arcclk", "aiclk"}) | PRESSURE_FIELDS,
+    "sidrax": frozenset({"asic_temperature", "gddr_temps", "arcclk", "aiclk", "temp_rate", "power_rate"}) | PRESSURE_FIELDS,
     "cocoquantus": frozenset({"asic_temperature", "aiclk", "axiclk"}) | IDENTITY_FIELDS,
     "plumbutter_drone": frozenset({"asic_temperature", "voltage", "pcie_usage", "aiclk", "heartbeat"}) | IDENTITY_FIELDS,
     "lead": frozenset({"aiclk", "gddr_temps"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,

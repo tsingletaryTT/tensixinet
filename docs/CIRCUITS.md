@@ -24,7 +24,7 @@ The code models behaviour that can be heard in one chip's telemetry. It does not
 | Man With The Red Steam is an 8-bit shift register. A clock passes pulses up the stack, and each step can fire a module. The data input, feedback taps and two buttons shape the pattern. | A 14-step register stepped at eighth notes. A step fires where a Tensix column is harvested. Feedback taps and buttons are not modelled. | `music/mwtrs.py` |
 | The Snare is quantum noise under an envelope with a decay from 75 ms to 0.75 s, plus dust: a continuous crackle. | The snare is white noise rolled off at 4 kHz. Pressure sets the decay and PCIe usage sets the dust. | `mwtrs` |
 | The mixer compresses as channels compete for headroom. | The chorus mixes by current through `tanh`, as before. | `current_mix` |
-| The Deerhorn is a two-oscillator theremin played by hand gestures. | Not modelled. A snapshot has no motion. Live mode would give it something to follow. | |
+| The Deerhorn is a two-oscillator theremin played by hand gestures. | Not modelled. Live mode now gives the readings motion, so the rates could drive it. | |
 
 ## Sidrax
 
@@ -35,7 +35,7 @@ The code models behaviour that can be heard in one chip's telemetry. It does not
 | When the bounds converge the amplitude falls and the frequency rises. When the upper bound drops below the lower, the oscillator rides the lower bound. | Both happen. | `windowed_bounce` |
 | The bounds can be other oscillators. A table (figure 1) says which barres bound which when switch 3, switch 5 or both are on. | The table is in the code. A released barre switches 3 on, so it glitches between two other barres. | `BOUNDS_TABLE`, `sidrax` |
 | A press opens one stereo channel and a release the other. In the Pressure Bound patch a press plays the tuned tone and a release switches the bounds on for a decaying glitch. | Each barre plays a tone on its press and a glitch on its release. The output is mono, so the two channels sum. | `gesture_envelopes` |
-| The chaos knob cross-modulates the oscillators. At the top it is noise. | Pressure is the chaos knob. Each barre's frequency is swung by the barre two along, up to 200% at full pressure. | `windowed_bounce` |
+| The chaos knob cross-modulates the oscillators. At the top it is noise. | Pressure is the chaos knob, and in live mode so is how fast the chip's temperature and power are moving. Each barre's frequency is swung by the barre two along, up to 200% at full chaos. | `windowed_bounce`, `chip_chaos` |
 | Barres are played by hand. | Barre b is pressed every four steps of Rolzer barre b, so the seven barres keep different tempos. | `gesture_envelopes` |
 | Sequencing the global pitch transposes the whole chord (Chord ChChChChChanges). | The lead's shifts and flips play that role. The ARC clock sets the global pitch. | `lead.py` |
 | Stereo, FM inputs, the patch bay, piezo polarity. | Not modelled. | |
@@ -52,7 +52,6 @@ The code models behaviour that can be heard in one chip's telemetry. It does not
 
 ## What would come next
 
-* Live mode would let the Deerhorn follow the chips' change over time, and would let rate of change
-  move the Sidrax's chaos knob.
+* A Deerhorn that follows the chips' change over time. Live mode already moves Sidrax's chaos knob with the rates.
 * The Ultrasound's folding needs a sample rate above 96 kHz to be heard as it is in the guide.
 * Feedback taps on the shift register would let a chip's PCIe or ethernet traffic set the pattern length.

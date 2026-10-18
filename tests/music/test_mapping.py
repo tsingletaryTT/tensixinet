@@ -140,3 +140,61 @@ def test_turn_weight_rises_with_each_of_its_inputs():
     assert turn_weight(**dict(base, busy=2)) == 80  # each process adds half, up to three
     assert turn_weight(**dict(base, busy=9)) == 100
     assert turn_weight(**dict(base, busy=0)) == 40  # an idle chip is not penalised below plain power
+
+
+# --- live mode: how fast the readings are moving -------------------------------------------
+
+import dataclasses  # noqa: E402
+
+from tensixinet.music.mapping import (  # noqa: E402
+    RATE_FULL_POWER_W_PER_S,
+    RATE_FULL_TEMP_C_PER_S,
+    chip_chaos,
+    chip_pressure,
+    rate_activity,
+)
+from tensixinet.telemetry import FALLBACK  # noqa: E402
+
+
+def test_a_single_snapshot_has_no_rates():
+    assert FALLBACK.temp_rate == 0.0
+    assert FALLBACK.power_rate == 0.0
+
+
+def test_rate_activity_is_zero_when_nothing_moves_and_one_at_the_full_rate_of_either_reading():
+    assert rate_activity(0.0, 0.0) == 0.0
+    assert rate_activity(RATE_FULL_TEMP_C_PER_S, 0.0) == 1.0
+    assert rate_activity(0.0, RATE_FULL_POWER_W_PER_S) == 1.0
+    assert rate_activity(10 * RATE_FULL_TEMP_C_PER_S, 0.0) == 1.0  # clamped
+
+
+def test_rate_activity_does_not_care_whether_the_reading_rises_or_falls():
+    assert rate_activity(-0.5 * RATE_FULL_TEMP_C_PER_S, 0.0) == pytest.approx(0.5)
+    assert rate_activity(0.0, -0.25 * RATE_FULL_POWER_W_PER_S) == pytest.approx(0.25)
+
+
+def test_rate_activity_takes_whichever_reading_is_moving_faster():
+    assert rate_activity(0.2 * RATE_FULL_TEMP_C_PER_S, 0.6 * RATE_FULL_POWER_W_PER_S) == pytest.approx(0.6)
+
+
+def test_chaos_is_pressure_for_a_chip_that_holds_still():
+    t = dataclasses.replace(FALLBACK, asic_temperature=65.0, thm_limit_throttle=90.0)
+    assert chip_chaos(t) == chip_pressure(t) == pytest.approx(0.5)
+
+
+def test_a_cool_idle_chip_that_heats_quickly_gets_chaotic():
+    cool = dataclasses.replace(FALLBACK, asic_temperature=40.0, power=0.0)
+    assert chip_pressure(cool) == 0.0
+    heating = dataclasses.replace(cool, temp_rate=0.5 * RATE_FULL_TEMP_C_PER_S)
+    assert chip_chaos(heating) == pytest.approx(0.5)
+
+
+def test_rates_add_to_pressure_and_chaos_stops_at_one():
+    hot = dataclasses.replace(FALLBACK, asic_temperature=65.0, thm_limit_throttle=90.0, power_rate=0.25 * RATE_FULL_POWER_W_PER_S)
+    assert chip_chaos(hot) == pytest.approx(0.75)
+    assert chip_chaos(dataclasses.replace(hot, temp_rate=RATE_FULL_TEMP_C_PER_S)) == 1.0
+
+
+def test_the_full_rates_are_one_degree_a_second_and_twenty_five_watts_a_second():
+    assert rate_activity(1.0, 0.0) == 1.0 and rate_activity(0.5, 0.0) == 0.5
+    assert rate_activity(0.0, 25.0) == 1.0 and rate_activity(0.0, 5.0) == pytest.approx(0.2)

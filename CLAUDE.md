@@ -18,9 +18,10 @@ say what exists and what is left.
 ## Run it
 
 ```bash
-make test                                               # about 10 s, no hardware
+make test                                               # about 14 s, no hardware
 python3 -m tensixinet --mock-chips 4 --duration 20      # synthetic chips, no hardware
 python3 -m tensixinet "your prompt" --duration 60       # real chips + the LLM endpoint
+python3 -m tensixinet --live --duration 30              # read the chips every turn and play as it goes
 make demo                                               # record the split-pane demo + soundtrack
 ```
 
@@ -32,10 +33,10 @@ programs, every reason kept) and a text file (what you see on screen, each reaso
 ```
 tensixinet/
   telemetry/   snapshot.py (tt-smi JSON to Telemetry), mock.py (synthetic N chips, optional faults)
-  music/       mapping, synth, devices, rolzer, sidrax, quantussy, mwtrs, lead, events, loudness, turns, patch, chorus
+  music/       mapping, synth, devices, rolzer, sidrax, quantussy, mwtrs, lead, events, loudness, turns, patch, chorus, live
   narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
-  media/       llm (OpenAI-compatible endpoint), mux (WAV under a video)
-  run.py cli.py __main__.py     wiring and the command line
+  media/       llm (OpenAI-compatible endpoint), mux (WAV under a video), player (live audio out)
+  run.py live.py cli.py __main__.py     wiring (offline and live) and the command line
 tests/         mirrors the package: tests/music/test_devices.py tests the music/devices.py module
 demo/          tt-demo manifest, left-pane script, build.sh
 docs/          architecture, sound design, decisions, contributing, roadmap
@@ -179,3 +180,23 @@ legacy/        first prototype scripts, kept for reference
 * **2026-10-18, demo rebuilt** with the new devices and the loudness gain (`demo/build.sh`, read-only, one prompt to the
   model on port 8011). The soundtrack measures -18.0 dB mean and -3.7 dB max. `demo/chorus.patch.json` is unchanged.
   The README hero frame (`docs/media/demo-frame.png`) is a frame from the new video.
+* **2026-10-18, "is this running in real time now or still just at generation time?"** It was generation time. "start on
+  live mode" added `--live`: `live.py` reads the chips every turn, renders one turn from that reading and plays it while
+  the next is made (a second thread writes to a `paplay`, `aplay` or `ffplay` pipe, or to nothing at the speed of the music).
+  * New: `music/live.py` (`advance`, `Tracker` for rates over 2 s, `Stitcher` for 0.4 s equal-power crossfades),
+    `media/player.py` (sinks, `make_sink`), `LiveGain` in `loudness.py`, `pick_soloist` in `turns.py`, `turn_seconds` and
+    `slot_weights` plus `segment` and `soloists` arguments in `chorus.py`, `Telemetry.temp_rate` and `power_rate`,
+    `mapping.chip_chaos` (pressure plus how fast the readings move, read only by Sidrax), `--live` and `--player`.
+  * Measured only; nothing live has been heard. 20 s on four mock chips took 20.6 s of wall clock for 10 turns, and 30 s on the four real
+    chips took 31.2 s for 7 turns (read-only, no prompt sent: tt-orchard had been told the chips and model were free).
+    `paplay`, `aplay` and `ffplay` each accepted a second of silence.
+  * The first live run on the real chips showed -1.1 C/s on chips that were holding still: the loop renders its first two turns
+    back to back, so the second reading came 0.3 s after the first. Rates are now measured over at least 2 s.
+  * Mutation checks found survivors again: the lead-in limit, the early stop after a player failure, the tail's gain,
+    who solos after whom (the busy-chip test passed with the "not twice running" rule removed), the exact player
+    arguments, the player order, the live gain's immediate peak limit, a one-voice division by zero, and the Tracker's
+    reset on losing a chip. Each got a test. An early battery was also unreliable: a restored file kept its size and
+    modification second, so Python loaded a stale `.pyc` of the mutant. The mutation scripts now set
+    `PYTHONDONTWRITEBYTECODE`.
+  * Known limit: each turn restarts the devices' clocks, so a ringing gong fades at the end of its turn. A start-time
+    offset in every device would fix it (roadmap item 3).

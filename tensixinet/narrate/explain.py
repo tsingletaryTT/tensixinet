@@ -44,8 +44,10 @@ from ..music.mapping import (
     BUSY_WEIGHT_PER_PROCESS,
     PRESSURE_WEIGHT,
     aiclk_to_bpm,
+    chip_chaos,
     chip_pressure,
     ddr_lane_sides,
+    rate_activity,
     drone_voices,
     eth_lane_levels,
     heartbeat_phase,
@@ -139,9 +141,15 @@ def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
             f"ARC clock {t.arcclk:.0f} MHz -> bounce x{t.arcclk / FALLBACK_ARCCLK:.2f}",
             f"Sidrax bounces at the chip's pitch when the ARC clock is {FALLBACK_ARCCLK:.0f} MHz and scales with it",
         ))
+        chaos = chip_chaos(t)
+        moving = rate_activity(t.temp_rate, t.power_rate)
+        movement = (
+            f"; the readings are moving ({t.temp_rate:+.1f} C/s, {t.power_rate:+.0f} W/s), which adds {moving:.2f} "
+            "(the faster of the two, up to 1) to the knob"
+        ) if moving else ""
         out.append(Decision(
-            f"pressure {pressure:.2f} -> Sidrax chaos {pressure:.0%}",
-            f"{pressure_why}; the Sidrax chaos knob cross-modulates the barres, and at the top it is noise. "
+            f"pressure {pressure:.2f} -> Sidrax chaos {chaos:.0%}",
+            f"{pressure_why}{movement}; the Sidrax chaos knob cross-modulates the barres, and at the top it is noise. "
             f"Each barre is pressed every four steps of its own Rolzer barre, at {aiclk_to_bpm(t.aiclk):.0f} BPM here",
         ))
     if "cocoquantus" in devices:

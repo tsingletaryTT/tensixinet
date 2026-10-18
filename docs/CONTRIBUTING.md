@@ -7,7 +7,7 @@ it fail, then write the code, then break the code on purpose and watch a test go
 
 ```bash
 pip install -e .[dev]
-python3 -m pytest        # about 10 s, no hardware
+python3 -m pytest        # about 14 s, no hardware
 ```
 
 Run the suite in a bare virtualenv as well (`python3 -m venv v && v/bin/pip install .[dev]`), so

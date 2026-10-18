@@ -30,6 +30,8 @@ CHANGES = {
     "pcie_usage": 5,
     "thm_limit_throttle": 45.0,
     "tdp_limit": 40.0,
+    "temp_rate": 1.0,
+    "power_rate": 25.0,
     # read by the chorus or by events.py, never by a device: every device must stay the same
     "board_power": 300.0,
     "busy": 3,
@@ -339,3 +341,12 @@ def test_the_drone_and_the_shimmer_say_they_follow_the_gong_strikes():
     assert "AVDog" in why
     assert "gong strike" in " ".join(d.why for d in explain_chip(6, LOADED, n_chips=len(DEVICES)))
     assert "gong strike" not in _chip_text(0) and "ripples" not in _chip_text(5)
+
+
+def test_a_still_chip_says_chaos_is_its_pressure_and_a_moving_one_says_how_fast_it_moves():
+    still = " ".join(d.what + " " + d.why for d in explain_chip(1, dataclasses.replace(FALLBACK, asic_temperature=65.0), n_chips=len(DEVICES)))
+    assert "moving" not in still and "chaos 50%" in still
+    moving = dataclasses.replace(FALLBACK, asic_temperature=65.0, temp_rate=0.5, power_rate=-25.0)
+    decisions = explain_chip(1, moving, n_chips=len(DEVICES))
+    line = next(d for d in decisions if "chaos" in d.what)
+    assert "chaos 100%" in line.what and "+0.5 C/s" in line.why and "-25 W/s" in line.why and "moving" in line.why

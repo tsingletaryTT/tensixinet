@@ -96,8 +96,9 @@ lower one: `-(0.2 + 0.7 x norm_temp)` and `0.2 + 0.7 x norm_temp`.
   for switch 3 (`BOUNDS_TABLE` in `music/sidrax.py`). Its frequency is the tone's times the fixed window over
   the current window, between a quarter and eight times. Where the upper wall drops below the lower, it rides the
   lower wall.
-* **Chaos:** pressure. Each barre's frequency is swung by the oscillator two barres along, by up to 200% at
-  full pressure.
+* **Chaos:** pressure, plus (in live mode) how fast the chip's temperature and power are moving. The rates add up to
+  1 for 1 C/s or 25 W/s, the faster of the two, and the sum stops at 1. Each barre's frequency is swung by the
+  oscillator two barres along, by up to 200% at full chaos. Offline there are no rates, so chaos is the pressure.
 * **Gestures:** barre b is pressed every four steps of Rolzer barre b and released half a period later. Each
   envelope peaks on its gesture and falls with a time constant of 0.15 of a period.
 
@@ -202,3 +203,16 @@ the swells and gaps survive, because one gain moves all of them. The log prints 
 The shimmer sits between 12 and 20 kHz and shrinks to fit below 0.45 of the sample rate. At 44.1 kHz
 the top is 19.8 kHz. Use `--sample-rate 96000` for more headroom. Synth partials above Nyquist are
 dropped so high voices never alias into the audible band.
+
+## Live mode
+
+`--live` plays the chorus one turn at a time (the patch's bars at the mean tempo, held between 2 and 10 s). Before
+each turn the chips are read again and compared with the last readings:
+
+* temperature and power get a rate in units per second, over at least 2 s, which feeds Sidrax's chaos;
+* the memory error and thermal trip counters become what is new, so an error plays once;
+* the soloist is drawn from the chips' weights as they are now;
+* the turn is rendered with its own seeds and cross-faded for 0.4 s onto the end of the last.
+
+Each turn restarts the devices' clocks, so a gong that rings past the end of its turn fades out instead. The level
+follows the music with a running gain toward -18 dBFS RMS. See `DECISIONS.md` for why it is built this way.

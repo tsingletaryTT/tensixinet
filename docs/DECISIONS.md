@@ -85,7 +85,11 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   would otherwise be all drone.
 * **The host description feeds the seed** (hash of host name, kernel, driver and memory) in the real path only, so the
   same chips on another machine draw another patch. `--patch` replay does not depend on it.
-* **Rate of change is not used yet.** It needs more than one snapshot, which is roadmap item 3.
+* **Rate of change comes from live mode.** One snapshot has no rate, so `Telemetry.temp_rate` and `power_rate` default
+  to 0 and an offline run behaves as it did. In live mode `music/live.Tracker` fills them in, over a baseline at least
+  2 s old (a 0.3 s gap between two readings turned a 0.3 degree wobble into a "heating" of 1 C/s). Only Sidrax reads
+  them: its chaos knob is pressure plus the faster of the two rates, each scaled so 1 C/s or 25 W/s is the full amount,
+  capped at 1. The other devices keep reading pressure.
 * **DDR status:** the code treats the low byte as four 2-bit fields and mutes a lane at 0.
   tt-smi's source says newer firmware puts BIST bits in `[31:16]`. The meaning of values 1 to
   3 is a guess and should be checked against firmware docs.
@@ -94,4 +98,26 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   reach -18 dBFS RMS, limited to a peak of -1 dBFS and at most +20 dB (`music/loudness.py`). One gain keeps every
   chip's level against the others and the swells and gaps, so the power-to-volume mapping survives. A quiet box
   peaked near 0.2 and a loaded one near 0.4 before this. `--no-normalise` writes the render as it came.
-
+* **Live mode renders one turn at a time, from a fresh reading.** `render_chorus(..., segment=k, soloists=[slot])` gives
+  each turn its own seeds (a fixed stride per segment) and a named soloist, and `live.py` crossfades the turns together
+  (`music/live.Stitcher`, 0.4 s, equal power). A turn is the patch's bars at the mean tempo, held between 2 s and 10 s.
+  The last turn takes whatever would otherwise be a sliver, so it can run a little long. The sound lasts the duration
+  plus the 0.4 s tail.
+* **Each turn restarts the devices' clocks.** That was the cheapest way to render in turns without touching all eight
+  devices. The costs: a gong that is still ringing at the end of its turn fades over the 0.4 s crossfade (offline it rings
+  for up to ten bars), rolls and strikes start from the top of each turn, and oscillator phases do not carry across. The
+  clean fix is a start-time offset in every device so a turn continues the last (roadmap item 3).
+* **The loop reads the chips only when a turn has finished playing.** A second thread writes audio to the sink. The sink's
+  writes block at the speed of the music, and a semaphore lets the loop get two turns ahead, so each turn is rendered from a
+  reading at most one turn old when it starts playing. Without the semaphore the loop would render the whole run at once.
+* **The player is a command line program on a pipe.** `paplay`, `aplay` or `ffplay` takes raw 16-bit mono on standard
+  input. `sounddevice` stays out of the package (the hygiene test forbids it), and a player process needs no
+  Python audio library. `--player none` sleeps for the length of each turn so a run still goes at the speed of the music.
+  `--out` records what was played.
+* **New errors play once.** Memory error and thermal trip counters count up for the life of a chip. In live mode a turn
+  plays only the increase since the last reading, so an old error does not tick in every turn.
+* **A failed reading plays the last good one again,** with no rates and no new errors, and the log says so. A reading with a
+  different number of chips starts the rate baseline over. A first reading that fails stops the run.
+* **Live loudness is a running gain.** `LiveGain` moves the gain half way (in the log domain) toward each turn's own gain,
+  ramps in a straight line across the turn, applies the peak limit at once and holds the gain through silence. A whole
+  render still gets one gain.

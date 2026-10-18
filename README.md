@@ -38,6 +38,7 @@ On a machine with Tenstorrent chips:
 tensixinet --duration 60                                  # reads your chips with `tt-smi -s`
 tensixinet "describe a hardware synth" --duration 60      # prompt a local model first
 tensixinet --patch logs/patch_20261017_120000.json        # replay an earlier run's choices exactly
+tensixinet --live --duration 120                          # play as it goes, reading the chips every turn
 ```
 
 Reading telemetry does not open the chips. `tt-smi -s` is read-only, so none of this needs a lease on a shared
@@ -135,6 +136,25 @@ solos last and how quiet everyone else gets. The scale also sets what the Sidrax
 
 The demo replays [`demo/chorus.patch.json`](demo/chorus.patch.json), so rebuilding it plays the same music.
 
+## Live mode
+
+`--live` reads the chips again every turn (one to four bars). The offline run renders one file from one reading.
+Each turn is rendered from a fresh reading and played while the next one is made, so the sound is about one turn
+behind the chips. A chip that heats up or draws more power changes the music within a turn or two:
+
+* **How fast the readings move** (degrees and watts per second) turns up Sidrax's chaos knob, on top of
+  pressure. A cool chip that heats quickly gets as unsettled as a hot one.
+* **The soloist is drawn again every turn** from the chips' current weights.
+* **New errors play once.** A memory error or thermal trip that appears mid-run ticks, breathes or sweeps in
+  the next turn. It does not repeat in later turns.
+* **A chip that drops out, or a failed reading,** is logged. A failed reading plays the last good one again.
+* **A loudness gain follows the music** so the level stays near -18 dBFS RMS while the chips change.
+
+The sound goes to `paplay`, `aplay` or `ffplay` (whichever is installed, or pick one with `--player`), and `--out`
+records what was played. `--player none` keeps time with no sound. `--duration 0` plays until Ctrl-C. Live mode reads
+telemetry only, so like the offline run it needs no lease. The limits are in [docs/DECISIONS.md](docs/DECISIONS.md):
+each turn restarts the devices' clocks, so a ringing gong fades at the end of its turn.
+
 ## What the readings do
 
 | Reading | Becomes | Range |
@@ -164,12 +184,14 @@ register. The first prototype read those bytes as independent sensors and lost h
 | Option | What it does |
 |---|---|
 | `PROMPT` | Send this to the language model first, so its load is on the chips when they are read |
-| `--duration SECONDS` | Length of the audio (default 60) |
+| `--duration SECONDS` | Length of the audio (default 60). With `--live`, 0 plays until Ctrl-C |
 | `--sample-rate HZ` | Default 44100. Use 96000 for more ultrasonic headroom |
 | `--mock-chips N` | Play N synthetic chips and read no hardware. `--seed` varies them |
 | `--mock-faults` | With `--mock-chips`, give some chips memory errors and thermal trips so the event sounds play |
 | `--patch FILE` / `--patch-seed N` | Replay a saved patch, or draw from a fixed seed |
-| `--no-normalise` | Keep the level the chips' power gives. By default one gain brings the finished render to -18 dBFS RMS |
+| `--live` | Read the chips every turn and play as it goes (see [Live mode](#live-mode)) |
+| `--player NAME` | With `--live`: `auto` (the default), `none`, `paplay`, `aplay` or `ffplay` |
+| `--no-normalise` | Keep the level the chips' power gives. By default one gain brings the render (or, live, each turn) toward -18 dBFS RMS |
 | `--out`, `--log-dir` | Where the WAV and the log go (`audio/`, `logs/`) |
 | `--endpoint`, `--model` | Any OpenAI-compatible endpoint (default `http://127.0.0.1:8011`). The model name is read from it |
 
@@ -193,9 +215,10 @@ If the endpoint is down, the music still plays and the log says so.
 | Folder | Job |
 |---|---|
 | `tensixinet/telemetry/` | `tt-smi -s` parsing for any chip count, and synthetic chips |
-| `tensixinet/music/` | The mapping table, the eight devices, patches, turn-taking, the mixer |
+| `tensixinet/music/` | The mapping table, the eight devices, patches, turn-taking, the mixer, and live mode's segment joins |
+| `tensixinet/live.py` | The live loop: read, render a turn, play it while the next is made |
 | `tensixinet/narrate/` | The what-and-why log |
-| `tensixinet/media/` | The language model client and the ffmpeg soundtrack step |
+| `tensixinet/media/` | The language model client, the ffmpeg soundtrack step, and the players live mode sends sound to |
 | `tests/` | One test file per module, in a folder that matches the module's |
 | `demo/` | The [tt-demo-maker](https://github.com/tsingletaryTT/tt-demo-maker) manifest and scripts that record the video |
 | `docs/` | [Architecture](docs/ARCHITECTURE.md), [sound design](docs/SOUND.md), [what the instrument guides say](docs/CIRCUITS.md), [decisions](docs/DECISIONS.md), [contributing](docs/CONTRIBUTING.md), [roadmap](docs/ROADMAP.md) |
@@ -204,7 +227,7 @@ If the endpoint is down, the music still plays and the log says so.
 ## Tested without hardware
 
 ```bash
-make test        # about 10 s: 930+ tests, no Tenstorrent packages, no chips
+make test        # about 14 s: 1080+ tests, no Tenstorrent packages, no chips
 ```
 
 The tests are written first, then the code is broken on purpose (swap a `min` for a `max`, drop a term, stop
@@ -219,8 +242,8 @@ ffmpeg: `make demo`.
 
 The instrument works and is still growing.
 
-- **Done:** reading any number of chips, eight devices modelled on the instrument guides, turn-taking, patches, the log, the demo, and the `tt-smi` readings beyond temperature, clock and power (limits, harvesting, links, errors, processes) shaping the sound.
-- **Not done:** playing live while the chips change (today it reads once and renders), and the TT-Lang kernels
+- **Done:** reading any number of chips, eight devices modelled on the instrument guides, turn-taking, patches, the log, the demo, the `tt-smi` readings beyond temperature, clock and power (limits, harvesting, links, errors, processes) shaping the sound, and a live mode that reads the chips every turn.
+- **Not done:** a live mode whose devices keep their phases and ringing gongs across turns (each turn restarts them), a patch that re-draws as the readings drift, and the TT-Lang kernels
   in [`legacy/`](legacy/README.md), which are sketches that have never run on hardware.
 - **Next:** [docs/ROADMAP.md](docs/ROADMAP.md) lists what is open, in order. Contributions are welcome. Start
   with [CLAUDE.md](CLAUDE.md) and [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md), which apply to people and to

@@ -183,3 +183,153 @@ def test_no_normalise_keeps_the_absolute_level_and_normalising_is_the_default(tm
     rms = lambda d: float(np.sqrt(np.mean(sf.read(str(d / "o.wav"))[0] ** 2)))
     assert rms(a) > 1.5 * rms(b) and 0.1 < rms(a) < 0.15
     assert any("left as rendered" in e["what"] for e in read_events(b / "logs"))
+
+
+# --- live mode ---------------------------------------------------------------------------
+
+import numpy as np  # noqa: E402
+
+from tensixinet.media.player import PlayerError  # noqa: E402
+
+
+class MemorySink:
+    def __init__(self):
+        self.chunks, self.closed = [], 0
+
+    def write(self, audio):
+        self.chunks.append(np.array(audio))
+
+    def close(self):
+        self.closed += 1
+
+
+def live(tmp_path, *extra, sample=None, ask=None, sink=None, **kw):
+    """Run the CLI in live mode with a memory sink. Returns (exit code, the sink, what make_sink was asked)."""
+    sink = sink or MemorySink()
+    asked = []
+    tmp_path.mkdir(exist_ok=True)
+
+    def make_sink(player, rate, out):
+        asked.append((player, rate, out))
+        return sink, "a memory sink"
+
+    argv = ["--live", "--sample-rate", "8000", "--out", str(tmp_path / "o.wav"), "--log-dir", str(tmp_path / "logs"), *extra]
+    if "--duration" not in extra:
+        argv += ["--duration", "4"]
+    if sample is None and "--mock-chips" not in extra:
+        argv += ["--mock-chips", "2"]
+    code = main(argv, sample=sample, ask=ask, make_sink=kw.pop("make_sink", make_sink), **kw)
+    return code, sink, asked
+
+
+def test_live_mode_plays_into_the_sink_and_logs_every_segment(tmp_path):
+    code, sink, _ = live(tmp_path)
+    assert code == 0 and sink.closed == 1 and sum(len(c) for c in sink.chunks) > 4 * 8000
+    ev = read_events(tmp_path / "logs")
+    assert any(e["event"] == "live" and "segment 0" in e["what"] for e in ev)
+    assert any(e["event"] == "live" and "a memory sink" in e["what"] for e in ev)  # says where the sound goes
+
+
+def test_live_mode_asks_for_the_player_the_rate_and_the_wav_path(tmp_path):
+    _, _, asked = live(tmp_path, "--player", "aplay")
+    assert asked == [("aplay", 8000, tmp_path / "o.wav")]
+
+
+def test_no_sound_is_a_player_choice_too(tmp_path):
+    _, _, asked = live(tmp_path, "--player", "none")
+    assert asked[0][0] == "none"
+
+
+def test_the_player_is_chosen_automatically_by_default(tmp_path):
+    _, _, asked = live(tmp_path)
+    assert asked[0][0] == "auto"
+
+
+def test_an_unknown_player_is_refused_by_the_parser(tmp_path):
+    with pytest.raises(SystemExit):
+        live(tmp_path, "--player", "winamp")
+
+
+def test_a_player_means_nothing_without_live(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--player", "aplay"))
+    assert e.value.code == 2 and "--live" in capsys.readouterr().err
+
+
+def test_live_mode_sends_the_prompt_first_then_reads_the_chips(tmp_path):
+    order = []
+    def ask(prompt, endpoint): order.append("ask"); return "a reply"
+    def sample(): order.append("sample"); return mock_telemetry(2)
+    code, _, _ = live(tmp_path, "think", sample=sample, ask=ask)
+    assert code == 0 and order[:2] == ["ask", "sample"] and order.count("ask") == 1
+
+
+def test_live_mode_draws_and_saves_a_patch_like_any_run(tmp_path):
+    live(tmp_path, "--patch-seed", "5")
+    (saved,) = (tmp_path / "logs").glob("patch_*.json")
+    assert load_patch(saved).seed == 5
+
+
+def test_live_mode_with_no_chips_exits_nonzero_and_still_closes_the_sink(tmp_path):
+    code, sink, _ = live(tmp_path, sample=lambda: [])
+    assert code == 2 and sink.closed == 1 and not sink.chunks
+    assert any("no chips" in e["what"] for e in read_events(tmp_path / "logs"))
+
+
+def test_a_player_that_cannot_start_is_a_logged_error_with_its_own_exit_code(tmp_path):
+    def make_sink(player, rate, out):
+        raise PlayerError("cannot start paplay: not installed")
+    code, _, _ = live(tmp_path, make_sink=make_sink)
+    assert code == 3
+    assert any(e["event"] == "player" and "cannot start paplay" in e["what"] for e in read_events(tmp_path / "logs"))
+
+
+def test_a_player_that_stops_midway_is_the_same_exit_code(tmp_path):
+    class Dies(MemorySink):
+        def write(self, audio):
+            raise PlayerError("aplay stopped before the audio was done")
+    code, _, _ = live(tmp_path, sink=Dies())
+    assert code == 3
+
+
+def test_live_mode_follows_no_normalise(tmp_path):
+    live(tmp_path, "--no-normalise")
+    assert not any("gain x" in e["what"] for e in read_events(tmp_path / "logs"))
+
+
+def test_a_zero_duration_means_play_until_interrupted(tmp_path):
+    calls = []
+
+    def sample():
+        calls.append(1)
+        if len(calls) == 6:  # one read draws the patch, then segments follow until this one is interrupted
+            raise KeyboardInterrupt
+        return mock_telemetry(2)
+
+    code, sink, _ = live(tmp_path, "--duration", "0", sample=sample)
+    assert code == 0 and len(calls) == 6 and len(sink.chunks) >= 4
+
+
+def test_ctrl_c_before_the_run_starts_exits_quietly(tmp_path):
+    def ask(prompt, endpoint): raise KeyboardInterrupt
+    code, sink, _ = live(tmp_path, "think", ask=ask)
+    assert code == 130 and not sink.chunks
+
+
+def test_offline_mode_never_builds_a_sink(tmp_path):
+    def make_sink(*a): raise AssertionError("offline runs write a file and play nothing")
+    assert main(args(tmp_path, "--mock-chips", "2"), make_sink=make_sink) == 0
+
+
+def test_live_mode_end_to_end_with_the_real_sinks_and_no_sound(tmp_path, monkeypatch):
+    import time
+    import soundfile as sf
+    slept = []
+    monkeypatch.setattr(time, "sleep", slept.append)  # the null sink would otherwise take as long as the music
+    argv = ["--live", "--player", "none", "--mock-chips", "2", "--duration", "3", "--sample-rate", "8000",
+            "--out", str(tmp_path / "o.wav"), "--log-dir", str(tmp_path / "logs")]
+    assert main(argv) == 0
+    audio, rate = sf.read(str(tmp_path / "o.wav"))
+    assert rate == 8000 and len(audio) > 3 * 8000  # the three seconds and the last turn's tail
+    assert sum(slept) == pytest.approx(len(audio) / 8000, abs=0.01)  # it kept time with the music it did not play
+    assert any(e["event"] == "live" and "no sound" in e["what"] for e in read_events(tmp_path / "logs"))

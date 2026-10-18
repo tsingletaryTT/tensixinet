@@ -9,7 +9,7 @@ level moves.
 """
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -34,3 +34,32 @@ def normalise(audio: np.ndarray) -> Tuple[np.ndarray, float]:
     """(`audio` scaled by `loudness_gain`, the gain), in the input's dtype."""
     gain = loudness_gain(audio)
     return (audio * gain).astype(audio.dtype), gain
+
+
+SMOOTHING = 0.5  # each chunk moves the live gain this share of the way, in the log domain, to its own gain
+
+
+class LiveGain:
+    """Loudness while the music is still being made: a gain that follows the chunks as they arrive.
+
+    A whole render gets one gain. A live run cannot wait for the end, so each chunk's own gain
+    (`loudness_gain`) pulls the running gain part of the way, `SMOOTHING`, and the gain ramps in a straight line
+    across the chunk so there is no step at the join. The chunk's peak limit applies at once. Silence holds the gain
+    where it was, and a run that starts in silence takes its gain from its first sound."""
+
+    def __init__(self) -> None:
+        self.gain: Optional[float] = None
+
+    def apply(self, chunk: np.ndarray) -> Tuple[np.ndarray, float]:
+        """(`chunk` scaled by the ramp, the gain at the end of the chunk), in the input's dtype."""
+        if len(chunk) == 0 or not np.any(chunk):
+            held = 1.0 if self.gain is None else self.gain
+            return chunk.copy(), held
+        target = loudness_gain(chunk)
+        start = target if self.gain is None else self.gain
+        end = start * (target / start) ** SMOOTHING
+        end = min(end, PEAK_LIMIT / float(np.max(np.abs(chunk))))
+        ramp = np.linspace(start, end, len(chunk))
+        out = np.clip(chunk * ramp, -PEAK_LIMIT, PEAK_LIMIT)  # the start of the ramp can still be above this chunk's limit
+        self.gain = end
+        return out.astype(chunk.dtype), end

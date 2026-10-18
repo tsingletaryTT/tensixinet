@@ -272,3 +272,16 @@ def test_the_sum_of_the_barres_goes_through_a_saturating_tanh(monkeypatch):
     monkeypatch.setattr(np, "tanh", lambda x: seen.append(len(x)) or real(x))
     sidrax(calm(), 0.5, SR, 0)
     assert seen == [SR // 2]
+
+
+def test_the_chaos_knob_is_pressure_plus_how_fast_the_readings_move(monkeypatch):
+    from tensixinet.music import sidrax as sidrax_module
+    from tensixinet.music.mapping import RATE_FULL_TEMP_C_PER_S
+    seen = []
+    real = sidrax_module.windowed_bounce
+    monkeypatch.setattr(sidrax_module, "windowed_bounce", lambda *a, **k: (seen.append(a[5]) if len(a) > 5 else None) or real(*a, **k))  # the fixed walls take no chaos
+    sidrax(calm(), 0.5, SR, 0)
+    assert set(seen) == {0.0}  # a calm chip that holds still
+    seen.clear()
+    sidrax(calm(temp_rate=0.5 * RATE_FULL_TEMP_C_PER_S), 0.5, SR, 0)
+    assert set(seen) == {0.5}  # heating at half the full rate, no pressure: half chaos
