@@ -1,0 +1,14 @@
+project: tensixinet
+theme: tt-brand
+# hybrid = sysfs + tt-smi JSON: read-only, never opens a device (so no gozer lease is
+# needed). Do not switch this to luwen; that opens the chips directly.
+defaults: { cols: 200, rows: 50, backend: "--backend hybrid", outputs: [cast, mp4] }
+scenes:
+  - id: chorus
+    title: "Prompting on the left, the chips on the right, the chorus underneath"
+    layout: split
+    left:  { run: "demo/left_pane.sh", wait_for: "wrote .*chorus.wav" }
+    right: { run: "tt-toplike {backend} --mode arcade" }
+    split_ratio: 45
+    duration: 50s
+    caption: "The prompt drives the chips serving the model (chips 2 and 3 here). Every chip's telemetry becomes a Ciat-Lonbarde-style voice, and the log says why."

@@ -1,0 +1,18 @@
+# Generated output
+audio/
+logs/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Local scratch and backups (archive/ holds editor backups and memory snapshots)
+archive/
+build/
+videos/
+input.mp4
+demo_output.mp4
+
+# Demo recordings are large. Ignore everything under demo/assets except the final cut and its contact sheet.
+demo/assets/*
+!demo/assets/chorus.final.mp4
+!demo/assets/chorus.sheet.png

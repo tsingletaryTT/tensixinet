@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Explicit rather than relying on an editable install or the cwd.
+pythonpath = ["."]
+markers = [
+    "hardware: opens /dev/tenstorrent/* - needs a gozer lease; skipped unless --run-hardware",
+]
