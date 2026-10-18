@@ -18,6 +18,11 @@ The synth devices as TT-Lang kernels, so the chips can play the sound as well as
   numpy device and whether it is within `--atol`. Exit 0 means within tolerance.
 * Block arithmetic takes tensors, not Python numbers (the simulator refuses `blk * 0.5`), so constants such as a level are packed
   into tiles of their own. `ttl.copy` must be a bare call or `tx = ttl.copy(...)`, not a list of copies.
+* **Two things the simulator does not check, and a real chip does.** One input buffer cannot feed both `sin` (or another vector-unit
+  op) and a plain addition (a matrix-unit op) in the same kernel; give the two kinds of consumer separate tiles, even if that means
+  computing a sum like `a + beat` on the host instead of the chip. And a kernel has four working (DST) registers; an expression with
+  more terms than that fails to compile ("insufficient DST registers: spilling not yet implemented"), so build it in stages, each
+  stage's result passed to the next through its own dataflow buffer (`ttgong.py` and `ttavdog.py` do this).
 * The chip does the per-sample transcendental work (`sin`, `cos`, `exp`, `tanh`, `abs` and the arithmetic around them).
   The host does the cheap multiplications that make each sample's argument, in float64, because a phase of 40 radians in
   bfloat16 is off by a quarter of a radian. Tensors are float32.

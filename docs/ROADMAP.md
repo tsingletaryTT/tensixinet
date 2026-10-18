@@ -31,12 +31,19 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    100 in `media/llm.py`) or send several prompts so tt-toplike shows load for longer.
 6. **Align audio to the LLM reply.** The soundtrack starts at video time 0, but telemetry is
    sampled after the reply.
-7. **Run the devices as TT-Lang kernels.** Started: `ttshock` (the drone's ripple), `ttshimmer`, `ttgong` (up to five partials, three overlapping strikes), `ttavdog` and `ttmix` (the
-   mixer, up to four chips) match their numpy devices to better than 3e-7 in the TT-Lang simulator (`kernels/README.md` says how to
-   run them). Next, in order: the ttrax bounce, ttrollz's blips, the lead, the EQ (a convolution, which is a matmul),
-   and a mixer for more than four chips. Every one needs a first run on a chip, a gozer lease and a turn agreed with tt-orchard, and a
-   `hardware`-marked test, which `pyproject.toml` declares and nothing uses yet. The old sketches are in
-   `legacy/ciat_lonbarde_kernels.py`.
+7. **Run the devices as TT-Lang kernels.** Five kernels (`ttshock` the drone's ripple, `ttshimmer`, `ttgong` up to five partials and
+   three overlapping strikes, `ttavdog`, `ttmix` the mixer up to four chips) match their numpy devices in the TT-Lang simulator and
+   have now run on all four chips of both boards (`kernels/README.md`, `kernels/cycle.py`, `docs/hardware/`). Next, in order: the
+   ttrax bounce, ttrollz's blips, the lead, the EQ (a convolution, which is a matmul), a mixer for more than four chips, and a
+   `hardware`-marked test that runs in CI's absence of a chip as a skip, which `pyproject.toml` declares and nothing uses yet. The
+   old sketches are in `legacy/ciat_lonbarde_kernels.py`.
+7b. **Load kernels, used seldom and with a hard governor.** Kernels whose purpose is to spend as much power or as many cycles or
+   cores as the box allows, briefly, so a burst of real load becomes a real event in the music and in the readings that drive the
+   other devices. Open design questions: how the governor caps temperature, power and wall time before such a kernel is allowed to
+   run at all; how rarely "seldom" is (a cooldown, a cap per run, both); whether it needs its own gozer conversation with tt-orchard
+   beyond the ordinary one-chip turn, since it is deliberately not polite load; and what in the music marks the moment (a device of
+   its own, or an event like the error ticks). Nothing here is built. This only runs with an explicit lease and an explicit opt-in;
+   it is not something a live run turns on by itself.
 8. **Loudness.** Done in `music/loudness.py`: one gain to -18 dBFS RMS. A perceptual measure (LUFS, with
    K-weighting) would match the level of runs with very different spectra more closely.
 9. **More of the guides.** The Gongue's Trad and Gonz filter modes, the shift register's feedback taps and buttons,

@@ -16,3 +16,6 @@ demo_output.mp4
 demo/assets/*
 !demo/assets/chorus.final.mp4
 !demo/assets/chorus.sheet.png
+!demo/assets/hardware/
+!demo/assets/hardware/kernels_on_chip2.mp4
+!demo/assets/hardware/kernels_on_chip2.sheet.png
