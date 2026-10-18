@@ -1,0 +1,214 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
+"""The host side of the kernels: packing audio into tiles, and splitting a device's maths between host and chip."""
+import numpy as np
+import pytest
+
+from tensixinet.kernels.packing import (
+    TILE,
+    TILE_SAMPLES,
+    pack,
+    padded_length,
+    shock_inputs,
+    shock_on_host,
+    unpack,
+    within_tolerance,
+)
+from tensixinet.music.devices import shock_wave
+
+
+def test_a_tile_is_32_by_32_so_1024_samples():
+    assert TILE == 32 and TILE_SAMPLES == 1024
+
+
+@pytest.mark.parametrize("n,expected", [(0, 1024), (1, 1024), (1024, 1024), (1025, 2048), (5000, 5120)])
+def test_the_length_is_rounded_up_to_whole_tiles(n, expected):
+    assert padded_length(n) == expected
+
+
+def test_packing_makes_a_float32_matrix_of_whole_tiles_and_keeps_the_samples_in_order():
+    x = np.arange(3000, dtype=np.float64)
+    tiles = pack(x)
+    assert tiles.dtype == np.float32 and tiles.shape == (3072 // TILE, TILE) and tiles.shape[0] % TILE == 0
+    assert np.array_equal(tiles.ravel()[:3000], x.astype(np.float32)) and not tiles.ravel()[3000:].any()
+
+
+def test_unpacking_returns_the_samples_that_went_in():
+    x = np.random.default_rng(0).standard_normal(2500)
+    assert np.allclose(unpack(pack(x), 2500), x, atol=1e-6) and len(unpack(pack(x), 2500)) == 2500
+
+
+def test_a_matrix_that_is_not_whole_tiles_is_refused():
+    with pytest.raises(ValueError):
+        unpack(np.zeros((33, 32), dtype=np.float32), 10)
+
+
+# --- the shock wave: what the host prepares, what the chip computes ---------------------------------------------
+
+def test_the_host_hands_the_chip_the_phase_the_decay_and_a_mask_all_packed_the_same_way():
+    since = np.array([np.inf, 0.0, 0.25, 1.0])
+    x, neg_e, live = shock_inputs(since, rate_hz=2.0, decay_s=0.5)
+    assert x.shape == neg_e.shape == live.shape and x.dtype == neg_e.dtype == live.dtype == np.float32
+    assert x.ravel()[:4] == pytest.approx([0.0, 0.0, 2 * np.pi * 2.0 * 0.25, 2 * np.pi * 2.0 * 1.0], rel=1e-6)
+    assert neg_e.ravel()[:4] == pytest.approx([0.0, 0.0, -0.5, -2.0], rel=1e-6)  # before the first strike nothing is live
+    assert live.ravel()[:4].tolist() == [0.0, 1.0, 1.0, 1.0]
+
+
+def test_the_chips_formula_on_the_hosts_inputs_is_the_devices_shock_wave():
+    rng = np.random.default_rng(1)
+    since = rng.uniform(0, 4, 3000)
+    since[:200] = np.inf
+    got = shock_on_host(*shock_inputs(since, 1.5 * 2.0, 0.8), n=3000)
+    assert np.allclose(got, shock_wave(since, 3.0, 0.8), atol=2e-5)
+
+
+def test_tolerance_is_checked_on_the_worst_sample_and_reports_it():
+    expected = np.linspace(0, 1, 100)
+    ok, worst = within_tolerance(expected + 0.001, expected, atol=0.002)
+    assert ok and worst == pytest.approx(0.001)
+    ok, worst = within_tolerance(expected + np.r_[np.zeros(99), 0.1], expected, atol=0.002)
+    assert not ok and worst == pytest.approx(0.1)
+    assert within_tolerance(np.zeros(3), np.zeros(4), atol=1)[0] is False  # different lengths never match
+
+
+# --- the shimmer: two tones with a snap on every strike ---------------------------------------------------------
+
+from tensixinet.kernels.packing import (  # noqa: E402
+    SNAP_FLOOR,
+    mix_inputs,
+    mix_on_host,
+    shimmer_inputs,
+    shimmer_on_host,
+)
+from tensixinet.music.devices import SNAP_DECAY_S, SNAP_DEPTH, seconds_since, ultrasonic_shimmer  # noqa: E402
+from tensixinet.music.patch import DEFAULT_PATCH  # noqa: E402
+from tensixinet.telemetry import FALLBACK  # noqa: E402
+
+
+def test_the_snap_never_sends_the_chip_minus_infinity():
+    since = np.array([np.inf, 0.0, 0.012])
+    _, _, e, _, _ = shimmer_inputs(since, 15000.0, 15002.0, 0.8, 3, 44100)
+    assert np.isfinite(e).all() and e.ravel()[0] == SNAP_FLOOR and e.ravel()[1] == 0.0
+    assert e.ravel()[2] == pytest.approx(-0.012 / SNAP_DECAY_S, rel=1e-6)
+
+
+def test_the_phases_are_reduced_to_one_turn_so_float32_can_hold_them():
+    p1, p2, *_ = shimmer_inputs(np.full(44100, np.inf), 15000.0, 15002.0, 1.0, 44100, 44100)
+    assert 0 <= p1.min() and p1.max() <= 2 * np.pi + 1e-6 and 0 <= p2.min() and p2.max() <= 2 * np.pi + 1e-6
+
+
+def test_the_two_constants_are_the_level_with_and_without_the_snap_already_halved_for_two_tones():
+    *_, a0, a1 = shimmer_inputs(np.array([1.0]), 15000.0, 15002.0, 0.8, 1, 44100)
+    assert a0.ravel()[0] == pytest.approx(0.5 * 0.8 * (1 - SNAP_DEPTH)) and a1.ravel()[0] == pytest.approx(0.5 * 0.8 * SNAP_DEPTH)
+
+
+@pytest.mark.parametrize("rate", [44100, 8000])
+def test_the_chips_formula_on_the_hosts_inputs_is_the_shimmer_device(rate):
+    import dataclasses
+    from tensixinet.music.devices import shimmer_parameters, strike_times
+    t = dataclasses.replace(FALLBACK, asic_temperature=72.0, gddr_temps=(30.0, 41.0) * 4, power=90.0, heartbeat=5)
+    n = rate * 6
+    f1, f2, level = shimmer_parameters(t, rate, DEFAULT_PATCH)
+    since = seconds_since(strike_times(t, 6.0), n, rate)
+    got = shimmer_on_host(*shimmer_inputs(since, f1, f2, level, n, rate), n=n)
+    assert np.allclose(got, ultrasonic_shimmer(t, 6.0, rate, 0), atol=2e-3)  # float32 phases at 15 kHz are good to a few thousandths
+
+
+# --- the mixer: the chips' signals summed and squashed -----------------------------------------------------------
+
+def test_the_mixer_inputs_are_weighted_and_scaled_on_the_host_and_padded_to_four():
+    from tensixinet.music.devices import current_mix
+    a, b = np.full(10, 0.5), np.full(10, -0.25)
+    tiles = mix_inputs([a, b], [30.0, 10.0], n=10)
+    assert len(tiles) == 4 and all(t.shape == tiles[0].shape for t in tiles)
+    assert not tiles[2].any() and not tiles[3].any()  # unused inputs are silence
+    assert np.allclose(mix_on_host(tiles, 10), current_mix([a, b], [30.0, 10.0])[:10], atol=1e-6)
+
+
+def test_more_than_four_signals_are_refused_for_now():
+    with pytest.raises(ValueError):
+        mix_inputs([np.zeros(4)] * 5, [1.0] * 5, n=4)
+
+
+def test_a_mix_with_no_current_weighs_every_signal_the_same_as_the_device_does():
+    from tensixinet.music.devices import current_mix
+    sigs = [np.full(6, 0.2), np.full(6, 0.4), np.full(6, -0.1)]
+    assert np.allclose(mix_on_host(mix_inputs(sigs, [0.0, 0.0, 0.0], n=6), 6), current_mix(sigs, [0.0, 0.0, 0.0]), atol=1e-6)
+
+
+def test_a_negative_current_counts_as_none_in_the_kernels_mix_as_in_the_device():
+    from tensixinet.music.devices import current_mix
+    sigs = [np.full(6, 0.3), np.full(6, -0.2)]
+    got = mix_on_host(mix_inputs(sigs, [-5.0, 10.0], n=6), 6)
+    assert np.allclose(got, current_mix(sigs, [-5.0, 10.0]), atol=1e-6)
+
+
+# --- the gong: partials ringing after each strike -----------------------------------------------------------------
+
+from tensixinet.kernels.packing import (  # noqa: E402
+    GONG_PARTIAL_SLOTS,
+    GONG_OVERLAP,
+    gong_combine,
+    gong_inputs,
+    gong_on_host,
+    strike_ages,
+)
+from tensixinet.music.devices import gong, gong_parameters, strike_times  # noqa: E402
+
+
+def test_strike_ages_count_samples_since_the_nth_latest_strike_the_way_the_device_places_it():
+    # onsets at 1 ms and 3.5 ms at 1 kHz begin at samples 1 and 3, because the device places a strike at int(onset * rate)
+    ages = strike_ages(np.array([0.001, 0.0035]), n=60, sample_rate=1000, length=100, back=0)
+    assert ages[0] == -1 and ages[1] == 0 and ages[2] == 1 and ages[3] == 0 and ages[4] == 1 and ages[59] == 56
+    previous = strike_ages(np.array([0.001, 0.0035]), n=60, sample_rate=1000, length=100, back=1)
+    assert previous[2] == -1 and previous[3] == 2 and previous[4] == 3 and previous[59] == 58
+
+
+def test_a_strike_that_has_rung_out_is_no_longer_live():
+    ages = strike_ages(np.array([0.0]), n=50, sample_rate=1000, length=20, back=0)
+    assert ages[19] == 19 and ages[20] == -1 and ages[49] == -1
+
+
+def test_there_are_five_partial_slots_and_three_overlapping_strikes():
+    assert GONG_PARTIAL_SLOTS == 5 and GONG_OVERLAP == 3
+
+
+def test_gong_inputs_are_twelve_tiles_with_unused_partials_silent_and_dead_samples_silent():
+    import dataclasses
+    t = dataclasses.replace(FALLBACK, aiclk=800.0)
+    g = gong_parameters(t, 8000, DEFAULT_PATCH)
+    ages = np.array([-1, 0, 100, 400])
+    tiles = gong_inputs(ages, g, 8000)
+    assert len(tiles) == 12 and all(x.shape == tiles[0].shape for x in tiles)
+    a, b, e, att = tiles[0:5], tiles[5], tiles[6:11], tiles[11]
+    assert att.ravel()[0] == 0.0 and att.ravel()[1] == 0.0 and att.ravel()[2] == 1.0  # dead, then the first sample of the attack, then past it
+    for slot in range(len(g.partials), GONG_PARTIAL_SLOTS):
+        assert (e[slot].ravel()[:4] == SNAP_FLOOR).all()  # a slot with no partial adds nothing
+    assert (e[0].ravel()[0] == SNAP_FLOOR) and e[0].ravel()[1] > SNAP_FLOOR  # live samples have a real exponent
+    assert all(0 <= x.min() and x.max() <= 2 * np.pi + 1e-5 for x in (*a, b))
+
+
+@pytest.mark.parametrize("tuning", ["bell", "tamtam", "singing_bowl"])
+@pytest.mark.parametrize("rate", [8000, 44100])
+def test_the_chips_formula_on_the_hosts_inputs_is_the_gong_device(tuning, rate):
+    import dataclasses
+    from tensixinet.music.patch import GONG_TUNINGS
+    partials, amps = GONG_TUNINGS[tuning]
+    patch = dataclasses.replace(DEFAULT_PATCH, gong_partials=partials, gong_amps=amps)
+    t = dataclasses.replace(FALLBACK, aiclk=1350.0, asic_temperature=60.0, heartbeat=3)
+    duration = 9.0
+    n = int(duration * rate)
+    g = gong_parameters(t, rate, patch)
+    strikes = strike_times(t, duration)
+    assert len(strikes) >= 2
+    runs = [gong_on_host(gong_inputs(strike_ages(strikes, n, rate, g.length, back), g, rate), n) for back in range(GONG_OVERLAP)]
+    assert np.allclose(gong_combine(runs), gong(t, duration, rate, 0, patch), atol=2e-4)
+
+
+def test_three_overlapping_strikes_are_enough_for_the_closest_strikes_the_device_makes():
+    import dataclasses
+    t = dataclasses.replace(FALLBACK, aiclk=400.0)
+    g = gong_parameters(t, 8000, DEFAULT_PATCH)
+    strikes = strike_times(t, 60.0)
+    spacing = np.diff(strikes).min()
+    assert g.length / 8000 / spacing <= GONG_OVERLAP  # a strike never overlaps more than the three runs can hold

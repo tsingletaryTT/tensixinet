@@ -150,7 +150,7 @@ def _events(tmp_path):
 def test_the_wav_lands_at_the_target_level_and_the_log_says_what_gain_did_it(tmp_path):
     chips = mock_telemetry(3)
     log = _log(tmp_path)
-    audio = run(chips, duration=3.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000)
+    audio = run(chips, duration=3.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000, eq=False)
     log.close()
     raw = render_chorus(chips, 3.0, 8000)
     gain = loudness_gain(raw)
@@ -175,8 +175,81 @@ def test_the_done_line_reports_the_peak_of_the_file_that_was_written(tmp_path):
 def test_without_normalising_the_render_is_written_as_it_came_and_the_log_says_so(tmp_path):
     chips = mock_telemetry(3)
     log = _log(tmp_path)
-    audio = run(chips, duration=3.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000, normalise=False)
+    audio = run(chips, duration=3.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000, normalise=False, eq=False)
     log.close()
     assert np.array_equal(audio, render_chorus(chips, 3.0, 8000))
     (ev,) = [e for e in _events(tmp_path) if e["event"] == "loudness"]
     assert "left as rendered" in ev["what"] and "power" in ev["why"]
+
+
+# --- the EQ on the final mix ---------------------------------------------------------------------------
+
+import numpy as np  # noqa: E402
+
+from tensixinet.music.chorus import render_chorus  # noqa: E402
+from tensixinet.music.eq import apply_eq  # noqa: E402
+from tensixinet.music.loudness import normalise  # noqa: E402
+
+
+def _band_share(audio, rate, lo, hi):
+    spec = np.abs(np.fft.rfft(audio.astype(np.float64))) ** 2
+    f = np.fft.rfftfreq(len(audio), 1 / rate)
+    return float(spec[(f >= lo) & (f < hi)].sum() / spec.sum())
+
+
+def _run_audio(tmp_path, **kw):
+    log = _log(tmp_path)
+    audio = run(mock_telemetry(4), duration=4.0, out_path=tmp_path / "o.wav", log=log, sample_rate=44100, **kw)
+    log.close()
+    return audio
+
+
+def test_the_final_mix_is_eqd_by_default_so_the_shimmer_band_is_quieter(tmp_path):
+    with_eq, without = _run_audio(tmp_path), _run_audio(tmp_path, eq=False)
+    assert _band_share(with_eq, 44100, 10000, 22050) < 0.5 * _band_share(without, 44100, 10000, 22050)
+    assert _band_share(with_eq, 44100, 40, 250) > _band_share(without, 44100, 40, 250)
+
+
+def test_the_eq_goes_before_the_loudness_gain_so_the_level_still_lands_on_target(tmp_path):
+    audio = _run_audio(tmp_path)
+    assert float(np.sqrt(np.mean(audio.astype(np.float64) ** 2))) == pytest.approx(10 ** (-18 / 20), rel=0.02)
+
+
+def test_the_eq_is_what_apply_eq_gives_the_render(tmp_path):
+    chips = mock_telemetry(2)
+    log = _log(tmp_path)
+    got = run(chips, duration=1.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000)
+    log.close()
+    want, _ = normalise(apply_eq(render_chorus(chips, 1.0, 8000), 8000))
+    assert np.allclose(got, want, atol=1e-6)
+
+
+def test_turning_the_eq_off_gives_the_plain_render(tmp_path):
+    chips = mock_telemetry(2)
+    log = _log(tmp_path)
+    got = run(chips, duration=1.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000, eq=False)
+    log.close()
+    want, _ = normalise(render_chorus(chips, 1.0, 8000))
+    assert np.allclose(got, want, atol=1e-6)
+
+
+def test_the_log_says_what_the_eq_does_and_when_it_is_off(tmp_path):
+    _run_audio(tmp_path)
+    eq = [json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines() if '"event": "eq"' in l]
+    assert len(eq) == 1 and "35 Hz" in eq[0]["what"] and "14 dB" in eq[0]["what"] and "shimmer" in eq[0]["why"]
+    other = tmp_path / "off"
+    other.mkdir()
+    _run_audio(other, eq=False)
+    off = [json.loads(l) for l in (other / "run.jsonl").read_text().splitlines() if '"event": "eq"' in l]
+    assert len(off) == 1 and "off" in off[0]["what"]
+
+
+def test_without_the_loudness_gain_the_eqs_lift_cannot_push_the_file_past_full_scale(tmp_path, monkeypatch):
+    from tensixinet import run as run_module
+    t = np.arange(8000 * 3) / 8000
+    monkeypatch.setattr(run_module, "render_chorus", lambda *a, **k: (0.95 * np.sin(2 * np.pi * 100 * t)).astype(np.float32))
+    log = _log(tmp_path)
+    audio = run(mock_telemetry(1), duration=3.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000, normalise=False)
+    log.close()
+    assert float(np.max(np.abs(audio))) == pytest.approx(1.0, abs=1e-6)  # scaled down to just fit
+

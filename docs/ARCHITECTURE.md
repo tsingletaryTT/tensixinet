@@ -44,6 +44,7 @@ runs `tt-smi -s`.
 | | `lead.py` | The lead voice and its shift/invert transforms |
 | | `events.py` | Tick, breath and sweep sounds for memory errors and thermal trips; silent on a healthy chip |
 | | `turns.py` | Who solos each turn, and the gain curves |
+| | `eq.py` | The final-mix EQ: a minimum-phase FIR cut from a curve, with no scipy, that runs on a whole render or on a stream of chunks |
 | | `loudness.py` | One gain for a finished render: -18 dBFS RMS, peak under -1 dBFS, at most +20 dB. `LiveGain` follows the music as it plays |
 | | `patch.py` | The `Patch` (every drawn choice of a run), drawing it from a seed and the chips, JSON save and load |
 | | `chorus.py` | Deals device slots to chips, plans turns (`turn_seconds`, `slot_weights`), mixes. `render_chorus` takes a segment number and a named soloist for live mode |

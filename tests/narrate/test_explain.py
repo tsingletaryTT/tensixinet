@@ -299,7 +299,8 @@ def test_each_wider_decision_appears_only_on_chips_that_play_its_device():
     assert "ethernet" in texts[0] and not any("ethernet" in texts[i] for i in others({0}))
     assert "ARC clock" in texts[1] and not any("ARC clock" in texts[i] for i in others({1}))
     assert "AXI clock" in texts[2] and not any("AXI clock" in texts[i] for i in others({2}))
-    assert all("pressure" in texts[i] for i in (1, 4, 6, 7)) and not any("pressure" in texts[i] for i in others({1, 4, 6, 7}))  # ttsidrax's chaos, the lead, the shimmer, the snare
+    assert all("pressure" in texts[i] for i in (1, 4, 6, 7, 8)) and not any("pressure" in texts[i] for i in others({1, 4, 6, 7, 8}))  # ttsidrax's chaos, the lead, the shimmer, the snare, the ttavdog's wave shape
+    assert "wave shape" in texts[8] and not any("wave shape" in texts[i] for i in others({8}))
     assert "snare" in texts[7] and not any("snare" in texts[i] for i in others({7}))
     assert "chaos" in texts[1] and "barre walls" in texts[1] and "barre walls" not in texts[4]
     assert "gong tuned" in texts[5] and "lead starts" in texts[4] and "lead starts" not in texts[5]

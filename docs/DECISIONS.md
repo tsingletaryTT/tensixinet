@@ -4,8 +4,8 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 
 * **Chip count is never assumed.** Voices, devices, GDDR channels and log text all come from
   the telemetry. Devices are slots, and there are always at least as many slots as devices
-  (`max(chips, 8)`). Slot `s` goes to chip `s % chips`. A 1-chip box plays all eight devices,
-  and a box with 8 or more chips plays one device per chip.
+  (`max(chips, 9)`). Slot `s` goes to chip `s % chips`. A 1-chip box plays all nine devices,
+  and a box with 9 or more chips plays one device per chip. New devices go on the end of the list so slot numbers do not move.
 * **Players trade solos.** Each turn lasts two bars at the average tempo. One slot is featured and
   the rest drop to 35% volume, with 0.25 s fades. The soloist is drawn in proportion to the
   power its chip draws, and never repeats back to back (`music/turns.py`). A busy chip solos more.
@@ -121,3 +121,11 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 * **Live loudness is a running gain.** `LiveGain` moves the gain half way (in the log domain) toward each turn's own gain,
   ramps in a straight line across the turn, applies the peak limit at once and holds the gain through silence. A whole
   render still gets one gain.
+* **One EQ on the final mix, as a minimum-phase FIR.** The lows are quiet on small speakers and the shimmer is harsh or
+  inaudible, so `music/eq.py` shapes the mix after mixing and before the loudness gain. An FIR built from a curve with the
+  cepstral method needs only numpy (scipy would be a new dependency), has no pre-ringing and almost no delay, which live
+  mode needs, and runs on chunks with carried state. A linear-phase design would have delayed every live turn by about
+  0.1 s or more. The end of a live run drops the filter's own ring-out because the last turn's tail has faded to nothing.
+  Without the loudness gain, a render whose lows were lifted past full scale is scaled down to fit. The curve is a
+  starting point chosen by reasoning, not by listening.
+

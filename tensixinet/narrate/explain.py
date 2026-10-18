@@ -179,6 +179,17 @@ def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
             "the drone rings in sympathy with the gong, after the shock wave an AVDog gives a Gongue: every gong strike on this chip sets off a damped swing "
             "that changes direction every half cycle, so the drone's level ripples and settles back",
         ))
+    if "ttavdog" in devices:
+        out.append(Decision(
+            f"pressure {pressure:.2f} -> ttavdog wave shape {pressure:.2f} (0 is a triangle, 1 a saw) at {temp_to_pitch_hz(t.asic_temperature):.0f} Hz",
+            f"{pressure_why}; the dogtone drones at the chip's pitch and is a triangle with no pressure, skewed toward a saw "
+            "as pressure rises, and the red voice has the opposite slope",
+        ))
+        out.append(Decision(
+            "each gong strike pings the ringing filter: the white voice sounds on one half of the swing, the red voice on the other",
+            "after the AVDog, whose undulation opens a silent drone oscillator as it swings; the voices answer each other, at the same pitch "
+            "with the opposite slope, and the red is a little quieter. The swing is the one that ripples the ttdrone",
+        ))
     if "lead" in devices:
         out.append(Decision(
             f"pressure {pressure:.2f} (ASIC {t.asic_temperature:.0f} C, {t.power:.0f} W) -> lead overtone {BRIGHTNESS * pressure:.0%}",

@@ -590,3 +590,34 @@ def test_the_ttquantus_castle_samples_the_petal_its_chips_identity_names(monkeyp
     from tensixinet.music.mapping import personality as person
     assert seen == [castle_offset(person(tel(tensix_mask=m))) for m in (0x3FFF, 0x1235, 0x37F7)]
     assert len(set(seen)) > 1
+
+
+# --- the shimmer's parameters, shared with the kernel's host side ---------------------------------------------------
+
+def test_shimmer_parameters_are_the_two_tones_and_the_level_the_device_plays():
+    import dataclasses
+    from tensixinet.music.devices import shimmer_parameters
+    from tensixinet.music.mapping import chip_pressure
+    from tensixinet.telemetry import FALLBACK
+    t = dataclasses.replace(FALLBACK, asic_temperature=70.0, gddr_temps=(30.0, 40.0) * 4, power=100.0)
+    f1, f2, level = shimmer_parameters(t, 44100, DEFAULT_PATCH)
+    lo, hi = DEFAULT_PATCH.shimmer_band
+    assert lo <= f1 <= hi and f2 == pytest.approx(f1 + 0.2 * 10.0)  # a 10 C GDDR spread beats at 2 Hz
+    assert level == pytest.approx(0.5 * (1 + chip_pressure(t)))
+    f1_low, _, _ = shimmer_parameters(t, 8000, DEFAULT_PATCH)
+    assert f1_low <= 0.45 * 8000  # the band shrinks at a low sample rate
+
+
+def test_gong_parameters_are_the_numbers_the_strike_is_built_from():
+    import dataclasses
+    from tensixinet.music.devices import gong_parameters
+    from tensixinet.music.mapping import aiclk_to_bpm
+    t = dataclasses.replace(FALLBACK, aiclk=800.0)
+    g = gong_parameters(t, 44100, DEFAULT_PATCH)
+    interval = 2 * 4 * 60.0 / aiclk_to_bpm(800.0)
+    assert g.length == int(2.5 * interval * 44100) and g.beat_hz == DEFAULT_PATCH.gong_beat_hz
+    assert len(g.partials) == len(DEFAULT_PATCH.gong_partials)
+    freq, decay, amp = g.partials[1]
+    assert freq == pytest.approx(g.f0 * DEFAULT_PATCH.gong_partials[1]) and amp == DEFAULT_PATCH.gong_amps[1]
+    assert decay == pytest.approx(0.3 * interval / (1 + 0.25 * (DEFAULT_PATCH.gong_partials[1] - 1)))
+    assert gong_parameters(t, 4000, DEFAULT_PATCH).partials[-1][0] <= 0.45 * 4000  # partials above Nyquist are held at 0.45 of it

@@ -9,7 +9,7 @@ by the chorus, not here.
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from typing import List, NamedTuple, Sequence, Tuple
 
 import numpy as np
 
@@ -50,6 +50,7 @@ DEVICE_INPUTS = {
     "lead": frozenset({"aiclk", "gddr_temps"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "gong": frozenset({"asic_temperature", "aiclk", "heartbeat"}) | IDENTITY_FIELDS,
     "ttsteam": frozenset({"aiclk", "tensix_mask", "pcie_usage"}) | PRESSURE_FIELDS,
+    "ttavdog": frozenset({"asic_temperature", "aiclk", "heartbeat"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ultrasonic_shimmer": frozenset({"gddr_temps", "aiclk", "heartbeat"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
 }
 
@@ -231,6 +232,32 @@ def shock_wave(since: np.ndarray, rate_hz: float, decay_s: float) -> np.ndarray:
     return np.where(live, np.abs(np.sin(2 * math.pi * rate_hz * tau)) * np.exp(-tau / decay_s), 0.0)
 
 
+class GongStrike(NamedTuple):
+    """Everything a strike is built from. The kernel's host side reads the same numbers."""
+
+    f0: float  # Hz, the fundamental
+    interval: float  # s, the shortest gap between strikes
+    length: int  # samples a strike rings for
+    partials: List[Tuple[float, float, float]]  # (frequency in Hz held below Nyquist, decay time in s, amplitude)
+    beat_hz: float  # each partial is doubled and the copy detuned by this
+
+
+GONG_SAG_DEPTH = 0.004  # the strike's pitch sags by this share as it rings
+GONG_SAG_S = 0.4  # with this time constant
+GONG_ATTACK_S = 0.005
+
+
+def gong_parameters(t: Telemetry, sample_rate: int, patch: Patch = DEFAULT_PATCH) -> GongStrike:
+    bpm = aiclk_to_bpm(t.aiclk)
+    f0 = temp_to_pitch_hz(t.asic_temperature) / 2 * 2 ** (gong_detune_cents(personality(t)) / 1200)
+    interval = 2 * 4 * 60.0 / bpm
+    partials = [
+        (min(f0 * ratio, 0.45 * sample_rate), 0.3 * interval / (1 + 0.25 * (ratio - 1)), amp)
+        for ratio, amp in zip(patch.gong_partials, patch.gong_amps)
+    ]
+    return GongStrike(f0, interval, int(2.5 * interval * sample_rate), partials, patch.gong_beat_hz)
+
+
 def gong(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """A strike whenever the chip's clock gets through the trigger response, an octave below the chip's pitch.
 
@@ -238,22 +265,17 @@ def gong(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patc
     Higher partials die faster, and the strike's pitch sags slightly as it rings.
     """
     n = int(duration * sample_rate)
-    bpm = aiclk_to_bpm(t.aiclk)
-    f0 = temp_to_pitch_hz(t.asic_temperature) / 2 * 2 ** (gong_detune_cents(personality(t)) / 1200)
-    interval = 2 * 4 * 60.0 / bpm
-    ring_s = 2.5 * interval
+    g = gong_parameters(t, sample_rate, patch)
     out = np.zeros(n)
-    length = int(ring_s * sample_rate)
+    length = g.length
     k = np.arange(length) / sample_rate
-    sag = 1 - 0.004 * (1 - np.exp(-k / 0.4))
+    sag = 1 - GONG_SAG_DEPTH * (1 - np.exp(-k / GONG_SAG_S))
     strike = np.zeros(length)
-    for ratio, amp in zip(patch.gong_partials, patch.gong_amps):
-        decay = 0.3 * interval / (1 + 0.25 * (ratio - 1))
-        for detune in (0.0, patch.gong_beat_hz):
-            freq = min(f0 * ratio, 0.45 * sample_rate) + detune
-            phase = 2 * math.pi * np.cumsum(freq * sag) / sample_rate
+    for base, decay, amp in g.partials:
+        for detune in (0.0, g.beat_hz):
+            phase = 2 * math.pi * np.cumsum((base + detune) * sag) / sample_rate
             strike += amp * 0.5 * np.sin(phase) * np.exp(-k / decay)
-    strike *= np.minimum(1.0, k / 0.005)  # a 5 ms attack avoids a click
+    strike *= np.minimum(1.0, k / GONG_ATTACK_S)  # a 5 ms attack avoids a click
     for onset in strike_times(t, duration):
         s = int(onset * sample_rate)
         seg = strike[: n - s]
@@ -270,6 +292,15 @@ SNAP_DECAY_S = 0.012  # the Ultrasound's transient on a strike: immediate and sh
 SNAP_DEPTH = 0.3  # share of the level that the snap adds on top of the steady pair
 
 
+def shimmer_parameters(t: Telemetry, sample_rate: int, patch: Patch = DEFAULT_PATCH) -> Tuple[float, float, float]:
+    """(the shimmer's two tone frequencies in Hz, its level). The kernel's host side reads the same numbers."""
+    lo = min(patch.shimmer_band[0], SHIMMER_BAND_OF_SAMPLE_RATE[0] * sample_rate)
+    hi = min(patch.shimmer_band[1], SHIMMER_BAND_OF_SAMPLE_RATE[1] * sample_rate)
+    f1 = lo + (hi - lo) * norm_temp(t.asic_temperature)
+    beat = SHIMMER_BEAT_HZ_PER_DEG * (max(t.gddr_temps) - min(t.gddr_temps))
+    return f1, f1 + beat, 0.5 * (1 + chip_pressure(t))  # pressure doubles the level, so at most 1
+
+
 def ultrasonic_shimmer(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """Two close high tones. A hotter chip shimmers higher; a wider GDDR spread beats faster.
 
@@ -277,16 +308,12 @@ def ultrasonic_shimmer(t: Telemetry, duration: float, sample_rate: int, seed: in
     low sample rates so it stays under 0.45 of the sample rate and never aliases.
     """
     n = int(duration * sample_rate)
-    lo = min(patch.shimmer_band[0], SHIMMER_BAND_OF_SAMPLE_RATE[0] * sample_rate)
-    hi = min(patch.shimmer_band[1], SHIMMER_BAND_OF_SAMPLE_RATE[1] * sample_rate)
-    f1 = lo + (hi - lo) * norm_temp(t.asic_temperature)
-    beat = SHIMMER_BEAT_HZ_PER_DEG * (max(t.gddr_temps) - min(t.gddr_temps))
-    f2 = f1 + beat
+    f1, f2, level = shimmer_parameters(t, sample_rate, patch)
     k = np.arange(n) / sample_rate
     out = 0.5 * (np.sin(2 * math.pi * f1 * k) + np.sin(2 * math.pi * f2 * k))
     snap = np.exp(-seconds_since(strike_times(t, duration), n, sample_rate) / SNAP_DECAY_S)  # 1 on a strike, 0 long after it
     out *= 1 - SNAP_DEPTH + SNAP_DEPTH * snap
-    return (0.5 * (1 + chip_pressure(t)) * out).astype(np.float32)  # pressure doubles the level, so at most 1
+    return (level * out).astype(np.float32)
 
 
 def current_mix(signals: Sequence[np.ndarray], currents: Sequence[float]) -> np.ndarray:

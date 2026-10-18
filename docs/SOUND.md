@@ -42,7 +42,7 @@ In short:
 
 The functions are in `tensixinet/music/mapping.py`. Readings outside a range hold the nearest end.
 
-## The eight devices
+## The nine devices
 
 | Device | Character | Reads |
 |---|---|---|
@@ -53,6 +53,7 @@ The functions are in `tensixinet/music/mapping.py`. Readings outside a range hol
 | Lead | Eight-note motif, shifted or inverted bar by bar | temperature, aiclk, GDDR temperatures, pressure, chip identity |
 | Gong | Inharmonic strikes; the default tuning has partials 1, 2.76, 5.40, 8.45, each doubled and detuned 0.7 Hz | temperature, aiclk, heartbeat, chip identity |
 | Ultrasonic shimmer | Two close tones in 12-20 kHz, with a snap on each gong strike | temperature, aiclk, GDDR temperatures, pressure, heartbeat, chip identity |
+| ttavdog | A drone oscillator opened by a ringing filter: a white voice on one half of each swing, a red voice on the other | aiclk, temperature, heartbeat, pressure, chip identity |
 | ttsteam and Snare | A noise snare on the steps of a 14-step register that the harvested Tensix columns pick, over a bed of dust | aiclk, Tensix mask, pressure, PCIe usage |
 
 
@@ -111,6 +112,22 @@ Petal 0 reaches a peak or a valley once per note. Its castle samples a leader pe
 leader is 2, 3, 4 or 1 places round the ring, picked by the chip's identity. The held value picks a note of the
 patch's scale over two octaves. Low prime ratios make the notes repeat, and the nudge makes the pattern drift.
 The voice is a sine rounded to 8 bits, held for longer at a lower AXI clock.
+
+## ttavdog
+
+After the AVDog in the Plumbutter guide. The AVDog has a reference oscillator, the dogtone, that drones all the time and is
+held silent by a VCA. A trigger pings a slow resonant filter, which rings as an undulation wave: it swings one way, then the other,
+and dies away. The undulation's envelope opens the VCA, so the white voice sounds on one half of the swing and the red voice, at
+the same pitch with the opposite slope, answers on the other half. The red out is the second trace in the guide's figures.
+
+* **Trigger:** the chip's gong strikes, the same moments that snap the shimmer and ripple the ttdrone.
+* **Undulation:** `sin(2 pi rate tau) * exp(-tau / decay)` since the latest strike, with the ttdrone's rate and decay.
+* **Dogtone:** at the chip's pitch. A triangle at no pressure, skewed toward an up-sloped saw as pressure rises. The red voice
+  uses the inverse slope.
+* **Mix:** the two voices are added at a level of 0.5, the red at 0.8 of the white because the guide's mixer has it quieter.
+
+Not modelled: the stereo panning between the two outs, the FM and wave-shape inputs (the purple jacks that modulate the
+innards of a module), the Trad/Gonz switch, and the AVDog's audio line input.
 
 ## ttsteam and Snare
 
@@ -172,8 +189,8 @@ Replay one with `tensixinet --patch FILE`, or fix the seed with `--patch-seed N`
 
 ## Dealing devices to chips
 
-There are always at least eight slots, one per device. Slot `s` goes to chip `s % chips`. One chip
-plays all eight. Three chips play eight slots between them. Eight or more chips play one each.
+There are always at least nine slots, one per device. Slot `s` goes to chip `s % chips`. One chip
+plays all nine. Three chips play nine slots between them. Nine or more chips play one each.
 
 ## Trading solos
 
@@ -192,6 +209,16 @@ Each bar reads the next GDDR channel and compares it with the average channel. H
 shifts the motif up one scale degree per degree C, at most four. Cooler inverts it around its first
 note. Within 1 C it repeats. Even memory temperatures make the lead loop, and uneven ones make it
 wander.
+
+## EQ
+
+The devices span about 65 Hz (the gong and drone an octave below the chip's pitch) to 20 kHz (the shimmer). Small
+speakers lose the bottom of that range and many people cannot hear the top, so the whole mix goes through one EQ
+(`music/eq.py`) after the chips are mixed and before the loudness gain: below 35 Hz is cut, 70 to 250 Hz is lifted
+by up to 4 dB, the midrange is left alone, and above 8 kHz the level falls to -14 dB at 14 kHz and -33 dB at 20 kHz.
+It is a minimum-phase FIR (4096 taps), so it adds almost no delay and live mode can run it chunk by chunk with the same
+result as a single pass. `--no-eq` skips it. The curve is a judgment about ordinary listening and the numbers are in
+`EQ_POINTS`; they have not been tuned by ear.
 
 ## Loudness
 
@@ -218,3 +245,4 @@ each turn the chips are read again and compared with the last readings:
 
 Each turn restarts the devices' clocks, so a gong that rings past the end of its turn fades out instead. The level
 follows the music with a running gain toward -18 dBFS RMS. See `DECISIONS.md` for why it is built this way.
+

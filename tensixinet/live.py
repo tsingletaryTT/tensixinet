@@ -24,6 +24,7 @@ from typing import Callable, List, Optional, Sequence
 import numpy as np
 
 from .music.chorus import assign_device, chip_devices, n_slots, render_chorus, slot_chip, slot_weights, turn_seconds
+from .music.eq import Equaliser
 from .music.live import XFADE_S, Stitcher, Tracker
 from .music.loudness import LiveGain
 from .music.mapping import chip_chaos, chip_pressure, rate_activity
@@ -32,7 +33,7 @@ from .music.turns import pick_soloist
 from .narrate.explain import explain_events
 from .narrate.runlog import RunLog
 from .media.player import PlayerError
-from .run import describe_readings
+from .run import describe_readings, log_eq
 from .telemetry import Telemetry
 
 MIN_SEGMENT_S = 2.0  # a segment is at least this long: the crossfade is a fifth of it
@@ -65,6 +66,7 @@ def run_live(
     patch_source: str = "the built-in default patch",
     normalise: bool = True,
     clock: Callable[[], float] = time.monotonic,
+    eq: bool = True,
 ) -> int:
     """Play the chips live for `duration` seconds (until Ctrl-C when `None`). Returns the number of segments.
 
@@ -93,6 +95,7 @@ def run_live(
     player.start()
 
     stitcher = Stitcher(sample_rate, XFADE_S)
+    equaliser = Equaliser(sample_rate) if eq else None
     gain = LiveGain() if normalise else None
     tracker = Tracker()
     last_good: Optional[Sequence[Telemetry]] = None
@@ -130,15 +133,18 @@ def run_live(
             seconds = segment_seconds(turn_s, remaining)
             if segment == 0:
                 describe_readings(chips, seconds, log, source, patch, patch_source, turns=False)
+                log_eq(log, eq)
             else:
                 _log_changes(log, chips, segment, patch)
             weights = slot_weights(chips)
             soloist = pick_soloist(weights, segment, soloist)
             audio = render_chorus(chips, seconds + XFADE_S, sample_rate, patch, segment, [soloist])
-            ready = stitcher.push(audio)
+            ready = _finish(stitcher.push(audio), equaliser)
             level = None
             if gain is not None:
                 ready, level = gain.apply(ready)
+            else:
+                ready = np.clip(ready, -1.0, 1.0)  # the EQ's lift can pass full scale when nothing sets the level
             played += len(ready) / sample_rate
             chip = slot_chip(soloist, len(chips))
             name = assign_device(soloist).__name__
@@ -154,17 +160,12 @@ def run_live(
             audio_queue.put(ready)
             segment += 1
         if not failures:
-            tail = stitcher.flush()
-            if gain is not None and gain.gain is not None:
-                tail = (tail * gain.gain).astype(np.float32)
+            tail = _finish_tail(stitcher.flush(), equaliser, gain)
             room.acquire()
             audio_queue.put(tail)
     except KeyboardInterrupt:
         log.event("live", "stopped by Ctrl-C", "the segments already made are played to the end")
-        tail = stitcher.flush()
-        if gain is not None and gain.gain is not None:
-            tail = (tail * gain.gain).astype(np.float32)
-        audio_queue.put(tail)
+        audio_queue.put(_finish_tail(stitcher.flush(), equaliser, gain))
     finally:
         audio_queue.put(None)
         player.join()
@@ -179,6 +180,19 @@ def run_live(
     log.event("done", f"played {played:.1f} s in {_plural(segment, 'segment')}",
               "the chips were read once per segment; the last segment's tail rang out after the duration")
     return segment
+
+
+def _finish(audio: np.ndarray, equaliser: Optional[Equaliser]) -> np.ndarray:
+    return audio if equaliser is None else equaliser.process(audio)
+
+
+def _finish_tail(tail: np.ndarray, equaliser: Optional[Equaliser], gain: Optional[LiveGain]) -> np.ndarray:
+    """The last segment's faded-out tail, through the EQ and at the gain the music ended on. The EQ's own
+    ring-out is not played: the tail has faded to nothing by then."""
+    tail = _finish(tail, equaliser)
+    if gain is not None and gain.gain is not None:
+        tail = (tail * gain.gain).astype(np.float32)
+    return np.clip(tail, -1.0, 1.0)
 
 
 def _slots_on_chip(slot: int, n_chips: int) -> int:

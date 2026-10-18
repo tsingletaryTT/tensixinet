@@ -8,11 +8,12 @@ say what exists and what is left.
 |---|---|
 | `README.md` | What it is and how to run it |
 | `docs/ARCHITECTURE.md` | Data flow and where each piece lives |
-| `docs/SOUND.md` | Signal-to-sound table, the eight devices, turns, the lead, patches |
+| `docs/SOUND.md` | Signal-to-sound table, the nine devices, turns, the lead, patches |
 | `docs/CIRCUITS.md` | What the Ciat-Lonbarde guides say and which parts the code models |
 | `docs/DECISIONS.md` | Why the code is the way it is |
 | `docs/CONTRIBUTING.md` | How to add a device or change a mapping, test first |
 | `docs/ROADMAP.md` | Open work, in order |
+| `kernels/README.md` | The devices as TT-Lang kernels: how to run them in the simulator and on a chip |
 | `legacy/README.md` | The old prototype scripts (unsafe to run) |
 
 ## Run it
@@ -210,3 +211,51 @@ legacy/        first prototype scripts, kept for reference
     name the old devices. Saved patches do not name devices and still replay.
   * Done with a scripted rename and a read through every line that mentions a guide. A scripted rename of "guide" lines
     wrongly renamed the instruments in several docstrings and in `docs/DECISIONS.md`, and those were put back by hand.
+* **2026-10-18, "we want this to sound good ... apply some EQ to the final mixed result":** `music/eq.py` and `--no-eq`.
+  The curve: cut below 35 Hz, lift 70 to 250 Hz by up to 4 dB, flat midrange, fall from 8 kHz to -33 dB at 20 kHz.
+  Offline `run` and live mode both apply it before the loudness gain. Measured: the realised response is within 0.1 dB of
+  the curve; a 15 kHz tone falls 17 dB and a 100 Hz tone rises 4 dB. Not listened to.
+  * The mutation check caught a test that read its expected curve from the module it was testing (change a point and the
+    expectation moved with it). The curve is now written out as literals in the test.
+  * Still to do from the same message: a launcher that runs the live synth beside tt-toplike (tmux), and a tighter live turn
+    so the sound lags the chips by about a second.
+* **2026-10-18, "I still love the idea of running the instruments as kernels ... take turns with the tt-orchard agent":**
+  `kernels/ttshock.py` is the first one, with `tensixinet/kernels/packing.py` (host side) and `tests/test_kernels_sim.py`.
+  * Found: `gozer status` showed all four chips held by `orchard:supervisor`. tt-orchard-1d agreed to the plan: simulator first,
+    no queueing ahead of its 4-chip run, one board at a time later, avoid the board serving port 8011, and it will send a line
+    when the boards are free. It also plans its own one-chip kernel smoke test, queued through gozer like ours.
+  * The TT-Lang simulator is `tt-lang-sim` (Tenstorrent's package, Apache-2.0). The copy in the TT venv could reach the real
+    `ttnn`, so it runs from a fresh venv with CPU torch and no `ttnn` (`kernels/README.md`). The kernel matched the numpy device
+    to 3e-7 on the first run. Six deliberate breakages (sin to cos, a dropped mask, a wrong input, a loop one short and others)
+    each failed. Two of them crashed the simulator's own error printer, which looks for a file that is not there.
+  * Not done: any run on a chip. The right tolerance on hardware is unknown.
+* **2026-10-18, "how many kernels can we run per chip ... could all 4 chips self-play a giant self-reactive instrument? ... keep
+  on building these in sim from first":** answered in the session (about 120 Tensix cores per chip from the 12 enabled columns,
+  one op with different core groups playing different instruments rather than many separate ops; the loop only closes if the
+  instrument spends load on purpose, with a governor), then added `ttshimmer` and `ttmix`.
+  * Both match their numpy devices in the simulator (1.5e-7 and 6e-8). Seven deliberate breakages of the two kernels and 14 of the
+    host helpers each failed, except one: a negative current clamp had no test, and now does.
+  * Two simulator facts cost time: block maths refuses Python numbers (`blk * 0.5`), so constants are packed tiles, and `ttl.copy`
+    in a list is refused. The real error messages were hidden by a `tt-lang-sim` 1.1.6 bug (it loads a `diagnostics.py` that the
+    wheel lacks); `kernels/README.md` has the workaround.
+  * `shimmer_parameters` was pulled out of `ultrasonic_shimmer` so the kernel's host side and the device share one set of numbers.
+  * Idea not built yet: a software model of a chip (load sets power, power sets temperature through a lag) to test the feedback loop
+    and its governor in the simulator before it touches hardware.
+* **2026-10-18, "keep building the kernels in the simulator":** `ttgong` (and `gong_parameters` pulled out of `gong`). The strike's
+  pitch sag is summed sample by sample in the device, so the host uses the closed form of that sum. A strike rings for up to
+  2.5 intervals and strikes are at least one interval apart, so up to three ring at once: the kernel runs three times and the host
+  adds them and applies `0.6 * tanh`. It matches the device to 2.2e-7 for all three gong tunings.
+  * A first draft expanded `sin a + sin(a + b)` into a form that needed the constant 1, which a block cannot supply. The plain
+    form is exact and needs no cosines. The kernel check first used the four-partial bell, so a breakage in the fifth partial slot
+    survived; it now uses the five-partial tam-tam.
+  * Questions answered in the session: whether we have the AVDogs (the shock wave is the core of one, the rest is not modelled) and
+    what a voice engine would take (formant synthesis; see the session).
+* **2026-10-18, "avdogs: yes. those purples are important for all these too":** `music/ttavdog.py` is a ninth device (on the end
+  of `DEVICES`, so slot numbers did not move). The guide's red out is the second trace (purple in the figures): it answers the
+  white voice on the other half of the undulation, same pitch, opposite slope, a little quieter. "Purples" may also mean the purple
+  jacks, which the guide says modulate the innards of a module (FM, crunch); those are not modelled. They would be cross-modulation
+  between devices, and are open.
+  * Mutation checks found five survivors in the tests: the level and red-gain constants compared to themselves, the decay constant,
+    a shape test that changed the pitch along with the pressure, and nothing checking that the red voice uses the inverse slope.
+  * Adding a device changed three tests that assumed eight slots (soloist test, the pressure-mentions list, and the
+    board-power and busy fields, which reach the audio through who solos, so a one-second render may not show them).

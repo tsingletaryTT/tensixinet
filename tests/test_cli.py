@@ -333,3 +333,33 @@ def test_live_mode_end_to_end_with_the_real_sinks_and_no_sound(tmp_path, monkeyp
     assert rate == 8000 and len(audio) > 3 * 8000  # the three seconds and the last turn's tail
     assert sum(slept) == pytest.approx(len(audio) / 8000, abs=0.01)  # it kept time with the music it did not play
     assert any(e["event"] == "live" and "no sound" in e["what"] for e in read_events(tmp_path / "logs"))
+
+
+def test_no_eq_leaves_the_mix_unshaped_and_the_eq_is_the_default(tmp_path):
+    import soundfile as sf
+    import numpy as np
+    _, a = run_cli(tmp_path, "eq", "--patch-seed", "5")
+    _, b = run_cli(tmp_path, "flat", "--patch-seed", "5", "--no-eq")
+    def high_share(d):
+        x, rate = sf.read(str(d / "o.wav"))
+        spec = np.abs(np.fft.rfft(x)) ** 2
+        f = np.fft.rfftfreq(len(x), 1 / rate)
+        return spec[f > 1500].sum() / spec.sum()  # 8 kHz sample rate: the top of the band
+    assert high_share(a) < 0.7 * high_share(b)
+    assert any(e["event"] == "eq" and "off" in e["what"] for e in read_events(b / "logs"))
+
+
+def test_live_mode_follows_no_eq(tmp_path):
+    live(tmp_path, "--no-eq")  # the run_live call must accept it
+    code, sink, _ = live(tmp_path / "second")
+    assert code == 0 and sink.chunks
+
+
+@pytest.mark.parametrize("flag,expected", [([], True), (["--no-eq"], False)])
+def test_live_mode_passes_the_eq_choice_to_the_loop(tmp_path, monkeypatch, flag, expected):
+    import tensixinet.cli as cli
+    seen = {}
+    monkeypatch.setattr(cli, "run_live", lambda *a, **k: seen.update(k) or 0)
+    live(tmp_path, *flag)
+    assert seen["eq"] is expected
+

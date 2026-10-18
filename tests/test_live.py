@@ -12,7 +12,7 @@ import pytest
 from tensixinet import live as live_module
 from tensixinet.live import MAX_SEGMENT_S, MIN_SEGMENT_S, run_live
 from tensixinet.media.player import PlayerError
-from tensixinet.music.chorus import DEVICES, slot_weights
+from tensixinet.music.chorus import DEVICES, slot_chip, slot_weights
 from tensixinet.music.live import XFADE_S
 from tensixinet.music.loudness import TARGET_RMS
 from tensixinet.music.patch import DEFAULT_PATCH
@@ -67,10 +67,11 @@ def _go(tmp_path, sample, duration=6.0, sink=None, **kw):
     log = _log(tmp_path)
     box = {}
     kw.setdefault("patch", ONE_BAR)
+    kw.setdefault("eq", False)  # most tests are about the loop; the EQ has its own tests below
 
     def target():
         try:
-            box["n"] = run_live(sample, sink, log, sample_rate=SR, duration=duration, clock=kw.pop("clock", Clock()), **kw)
+            box["n"] = run_live(sample, sink, log, sample_rate=kw.pop("sample_rate", SR), duration=duration, clock=kw.pop("clock", Clock()), **kw)
         except BaseException as e:  # reported below, in the test's own thread
             box["error"] = e
 
@@ -220,7 +221,7 @@ def test_the_soloist_is_drawn_from_the_chips_current_weights(tmp_path, renders):
     weights = slot_weights(busy)
     picks = [c["soloists"][0] for c in renders]
     assert weights[0] > 10 * weights[1]
-    assert picks[::2] == [0] * len(picks[::2])  # the busy chip takes every other turn
+    assert [slot_chip(p, 8) for p in picks[::2]] == [0] * len(picks[::2])  # the busy chip takes every other turn (it owns two of the nine slots)
     assert all(a != b for a, b in zip(picks, picks[1:]))  # nobody solos twice running, however heavy their weight
 
 
@@ -360,3 +361,80 @@ def test_two_readings_taken_back_to_back_do_not_make_a_rate_out_of_noise(tmp_pat
     _go(tmp_path, lambda: [dataclasses.replace(FALLBACK, asic_temperature=next(temps), power=10.0)], duration=6.0, clock=Clock(0.3))
     assert renders[1]["telemetry"][0].temp_rate == 0.0  # 0.4 C in 0.3 s is inside the two-second rate window
     assert not [e for e in _events(tmp_path) if e["event"] == "motion"]
+
+
+# --- the EQ in live mode -----------------------------------------------------------------------------------------
+
+def _share(audio, lo, hi, rate=SR):
+    spec = np.abs(np.fft.rfft(audio.astype(np.float64))) ** 2
+    f = np.fft.rfftfreq(len(audio), 1 / rate)
+    return float(spec[(f >= lo) & (f < hi)].sum() / spec.sum())
+
+
+def test_live_audio_is_eqd_like_an_offline_render(tmp_path, monkeypatch):
+    # noise, so there is something in every band for the EQ to act on
+    rng = np.random.default_rng(0)
+    monkeypatch.setattr(live_module, "render_chorus",
+                        lambda chips, seconds, sr, patch, segment, soloists: (0.1 * rng.standard_normal(int(seconds * sr))).astype(np.float32))
+    flat, _ = _go(tmp_path, steady(), duration=6.0, eq=False, normalise=False, sample_rate=44100)
+    rng = np.random.default_rng(0)
+    (tmp_path / "eq").mkdir()
+    shaped, _ = _go(tmp_path / "eq", steady(), duration=6.0, eq=True, normalise=False, sample_rate=44100)
+    assert _share(shaped.audio, 10000, 22050, 44100) < 0.3 * _share(flat.audio, 10000, 22050, 44100)  # the shimmer band
+    assert _share(shaped.audio, 40, 250, 44100) > 1.3 * _share(flat.audio, 40, 250, 44100)  # the lows
+
+
+def test_eq_comes_before_the_gain_so_live_audio_still_reaches_the_target_level(tmp_path):
+    sink, _ = _go(tmp_path, steady(), duration=10.0, eq=True)
+    audio = sink.audio[SR:]
+    assert float(np.sqrt(np.mean(audio.astype(np.float64) ** 2))) == pytest.approx(TARGET_RMS, rel=0.5)
+
+
+def test_the_eq_runs_in_chunks_without_a_seam_at_the_join_of_two_turns(tmp_path, monkeypatch):
+    monkeypatch.setattr(live_module, "render_chorus",
+                        lambda chips, seconds, sr, patch, segment, soloists: (0.3 * np.sin(2 * np.pi * 440 * np.arange(int(seconds * sr)) / sr)).astype(np.float32))
+    sink, n = _go(tmp_path, steady(), duration=8.0, eq=True, normalise=False)
+    audio = sink.audio
+    jumps = np.abs(np.diff(audio[SR:]))  # after the filter has settled
+    assert n >= 3 and float(np.max(jumps)) < 0.3 * 2 * np.pi * 440 / SR * 1.5  # no step bigger than the sine's own steepest slope
+
+
+def test_without_the_loudness_gain_live_audio_is_kept_inside_full_scale(tmp_path, monkeypatch):
+    monkeypatch.setattr(live_module, "render_chorus",
+                        lambda chips, seconds, sr, patch, segment, soloists: (0.98 * np.sin(2 * np.pi * 100 * np.arange(int(seconds * sr)) / sr)).astype(np.float32))
+    sink, _ = _go(tmp_path, steady(), duration=6.0, eq=True, normalise=False)
+    assert float(np.max(np.abs(sink.audio))) <= 1.0
+
+
+def test_the_eqd_run_is_the_same_length_as_the_plain_one(tmp_path):
+    plain, _ = _go(tmp_path, steady(), duration=6.0, eq=False)
+    (tmp_path / "eq").mkdir()
+    shaped, _ = _go(tmp_path / "eq", steady(), duration=6.0, eq=True)
+    assert len(shaped.audio) == len(plain.audio)
+
+
+def test_the_equaliser_sees_every_turn_and_then_the_tail(tmp_path, monkeypatch):
+    seen = []
+
+    class Spy:
+        def __init__(self, rate):
+            pass
+
+        def process(self, chunk):
+            seen.append(len(chunk))
+            return chunk
+
+    monkeypatch.setattr(live_module, "Equaliser", Spy)
+    sink, n = _go(tmp_path, steady(), duration=6.0, eq=True)
+    assert len(seen) == n + 1 and seen[-1] == int(XFADE_S * SR) and seen[:-1] == [len(c) for c in sink.chunks[:n]]
+
+
+def test_the_log_says_whether_the_eq_is_on(tmp_path):
+    _go(tmp_path, steady(), duration=4.0, eq=True)
+    on = [e for e in _events(tmp_path) if e["event"] == "eq"]
+    assert len(on) == 1 and "35 Hz" in on[0]["what"]
+    (tmp_path / "off").mkdir()
+    _go(tmp_path / "off", steady(), duration=4.0, eq=False)
+    off = [e for e in _events(tmp_path / "off") if e["event"] == "eq"]
+    assert len(off) == 1 and "off" in off[0]["what"]
+

@@ -66,6 +66,9 @@ CHANGES = {
 }
 
 
+TURN_WEIGHT_FIELDS = {"board_power", "busy"}
+
+
 @pytest.mark.parametrize("field", sorted(CHANGES))
 def test_every_telemetry_field_reaches_the_audio(field):
     base = [dataclasses.replace(FALLBACK, ddr_status=(0, 0, 0, 0)) for _ in range(4)]
@@ -73,7 +76,11 @@ def test_every_telemetry_field_reaches_the_audio(field):
     for chip in range(4):  # whichever chip's device consumes the field
         changed = list(base)
         changed[chip] = dataclasses.replace(base[chip], **{field: CHANGES[field]})
-        if not np.allclose(render_chorus(changed, 1.0, SR), baseline):
+        if field in TURN_WEIGHT_FIELDS:
+            # these reach the audio by changing who solos, which a one-second render (one turn) may not show: compare the plan
+            if plan_turns(changed, 60.0)[0] != plan_turns(base, 60.0)[0]:
+                return
+        elif not np.allclose(render_chorus(changed, 1.0, SR), baseline):
             return
     pytest.fail(f"changing {field} on any chip left the audio identical")
 

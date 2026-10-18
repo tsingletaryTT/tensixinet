@@ -31,4 +31,5 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "hardware: opens /dev/tenstorrent/* - needs a gozer lease; skipped unless --run-hardware",
+    "sim: runs a kernel in the TT-Lang simulator; skipped unless TT_LANG_SIM names a tt-lang-sim from an environment with no real ttnn",
 ]

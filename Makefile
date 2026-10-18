@@ -1,10 +1,11 @@
 # Common tasks. `make help` lists them.
-.PHONY: help test mock demo clean
+.PHONY: help test mock demo clean kernels-sim
 
 help:
 	@echo "make test   run the test suite (no hardware needed)"
 	@echo "make mock   render 20 s from 4 synthetic chips into audio/"
 	@echo "make demo   record the split-pane demo with its soundtrack (needs tt-demo, tt-toplike, ffmpeg)"
+	@echo "make kernels-sim  run every kernel in the TT-Lang simulator (set TT_LANG_SIM; no chip, no lease)"
 	@echo "make clean  remove caches and generated audio and logs"
 
 test:
@@ -15,6 +16,10 @@ mock:
 
 demo:
 	demo/build.sh
+
+kernels-sim:
+	@test -n "$(TT_LANG_SIM)" || (echo "set TT_LANG_SIM to a tt-lang-sim installed in an environment with no real ttnn" && exit 2)
+	for k in kernels/tt*.py; do $(TT_LANG_SIM) $$k || exit 1; done
 
 clean:
 	rm -rf .pytest_cache audio logs

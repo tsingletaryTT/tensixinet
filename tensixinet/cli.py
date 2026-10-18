@@ -61,6 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--patch-seed", type=int, metavar="N", help="draw the patch from this seed instead of from the chips and entropy")
     p.add_argument("--no-normalise", action="store_true",
                    help="write the render at the level the chips' power gives it, with no loudness gain")
+    p.add_argument("--no-eq", action="store_true",
+                   help="leave the final mix unshaped (by default an EQ lifts the lows and takes down the shimmer)")
     p.add_argument("--live", action="store_true",
                    help="read the chips again every turn and play as it goes (the default renders one file from one reading)")
     p.add_argument("--player", choices=("auto", "none") + PLAYERS, metavar="NAME",
@@ -156,12 +158,12 @@ def main(
                           "the chips are read again every turn and each turn is played as soon as it is made")
                 try:
                     run_live(sample, sink, log, a.sample_rate, duration=a.duration or None, source=source, patch=patch,
-                             patch_source=patch_source, normalise=not a.no_normalise)
+                             patch_source=patch_source, normalise=not a.no_normalise, eq=not a.no_eq)
                 except PlayerError:
                     return 3  # run_live has logged what stopped
             else:
                 run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source,
-                    normalise=not a.no_normalise)
+                    normalise=not a.no_normalise, eq=not a.no_eq)
         except ValueError:
             return 2
         return 0

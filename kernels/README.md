@@ -1,0 +1,59 @@
+# Kernels
+
+The synth devices as TT-Lang kernels, so the chips can play the sound as well as be heard through it. The numpy devices in
+`tensixinet/music/` stay as the reference: each kernel is checked against the device it ports, sample by sample.
+
+| Kernel | Ports | What the chip does | What the host does |
+|---|---|---|---|
+| `ttshock.py` | `shock_wave` (the ttdrone's ripple after each gong strike) | `live * abs(sin(x)) * exp(neg_e)` for every sample | phase and decay exponent per sample, in float64; packs samples into 32 x 32 tiles |
+| `ttshimmer.py` | `ultrasonic_shimmer` (two tones that snap on every strike) | `(sin p1 + sin p2) * (a0 + a1 * exp(e))` | each tone's phase reduced to one turn in float64, the snap exponent, the two level constants |
+| `ttgong.py` | `gong` (one ringing strike, up to five partials each with a detuned copy) | `att * sum_p exp(e_p) * (sin a_p + sin(a_p + b))`; run once per overlapping strike (three) | phases with the pitch sag in closed form, decay exponents with the amplitudes folded in, the attack ramp; adds the runs and applies `0.6 * tanh` |
+| `ttmix.py` | `current_mix` (the chips' mixer) | `tanh(a + b + c + d)` | each chip's weight and `1 / sqrt(chips)`, folded into its signal; up to four chips |
+
+## How a kernel is written here
+
+* One file per kernel, named `tt<device-or-part>.py`, with a `@ttl.operation` and a `main()` that builds inputs from the
+  numpy device's own helpers, runs the operation, unpacks the result and prints one JSON line: the worst difference from the
+  numpy device and whether it is within `--atol`. Exit 0 means within tolerance.
+* Block arithmetic takes tensors, not Python numbers (the simulator refuses `blk * 0.5`), so constants such as a level are packed
+  into tiles of their own. `ttl.copy` must be a bare call or `tx = ttl.copy(...)`, not a list of copies.
+* The chip does the per-sample transcendental work (`sin`, `cos`, `exp`, `tanh`, `abs` and the arithmetic around them).
+  The host does the cheap multiplications that make each sample's argument, in float64, because a phase of 40 radians in
+  bfloat16 is off by a quarter of a radian. Tensors are float32.
+* The pure-numpy side (packing, and the host/chip split of each formula) is in `tensixinet/kernels/` and is tested in the
+  ordinary suite. The kernel files import `ttl`, so they live here, outside the package, and the hygiene test does not
+  let `tensixinet/` or `tests/` import `ttl` or `ttnn`.
+
+## Run in the simulator (no chip, no lease)
+
+The simulator is Tenstorrent's `tt-lang-sim`. Install it in a fresh venv that has no `ttnn`, because the `tt-lang-sim` that
+comes with the full TT-Lang install can reach the real `ttnn`:
+
+```bash
+python3 -m venv simvenv && simvenv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+simvenv/bin/pip install tt-lang-sim numpy soundfile pytest
+simvenv/bin/tt-lang-sim kernels/ttshock.py
+TT_LANG_SIM=$PWD/simvenv/bin/tt-lang-sim make kernels-sim      # every kernel
+TT_LANG_SIM=$PWD/simvenv/bin/tt-lang-sim python3 -m pytest tests/test_kernels_sim.py
+```
+
+## Run on a chip (needs a lease, and a turn)
+
+The box is shared. A kernel run opens a chip, so it goes through gozer, and the script refuses to open a real device unless
+`gozer run` set `TT_VISIBLE_DEVICES`:
+
+```bash
+gozer run --chips 1 --who "claude:tensixinet" --reason "ttshock kernel check" -- python3 kernels/ttshock.py --atol 5e-3
+```
+
+Ask for one chip at a time and for short slots. If the chips are held, `gozer` queues the request: do simulator work and
+`gozer wait` on the ticket. Never reset or release a chip you do not hold. tt-orchard shares the box, and has asked that a
+request not be queued ahead of its own run.
+
+**The simulator's error messages are broken in the PyPI wheel.** On any error `tt-lang-sim` tries to load `ttl/ttl/diagnostics.py`,
+which the wheel does not contain, and shows `FileNotFoundError` instead of the real message. To see the real error, copy
+`diagnostics.py` from a full TT-Lang install (`site-packages/ttl/diagnostics.py`) to `site-packages/ttl/ttl/diagnostics.py` in the
+simulator venv. This is a bug in `tt-lang-sim` 1.1.6, not in these kernels.
+
+**No kernel has run on a chip yet.** The simulator checks the logic and the data movement. It does not check what the
+hardware's `sin` and `exp` return, so the right `--atol` on a chip is not known until one run.
