@@ -90,7 +90,7 @@ def main() -> int:
     since = seconds_since(strikes, args.samples, sample_rate)
     rate_hz, decay_s = 3.0, 0.8
     return run_check("ttshock", ttshock_op, shock_inputs(since, rate_hz, decay_s), shock_wave(since, rate_hz, decay_s),
-                     args.atol, args.device)
+                     args, sample_rate)
 
 
 if __name__ == "__main__":

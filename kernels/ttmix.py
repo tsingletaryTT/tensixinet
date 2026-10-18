@@ -74,7 +74,7 @@ def ttmix_op(a: ttnn.Tensor, b: ttnn.Tensor, c: ttnn.Tensor, d: ttnn.Tensor, y: 
 
 
 def main() -> int:
-    args = parse_args(default_samples=8000 * 3, default_atol=1e-5)
+    args = parse_args(default_samples=8000 * 3, default_atol=1e-3)  # the chip's tanh is within 3e-4 of numpy's; the simulator's is exact
     refused = lease_guard()
     if refused:
         return refused
@@ -85,7 +85,7 @@ def main() -> int:
     signals = [DEVICES[d](chips[c], duration, sample_rate, d)[: args.samples] for c, d in enumerate((0, 1, 5, 6))]
     currents = [t.current for t in chips]
     return run_check("ttmix", ttmix_op, mix_inputs(signals, currents, args.samples), current_mix(signals, currents)[: args.samples],
-                     args.atol, args.device)
+                     args, sample_rate)
 
 
 if __name__ == "__main__":

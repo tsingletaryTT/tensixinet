@@ -58,3 +58,24 @@ def test_a_tolerance_the_kernel_cannot_meet_fails_the_run(script):
 def test_every_kernel_script_is_under_test():
     scripts = {p.name for p in KERNELS.glob("tt*.py")}
     assert scripts == {k[0] for k in KERNELS_UNDER_TEST}
+
+
+@pytest.mark.parametrize("script,sample_rate", [("ttshock.py", 8000), ("ttshimmer.py", 44100), ("ttmix.py", 8000), ("ttgong.py", 8000), ("ttavdog.py", 8000)])
+def test_save_writes_what_the_kernel_computed_next_to_the_numpy_reference(tmp_path, script, sample_rate):
+    import numpy as np
+    import soundfile as sf
+    code, result, done = run_kernel(script, "--save", str(tmp_path))
+    name = script[:-3]
+    assert code == 0, done.stderr[-600:]
+    chip, rate = sf.read(str(tmp_path / f"{name}_kernel.wav"))
+    ref, rate2 = sf.read(str(tmp_path / f"{name}_numpy.wav"))
+    assert rate == rate2 == sample_rate == result["sample_rate"]
+    assert len(chip) == len(ref) == result["samples"]
+    assert np.abs(chip - ref).max() < 1e-3 + 1e-4  # 16-bit WAV rounding on top of the kernel's own difference
+    assert np.abs(chip).max() > 0.01  # the file has sound in it
+    assert result["run_ms"] > 0
+
+
+def test_a_run_without_save_leaves_no_files(tmp_path):
+    code, result, _ = run_kernel("ttshock.py")
+    assert code == 0 and not list(Path.cwd().glob("ttshock_*.wav"))

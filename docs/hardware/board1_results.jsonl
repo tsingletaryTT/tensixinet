@@ -1,0 +1,10 @@
+{"kernel": "ttshock", "samples": 32000, "sample_rate": 8000, "worst": 3.0741845177817417e-07, "atol": 0.0002, "ok": true, "run_ms": 0.187, "device": 0, "simulator": false, "exit": 0}
+{"kernel": "ttshimmer", "samples": 44100, "sample_rate": 44100, "worst": 1.4901161193847656e-07, "atol": 0.002, "ok": true, "run_ms": 0.22, "device": 0, "simulator": false, "exit": 0}
+{"kernel": "ttgong", "samples": 72000, "sample_rate": 8000, "worst": 1.9628941885785345e-07, "atol": 0.0002, "ok": true, "run_ms": 0.689, "device": 0, "simulator": false, "exit": 0}
+{"kernel": "ttavdog", "samples": 80000, "sample_rate": 8000, "worst": 0.002334296703338623, "atol": 0.005, "ok": true, "run_ms": 0.215, "device": 0, "simulator": false, "exit": 0}
+{"kernel": "ttmix", "samples": 24000, "sample_rate": 8000, "worst": 0.0002793391628992947, "atol": 0.001, "ok": true, "run_ms": 0.229, "device": 0, "simulator": false, "exit": 0}
+{"kernel": "ttshock", "samples": 32000, "sample_rate": 8000, "worst": 3.0741845177817417e-07, "atol": 0.0002, "ok": true, "run_ms": 0.221, "device": 1, "simulator": false, "exit": 0}
+{"kernel": "ttshimmer", "samples": 44100, "sample_rate": 44100, "worst": 1.4901161193847656e-07, "atol": 0.002, "ok": true, "run_ms": 0.208, "device": 1, "simulator": false, "exit": 0}
+{"kernel": "ttgong", "samples": 72000, "sample_rate": 8000, "worst": 1.9628941885785345e-07, "atol": 0.0002, "ok": true, "run_ms": 0.58, "device": 1, "simulator": false, "exit": 0}
+{"kernel": "ttavdog", "samples": 80000, "sample_rate": 8000, "worst": 0.002334296703338623, "atol": 0.005, "ok": true, "run_ms": 0.274, "device": 1, "simulator": false, "exit": 0}
+{"kernel": "ttmix", "samples": 24000, "sample_rate": 8000, "worst": 0.0002793391628992947, "atol": 0.001, "ok": true, "run_ms": 0.207, "device": 1, "simulator": false, "exit": 0}

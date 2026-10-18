@@ -96,7 +96,7 @@ def main() -> int:
     f1, f2, level = shimmer_parameters(t, sample_rate, DEFAULT_PATCH)
     since = seconds_since(strike_times(t, max(duration, 12.0)), args.samples, sample_rate)
     expected = ultrasonic_shimmer(t, duration, sample_rate, 0)
-    return run_check("ttshimmer", ttshimmer_op, shimmer_inputs(since, f1, f2, level, args.samples, sample_rate), expected, args.atol, args.device)
+    return run_check("ttshimmer", ttshimmer_op, shimmer_inputs(since, f1, f2, level, args.samples, sample_rate), expected, args, sample_rate)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,54 @@
+- kernel:
+    watcher_kernel_id: 3
+    name: cq_dispatch_subordinate
+    path: /home/ttuser/.cache/tt-metal-cache/18294268491454734020/kernels/cq_dispatch_subordinate/8170619257289509695/
+    source: tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp
+    program_id: 0
+- kernel:
+    watcher_kernel_id: 2
+    name: cq_dispatch
+    path: /home/ttuser/.cache/tt-metal-cache/18294268491454734020/kernels/cq_dispatch/11876692937233028109/
+    source: tt_metal/impl/dispatch/kernels/cq_dispatch.cpp
+    program_id: 0
+- kernel:
+    watcher_kernel_id: 4
+    name: cq_dispatch_subordinate_compute
+    path: /home/ttuser/.cache/tt-metal-cache/18294268491454734020/kernels/cq_dispatch_subordinate_compute/16195017659091787187/
+    source: tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate_compute.cpp
+    program_id: 0
+- kernel:
+    watcher_kernel_id: 1
+    name: cq_prefetch
+    path: /home/ttuser/.cache/tt-metal-cache/18294268491454734020/kernels/cq_prefetch/1390897059632321385/
+    source: tt_metal/impl/dispatch/kernels/cq_prefetch.cpp
+    program_id: 0
+- kernel:
+    watcher_kernel_id: 5
+    name: cq_realtime_profiler
+    path: /home/ttuser/.cache/tt-metal-cache/18294268491454734020/kernels/cq_realtime_profiler/14147873973103038370/
+    source: tt_metal/impl/dispatch/kernels/cq_realtime_profiler.cpp
+    program_id: 1
+- kernel:
+    watcher_kernel_id: 6
+    name: cq_realtime_profiler_push
+    path: /home/ttuser/.cache/tt-metal-cache/18294268491454734020/kernels/cq_realtime_profiler_push/3666481953387628868/
+    source: tt_metal/impl/dispatch/kernels/cq_realtime_profiler_push.cpp
+    program_id: 1
+- kernel:
+    watcher_kernel_id: 9
+    name: ttlang_kernel_write_c8067025
+    path: /home/ttuser/.cache/tt-metal-cache/18294268491454734020/kernels/ttlang_kernel_write_c8067025/7900090912817420733/
+    source: /tmp/ttuser/ttlang_kernel_write_c8067025.cpp
+    program_id: 2
+- kernel:
+    watcher_kernel_id: 8
+    name: ttlang_kernel_read_b5d97dab
+    path: /home/ttuser/.cache/tt-metal-cache/18294268491454734020/kernels/ttlang_kernel_read_b5d97dab/18173222112729586932/
+    source: /tmp/ttuser/ttlang_kernel_read_b5d97dab.cpp
+    program_id: 2
+- kernel:
+    watcher_kernel_id: 7
+    name: ttlang_kernel_compute_32956329
+    path: /home/ttuser/.cache/tt-metal-cache/18294268491454734020/kernels/ttlang_kernel_compute_32956329/1432008238606989623/
+    source: /tmp/ttuser/ttlang_kernel_compute_32956329.cpp
+    program_id: 2

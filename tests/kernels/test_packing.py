@@ -173,19 +173,34 @@ def test_there_are_five_partial_slots_and_three_overlapping_strikes():
     assert GONG_PARTIAL_SLOTS == 5 and GONG_OVERLAP == 3
 
 
-def test_gong_inputs_are_twelve_tiles_with_unused_partials_silent_and_dead_samples_silent():
+def test_gong_inputs_are_sixteen_tiles_with_unused_partials_silent_and_dead_samples_silent():
     import dataclasses
     t = dataclasses.replace(FALLBACK, aiclk=800.0)
     g = gong_parameters(t, 8000, DEFAULT_PATCH)
     ages = np.array([-1, 0, 100, 400])
     tiles = gong_inputs(ages, g, 8000)
-    assert len(tiles) == 12 and all(x.shape == tiles[0].shape for x in tiles)
-    a, b, e, att = tiles[0:5], tiles[5], tiles[6:11], tiles[11]
+    assert len(tiles) == 16 and all(x.shape == tiles[0].shape for x in tiles)
+    a, c, e, att = tiles[0:5], tiles[5:10], tiles[10:15], tiles[15]
     assert att.ravel()[0] == 0.0 and att.ravel()[1] == 0.0 and att.ravel()[2] == 1.0  # dead, then the first sample of the attack, then past it
     for slot in range(len(g.partials), GONG_PARTIAL_SLOTS):
         assert (e[slot].ravel()[:4] == SNAP_FLOOR).all()  # a slot with no partial adds nothing
     assert (e[0].ravel()[0] == SNAP_FLOOR) and e[0].ravel()[1] > SNAP_FLOOR  # live samples have a real exponent
-    assert all(0 <= x.min() and x.max() <= 2 * np.pi + 1e-5 for x in (*a, b))
+    assert all(0 <= x.min() and x.max() <= 2 * np.pi + 1e-5 for x in (*a, *c))
+
+
+def test_each_detuned_copy_has_its_own_phase_the_partials_plus_the_beat():
+    """The chip may not add two input tiles that also feed `sin` (one buffer cannot serve both kinds of unit), so the host
+    gives each partial's detuned copy as a tile of its own. On the first live sample the sag sum is exactly 1, so the
+    copy's phase is the partial's plus the beat's, both in radians per sample."""
+    import dataclasses
+    t = dataclasses.replace(FALLBACK, aiclk=800.0)
+    g = gong_parameters(t, 8000, DEFAULT_PATCH)
+    tiles = gong_inputs(np.array([0]), g, 8000)
+    a, c = tiles[0:5], tiles[5:10]
+    for slot, (freq, _, _) in enumerate(g.partials):
+        assert a[slot].ravel()[0] == pytest.approx(freq * 2 * np.pi / 8000, abs=1e-5)
+        assert c[slot].ravel()[0] - a[slot].ravel()[0] == pytest.approx(g.beat_hz * 2 * np.pi / 8000, abs=1e-5)
+    assert (c[len(g.partials)].ravel()[0] == 0.0)  # an empty slot has no copy either
 
 
 @pytest.mark.parametrize("tuning", ["bell", "tamtam", "singing_bowl"])

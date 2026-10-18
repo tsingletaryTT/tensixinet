@@ -5,8 +5,8 @@
 
 The device (`tensixinet.music.devices.gong`) rings up to five inharmonic partials after every strike, each doubled by a
 slightly detuned copy, each dying at its own rate, with the pitch sagging a little as the strike rings. For one strike that is
-`att * sum_p exp(e_p) * (sin a_p + sin(a_p + b))`: the detuned copy of a partial runs at a phase that is the partial's plus
-the same beat phase `b` for every partial. The host (`tensixinet.kernels.packing.gong_inputs`) works out the
+`att * sum_p exp(e_p) * (sin a_p + sin c_p)`: the detuned copy of a partial runs at a phase `c_p`, the partial's frequency
+plus the beat. The host (`tensixinet.kernels.packing.gong_inputs`) works out the
 phases (with the closed form of the pitch sag), the decay exponents with each amplitude folded in, and the attack ramp.
 The chip does ten `sin`, five `exp` and the arithmetic per sample, which makes this the heaviest kernel so far.
 
@@ -25,8 +25,8 @@ import numpy as np  # noqa: E402
 import ttl  # noqa: E402
 import ttnn  # noqa: E402
 
-from _common import TILE, from_device, lease_guard, parse_args, to_device  # noqa: E402
-from tensixinet.kernels.packing import GONG_OVERLAP, gong_combine, gong_inputs, strike_ages, within_tolerance  # noqa: E402
+from _common import TILE, from_device, lease_guard, parse_args, report, timed, to_device  # noqa: E402
+from tensixinet.kernels.packing import GONG_OVERLAP, gong_combine, gong_inputs, strike_ages  # noqa: E402
 from tensixinet.music.devices import gong, gong_parameters, strike_times  # noqa: E402
 from tensixinet.music.patch import DEFAULT_PATCH, GONG_TUNINGS  # noqa: E402
 from tensixinet.telemetry import FALLBACK  # noqa: E402
@@ -35,12 +35,15 @@ from tensixinet.telemetry import FALLBACK  # noqa: E402
 @ttl.operation(grid=(1, 1))
 def ttgong_op(
     a0: ttnn.Tensor, a1: ttnn.Tensor, a2: ttnn.Tensor, a3: ttnn.Tensor, a4: ttnn.Tensor,
-    b: ttnn.Tensor,
+    c0: ttnn.Tensor, c1: ttnn.Tensor, c2: ttnn.Tensor, c3: ttnn.Tensor, c4: ttnn.Tensor,
     e0: ttnn.Tensor, e1: ttnn.Tensor, e2: ttnn.Tensor, e3: ttnn.Tensor, e4: ttnn.Tensor,
     att: ttnn.Tensor,
     y: ttnn.Tensor,
 ):
-    """y = att * sum over five partials of exp(e) * (sin a + sin(a + b)), one tile at a time."""
+    """y = att * sum over five partials of exp(e) * (sin a + sin c), one tile at a time.
+
+    The chip has four working registers, and its compiler will not let one input buffer feed both `sin` and an addition, so the
+    sum is built in stages: each partial's term is added to a running sum that passes through the dataflow buffer `s`."""
     rows = a0.shape[0] // TILE
     cols = a0.shape[1] // TILE
 
@@ -49,41 +52,35 @@ def ttgong_op(
     a2_dfb = ttl.make_dataflow_buffer_like(a2, shape=(1, 1), block_count=2)
     a3_dfb = ttl.make_dataflow_buffer_like(a3, shape=(1, 1), block_count=2)
     a4_dfb = ttl.make_dataflow_buffer_like(a4, shape=(1, 1), block_count=2)
-    b_dfb = ttl.make_dataflow_buffer_like(b, shape=(1, 1), block_count=2)
+    c0_dfb = ttl.make_dataflow_buffer_like(c0, shape=(1, 1), block_count=2)
+    c1_dfb = ttl.make_dataflow_buffer_like(c1, shape=(1, 1), block_count=2)
+    c2_dfb = ttl.make_dataflow_buffer_like(c2, shape=(1, 1), block_count=2)
+    c3_dfb = ttl.make_dataflow_buffer_like(c3, shape=(1, 1), block_count=2)
+    c4_dfb = ttl.make_dataflow_buffer_like(c4, shape=(1, 1), block_count=2)
     e0_dfb = ttl.make_dataflow_buffer_like(e0, shape=(1, 1), block_count=2)
     e1_dfb = ttl.make_dataflow_buffer_like(e1, shape=(1, 1), block_count=2)
     e2_dfb = ttl.make_dataflow_buffer_like(e2, shape=(1, 1), block_count=2)
     e3_dfb = ttl.make_dataflow_buffer_like(e3, shape=(1, 1), block_count=2)
     e4_dfb = ttl.make_dataflow_buffer_like(e4, shape=(1, 1), block_count=2)
     att_dfb = ttl.make_dataflow_buffer_like(att, shape=(1, 1), block_count=2)
+    s_dfb = ttl.make_dataflow_buffer_like(y, shape=(1, 1), block_count=2)
     y_dfb = ttl.make_dataflow_buffer_like(y, shape=(1, 1), block_count=2)
 
     @ttl.compute()
     def compute():
         for _ in range(rows):
             for _ in range(cols):
-                with (
-                    a0_dfb.wait() as a0_blk,
-                    a1_dfb.wait() as a1_blk,
-                    a2_dfb.wait() as a2_blk,
-                    a3_dfb.wait() as a3_blk,
-                    a4_dfb.wait() as a4_blk,
-                    b_dfb.wait() as b_blk,
-                    e0_dfb.wait() as e0_blk,
-                    e1_dfb.wait() as e1_blk,
-                    e2_dfb.wait() as e2_blk,
-                    e3_dfb.wait() as e3_blk,
-                    e4_dfb.wait() as e4_blk,
-                    att_dfb.wait() as att_blk,
-                    y_dfb.reserve() as y_blk,
-                ):
-                    # each partial and its detuned copy: sin(a) + sin(a + b)
-                    p0 = ttl.math.exp(e0_blk) * (ttl.math.sin(a0_blk) + ttl.math.sin(a0_blk + b_blk))
-                    p1 = ttl.math.exp(e1_blk) * (ttl.math.sin(a1_blk) + ttl.math.sin(a1_blk + b_blk))
-                    p2 = ttl.math.exp(e2_blk) * (ttl.math.sin(a2_blk) + ttl.math.sin(a2_blk + b_blk))
-                    p3 = ttl.math.exp(e3_blk) * (ttl.math.sin(a3_blk) + ttl.math.sin(a3_blk + b_blk))
-                    p4 = ttl.math.exp(e4_blk) * (ttl.math.sin(a4_blk) + ttl.math.sin(a4_blk + b_blk))
-                    y_blk.store(att_blk * (p0 + p1 + p2 + p3 + p4))
+                # partial 0 and its detuned copy start the running sum
+                with a0_dfb.wait() as a0_blk, c0_dfb.wait() as c0_blk, e0_dfb.wait() as e0_blk, s_dfb.reserve() as s_blk:
+                    s_blk.store(ttl.math.exp(e0_blk) * (ttl.math.sin(a0_blk) + ttl.math.sin(c0_blk)))
+                with a1_dfb.wait() as a1_blk, c1_dfb.wait() as c1_blk, e1_dfb.wait() as e1_blk, s_dfb.wait() as s_prev, s_dfb.reserve() as s_blk:
+                    s_blk.store(s_prev + ttl.math.exp(e1_blk) * (ttl.math.sin(a1_blk) + ttl.math.sin(c1_blk)))
+                with a2_dfb.wait() as a2_blk, c2_dfb.wait() as c2_blk, e2_dfb.wait() as e2_blk, s_dfb.wait() as s_prev, s_dfb.reserve() as s_blk:
+                    s_blk.store(s_prev + ttl.math.exp(e2_blk) * (ttl.math.sin(a2_blk) + ttl.math.sin(c2_blk)))
+                with a3_dfb.wait() as a3_blk, c3_dfb.wait() as c3_blk, e3_dfb.wait() as e3_blk, s_dfb.wait() as s_prev, s_dfb.reserve() as s_blk:
+                    s_blk.store(s_prev + ttl.math.exp(e3_blk) * (ttl.math.sin(a3_blk) + ttl.math.sin(c3_blk)))
+                with a4_dfb.wait() as a4_blk, c4_dfb.wait() as c4_blk, e4_dfb.wait() as e4_blk, att_dfb.wait() as att_blk, s_dfb.wait() as s_prev, y_dfb.reserve() as y_blk:
+                    y_blk.store(att_blk * (s_prev + ttl.math.exp(e4_blk) * (ttl.math.sin(a4_blk) + ttl.math.sin(c4_blk))))
 
     @ttl.datamovement()
     def read():
@@ -95,7 +92,11 @@ def ttgong_op(
                     a2_dfb.reserve() as a2_blk,
                     a3_dfb.reserve() as a3_blk,
                     a4_dfb.reserve() as a4_blk,
-                    b_dfb.reserve() as b_blk,
+                    c0_dfb.reserve() as c0_blk,
+                    c1_dfb.reserve() as c1_blk,
+                    c2_dfb.reserve() as c2_blk,
+                    c3_dfb.reserve() as c3_blk,
+                    c4_dfb.reserve() as c4_blk,
                     e0_dfb.reserve() as e0_blk,
                     e1_dfb.reserve() as e1_blk,
                     e2_dfb.reserve() as e2_blk,
@@ -108,7 +109,11 @@ def ttgong_op(
                     tx_a2 = ttl.copy(a2[row, col], a2_blk)
                     tx_a3 = ttl.copy(a3[row, col], a3_blk)
                     tx_a4 = ttl.copy(a4[row, col], a4_blk)
-                    tx_b = ttl.copy(b[row, col], b_blk)
+                    tx_c0 = ttl.copy(c0[row, col], c0_blk)
+                    tx_c1 = ttl.copy(c1[row, col], c1_blk)
+                    tx_c2 = ttl.copy(c2[row, col], c2_blk)
+                    tx_c3 = ttl.copy(c3[row, col], c3_blk)
+                    tx_c4 = ttl.copy(c4[row, col], c4_blk)
                     tx_e0 = ttl.copy(e0[row, col], e0_blk)
                     tx_e1 = ttl.copy(e1[row, col], e1_blk)
                     tx_e2 = ttl.copy(e2[row, col], e2_blk)
@@ -120,7 +125,11 @@ def ttgong_op(
                     tx_a2.wait()
                     tx_a3.wait()
                     tx_a4.wait()
-                    tx_b.wait()
+                    tx_c0.wait()
+                    tx_c1.wait()
+                    tx_c2.wait()
+                    tx_c3.wait()
+                    tx_c4.wait()
                     tx_e0.wait()
                     tx_e1.wait()
                     tx_e2.wait()
@@ -155,20 +164,17 @@ def main() -> int:
 
     device = ttnn.open_device(device_id=args.device)
     try:
-        runs = []
+        runs, run_ms = [], 0.0
         for back in range(GONG_OVERLAP):  # one run for each strike that can still be ringing
             inputs = gong_inputs(strike_ages(strikes, n, sample_rate, strike.length, back), strike, sample_rate)
             tensors = [to_device(x, device) for x in inputs]
             y = to_device(np.zeros_like(inputs[0]), device)
-            ttgong_op(*tensors, y)
+            ttgong_op(*tensors, y)  # the first call compiles the kernel; the second is the one timed
+            run_ms += timed(ttgong_op, *tensors, y)
             runs.append(from_device(y, n))
     finally:
         ttnn.close_device(device)
-    got = gong_combine(runs)
-    ok, worst = within_tolerance(got, expected, args.atol)
-    import json
-    print(json.dumps({"kernel": "ttgong", "samples": n, "worst": worst, "atol": args.atol, "ok": ok, "simulator": "sim" in getattr(ttnn, "__name__", "")}))
-    return 0 if ok else 1
+    return report("ttgong", gong_combine(runs), expected, args, sample_rate, run_ms)
 
 
 if __name__ == "__main__":

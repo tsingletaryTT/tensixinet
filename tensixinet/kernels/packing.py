@@ -134,11 +134,12 @@ def strike_ages(strikes: np.ndarray, n: int, sample_rate: int, length: int, back
 
 
 def gong_inputs(ages: np.ndarray, strike: GongStrike, sample_rate: int) -> List[np.ndarray]:
-    """What the chip needs for one ringing strike, twelve packed tiles: each partial's phase (five slots), the beat's phase,
-    each partial's decay exponent with its amplitude folded in (`SNAP_FLOOR` for an empty slot or a dead sample) and the
-    attack ramp, which is 0 for a dead sample. The strike's pitch sags as it rings, and the device sums the sag sample by
-    sample, so the phase uses the closed form of that sum. The chip computes
-    `att * sum_p exp(e_p) * (sin a_p + sin(a_p + b))`: each partial plus its detuned copy, whose phase is the partial's plus `b`."""
+    """What the chip needs for one ringing strike, sixteen packed tiles: each partial's phase (five slots), the phase of each
+    partial's detuned copy (the partial's frequency plus the beat, five more), each partial's decay exponent with its amplitude
+    folded in (`SNAP_FLOOR` for an empty slot or a dead sample) and the attack ramp, which is 0 for a dead sample. The strike's
+    pitch sags as it rings, and the device sums the sag sample by sample, so the phase uses the closed form of that sum. The chip
+    computes `att * sum_p exp(e_p) * (sin a_p + sin c_p)`. The copy's phase is a tile of its own because the chip's compiler will
+    not let one input buffer feed both `sin` and an addition."""
     ages = np.asarray(ages)
     live = ages >= 0
     j = np.where(live, ages, 0).astype(np.float64)
@@ -148,24 +149,26 @@ def gong_inputs(ages: np.ndarray, strike: GongStrike, sample_rate: int) -> List[
     sag_sum = (j + 1) - GONG_SAG_DEPTH * ((j + 1) - ramp_sum)  # sum of the sag over samples 0..j
     unit = 2 * math.pi / sample_rate * sag_sum
     silent = np.full(len(ages), SNAP_FLOOR)
-    phases, exponents = [], []
+    phases, copies, exponents = [], [], []
     for slot in range(GONG_PARTIAL_SLOTS):
         if slot < len(strike.partials):
             freq, decay, amp = strike.partials[slot]
             phases.append(pack(np.where(live, np.mod(freq * unit, 2 * math.pi), 0.0)))
+            copies.append(pack(np.where(live, np.mod((freq + strike.beat_hz) * unit, 2 * math.pi), 0.0)))
             exponents.append(pack(np.where(live, -k / decay + math.log(0.5 * amp), SNAP_FLOOR)))
         else:
             phases.append(pack(np.zeros(len(ages))))
+            copies.append(pack(np.zeros(len(ages))))
             exponents.append(pack(silent))
-    beat = pack(np.where(live, np.mod(strike.beat_hz * unit, 2 * math.pi), 0.0))
     attack = pack(np.where(live, np.minimum(1.0, k / GONG_ATTACK_S), 0.0))
-    return [*phases, beat, *exponents, attack]
+    return [*phases, *copies, *exponents, attack]
 
 
 def gong_on_host(tiles: Sequence[np.ndarray], n: int) -> np.ndarray:
     """The chip's formula for one strike, in float32 numpy."""
-    a, b, e, att = tiles[:GONG_PARTIAL_SLOTS], tiles[GONG_PARTIAL_SLOTS], tiles[GONG_PARTIAL_SLOTS + 1 : 2 * GONG_PARTIAL_SLOTS + 1], tiles[-1]
-    total = sum(np.exp(e[p]) * (np.sin(a[p]) + np.sin(a[p] + b)) for p in range(GONG_PARTIAL_SLOTS))
+    k = GONG_PARTIAL_SLOTS
+    a, c, e, att = tiles[:k], tiles[k : 2 * k], tiles[2 * k : 3 * k], tiles[-1]
+    total = sum(np.exp(e[p]) * (np.sin(a[p]) + np.sin(c[p])) for p in range(k))
     return unpack(att * total, n)
 
 

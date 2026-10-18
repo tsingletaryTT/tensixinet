@@ -56,5 +56,27 @@ which the wheel does not contain, and shows `FileNotFoundError` instead of the r
 `diagnostics.py` from a full TT-Lang install (`site-packages/ttl/diagnostics.py`) to `site-packages/ttl/ttl/diagnostics.py` in the
 simulator venv. This is a bug in `tt-lang-sim` 1.1.6, not in these kernels.
 
-**No kernel has run on a chip yet.** The simulator checks the logic and the data movement. It does not check what the
-hardware's `sin` and `exp` return, so the right `--atol` on a chip is not known until one run.
+## What happened on the chips (2026-10-18)
+
+All five kernels ran on all four Blackhole chips (two p300c boards, one `gozer` lease per board) and matched the numpy devices.
+`python3 kernels/cycle.py --out DIR` does the whole cycle and `--save` keeps what each chip computed as WAV files beside the
+numpy reference. Raw results are in `docs/hardware/`.
+
+| Kernel | Worst difference on a chip | Same in the simulator | Time for one timed run | Tolerance now |
+|---|---|---|---|---|
+| `ttshock` | 3.1e-7 | 3.1e-7 | 0.2 ms | 2e-4 |
+| `ttshimmer` | 1.5e-7 | 1.5e-7 | 0.2 ms | 2e-3 |
+| `ttgong` | 2.0e-7 | 1.4e-7 | 0.5 to 0.7 ms (three strikes) | 2e-4 |
+| `ttavdog` | 2.3e-3 | 1.2e-7 | 0.2 to 0.4 ms | 5e-3 |
+| `ttmix` | 2.8e-4 | 6e-8 | 0.2 ms | 1e-3 |
+
+What the chip taught us that the simulator did not:
+
+* **The compiler refuses an input buffer that feeds both `sin` (a vector-unit op) and an addition (a matrix-unit op).** `ttgong` added
+  `a + b` and also took `sin a`. The host now gives each detuned copy's phase as a tile of its own (sixteen input tiles).
+* **Four working registers.** `ttavdog`'s one long expression ("insufficient DST registers"), and `ttgong`'s sum of five terms, are built
+  in stages that pass partial results through extra dataflow buffers.
+* **Multiplies are looser than the transcendentals.** `sin` and `exp` match numpy to 1e-7, but `tanh` is off by 3e-4 and the
+  multiplies in `ttavdog` by 2e-3 (about 10 bits of mantissa). That is far below hearing and is the reason for the two looser tolerances.
+* One timed run (the first call compiles) takes 0.2 to 0.7 ms for one to ten seconds of audio, so a single core is hundreds of
+  times faster than real time for any of these devices.
