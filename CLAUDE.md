@@ -276,3 +276,6 @@ legacy/        first prototype scripts, kept for reference
     full suite after registering the device, fixed with a test first.
   * Two tests I wrote first were wrong: one tried to hold a vowel steady through a device that moves on every bar, and one asserted
     on a sine built inside the test. Both were rewritten.
+* **2026-10-18, `--only`:** since none of the new sound has been heard, `--only NAME[,NAME]` plays only the named devices at full level with
+  no turn-taking (`render_chorus(..., only=[...])`, also in live mode). A log line says what is soloed. Mutation checks found two
+  survivors in the command-line parsing (spaces around commas, a list of nothing); both got tests.

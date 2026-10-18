@@ -253,3 +253,26 @@ def test_without_the_loudness_gain_the_eqs_lift_cannot_push_the_file_past_full_s
     log.close()
     assert float(np.max(np.abs(audio))) == pytest.approx(1.0, abs=1e-6)  # scaled down to just fit
 
+
+
+# --- auditioning ----------------------------------------------------------------------------------------------------
+
+def test_only_is_passed_to_the_render_and_the_log_says_which_devices_are_soloed(tmp_path, monkeypatch):
+    from tensixinet import run as run_module
+    seen = {}
+    real = run_module.render_chorus
+    monkeypatch.setattr(run_module, "render_chorus", lambda *a, **k: seen.update(k) or real(*a, **k))
+    log = _log(tmp_path)
+    run(mock_telemetry(2), duration=0.5, out_path=tmp_path / "o.wav", log=log, sample_rate=8000, only=["ttchoir", "gong"])
+    log.close()
+    assert seen["only"] == ["ttchoir", "gong"]
+    ev = [json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines()]
+    only = [e for e in ev if e["event"] == "only"]
+    assert len(only) == 1 and "ttchoir" in only[0]["what"] and "gong" in only[0]["what"] and "turn-taking" in only[0]["why"]
+
+
+def test_without_only_the_log_has_no_only_line(tmp_path):
+    log = _log(tmp_path)
+    run(mock_telemetry(2), duration=0.5, out_path=tmp_path / "o.wav", log=log, sample_rate=8000)
+    log.close()
+    assert '"event": "only"' not in (tmp_path / "run.jsonl").read_text()

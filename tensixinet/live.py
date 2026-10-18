@@ -33,7 +33,7 @@ from .music.turns import pick_soloist
 from .narrate.explain import explain_events
 from .narrate.runlog import RunLog
 from .media.player import PlayerError
-from .run import describe_readings, log_eq
+from .run import describe_readings, log_eq, log_only
 from .telemetry import Telemetry
 
 MIN_SEGMENT_S = 2.0  # a segment is at least this long: the crossfade is a fifth of it
@@ -67,6 +67,7 @@ def run_live(
     normalise: bool = True,
     clock: Callable[[], float] = time.monotonic,
     eq: bool = True,
+    only: Optional[Sequence[str]] = None,
 ) -> int:
     """Play the chips live for `duration` seconds (until Ctrl-C when `None`). Returns the number of segments.
 
@@ -133,12 +134,13 @@ def run_live(
             seconds = segment_seconds(turn_s, remaining)
             if segment == 0:
                 describe_readings(chips, seconds, log, source, patch, patch_source, turns=False)
+                log_only(log, only)
                 log_eq(log, eq)
             else:
                 _log_changes(log, chips, segment, patch)
             weights = slot_weights(chips)
             soloist = pick_soloist(weights, segment, soloist)
-            audio = render_chorus(chips, seconds + XFADE_S, sample_rate, patch, segment, [soloist])
+            audio = render_chorus(chips, seconds + XFADE_S, sample_rate, patch, segment, [soloist], only=only)
             ready = _finish(stitcher.push(audio), equaliser)
             level = None
             if gain is not None:

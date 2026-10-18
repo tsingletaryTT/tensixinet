@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from .live import run_live
+from .music.chorus import device_names
 from .media import llm
 from .media.player import PLAYERS, PlayerError, make_sink as default_make_sink
 from .music.patch import DEFAULT_PATCH, draw_patch, load_patch, save_patch, seed_from_telemetry
@@ -61,6 +62,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--patch-seed", type=int, metavar="N", help="draw the patch from this seed instead of from the chips and entropy")
     p.add_argument("--no-normalise", action="store_true",
                    help="write the render at the level the chips' power gives it, with no loudness gain")
+    p.add_argument("--only", metavar="DEVICES",
+                   help="audition: play only these devices, comma separated (%s). The rest are silent and there is no turn-taking"
+                        % ", ".join(device_names()))
     p.add_argument("--no-eq", action="store_true",
                    help="leave the final mix unshaped (by default an EQ lifts the lows and takes down the shimmer)")
     p.add_argument("--live", action="store_true",
@@ -83,6 +87,12 @@ def main(
 ) -> int:
     parser = build_parser()
     a = parser.parse_args(argv)
+    only = None
+    if a.only:
+        only = [name.strip() for name in a.only.split(",") if name.strip()]
+        unknown = [name for name in only if name not in device_names()]
+        if unknown or not only:
+            parser.error(f"--only: unknown device {', '.join(unknown) or '(none given)'}; the devices are {', '.join(device_names())}")
     if a.player and not a.live:
         parser.error("--player needs --live: an offline run writes a file and plays nothing")
     if a.mock_faults and not a.mock_chips:
@@ -158,12 +168,12 @@ def main(
                           "the chips are read again every turn and each turn is played as soon as it is made")
                 try:
                     run_live(sample, sink, log, a.sample_rate, duration=a.duration or None, source=source, patch=patch,
-                             patch_source=patch_source, normalise=not a.no_normalise, eq=not a.no_eq)
+                             patch_source=patch_source, normalise=not a.no_normalise, eq=not a.no_eq, only=only)
                 except PlayerError:
                     return 3  # run_live has logged what stopped
             else:
                 run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source,
-                    normalise=not a.no_normalise, eq=not a.no_eq)
+                    normalise=not a.no_normalise, eq=not a.no_eq, only=only)
         except ValueError:
             return 2
         return 0

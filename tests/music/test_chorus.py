@@ -306,3 +306,44 @@ def test_device_seeds_move_with_the_segment_by_the_stride(monkeypatch):
     monkeypatch.setattr(chorus_module, "assign_device", lambda s: (lambda t, d, sr, seed, patch: seen.append(seed) or real(s)(t, d, sr, seed=seed, patch=patch)))
     render_chorus(chips(1), 0.2, SR, segment=3)
     assert seen == [3 * SEGMENT_SEED_STRIDE + s for s in range(len(DEVICES))]
+
+
+# --- auditioning one device at a time ----------------------------------------------------------------------------
+
+def test_only_plays_the_named_devices_and_renders_no_others(monkeypatch):
+    from tensixinet.music import chorus as chorus_module
+    played = []
+    real = chorus_module.assign_device
+
+    def spy(slot):
+        device = real(slot)
+        wrapper = lambda *a, **k: played.append(device.__name__) or device(*a, **k)
+        wrapper.__name__ = device.__name__  # the filter reads the name
+        return wrapper
+
+    monkeypatch.setattr(chorus_module, "assign_device", spy)
+    render_chorus(chips(2), 0.3, SR, only=["gong", "lead"])
+    assert sorted(played) == ["gong", "lead"]  # each device has one slot among the ten, so each rendered once
+
+
+def test_only_one_device_is_not_modulated_by_turn_taking():
+    low = dataclasses.replace(DEFAULT_PATCH, floor=0.1)
+    high = dataclasses.replace(DEFAULT_PATCH, floor=0.9)
+    assert np.array_equal(render_chorus(chips(2), 1.0, SR, patch=low, only=["lead"]), render_chorus(chips(2), 1.0, SR, patch=high, only=["lead"]))
+    assert not np.array_equal(render_chorus(chips(2), 1.0, SR, patch=low), render_chorus(chips(2), 1.0, SR, patch=high))
+
+
+def test_different_devices_sound_different_when_soloed():
+    assert not np.allclose(render_chorus(chips(2), 1.0, SR, only=["lead"]), render_chorus(chips(2), 1.0, SR, only=["gong"]))
+
+
+def test_an_unknown_or_empty_choice_is_an_error_that_names_the_choices():
+    with pytest.raises(ValueError, match="nope"):
+        render_chorus(chips(2), 0.2, SR, only=["nope"])
+    with pytest.raises(ValueError, match="at least one"):
+        render_chorus(chips(2), 0.2, SR, only=[])
+
+
+def test_the_device_names_are_listed_for_the_command_line():
+    from tensixinet.music.chorus import device_names
+    assert device_names() == [d.__name__ for d in DEVICES] and "ttchoir" in device_names()

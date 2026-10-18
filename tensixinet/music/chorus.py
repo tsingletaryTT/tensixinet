@@ -41,6 +41,10 @@ def slot_chip(slot: int, n_chips: int) -> int:
     return slot % n_chips
 
 
+def device_names() -> List[str]:
+    return [d.__name__ for d in DEVICES]
+
+
 def chip_devices(chip_index: int, n_chips: int) -> List[Callable]:
     """The devices this chip plays."""
     return [assign_device(s) for s in range(n_slots(n_chips)) if slot_chip(s, n_chips) == chip_index]
@@ -78,22 +82,36 @@ def render_chorus(
     patch: Patch = DEFAULT_PATCH,
     segment: int = 0,
     soloists: Optional[Sequence[int]] = None,
+    only: Optional[Sequence[str]] = None,
 ) -> np.ndarray:
     """Render every device, give the soloist the floor, add each chip's event sounds, scale by power, mix by current.
 
     Live mode renders one segment at a time. `segment` moves every seed on by a fixed stride, so the
     segments are not copies of each other, and `soloists` names the slot (or slots, one per turn) that has the
-    floor instead of planning it from the readings."""
+    floor instead of planning it from the readings.
+
+    `only` names the devices to play, for auditioning: the others are not rendered, and with no soloist the named
+    devices play at full level with no turn-taking, so one device is heard as it is."""
     if not telemetry:
         raise ValueError("render_chorus needs at least one chip's telemetry")
+    if only is not None:
+        if not list(only):
+            raise ValueError("only needs at least one device name")
+        unknown = [name for name in only if name not in device_names()]
+        if unknown:
+            raise ValueError(f"unknown device {', '.join(unknown)}; the devices are {', '.join(device_names())}")
     n = len(telemetry)
     n_samples = int(duration * sample_rate)
     planned, turn_s = plan_turns(telemetry, duration, patch)
     solo_slots = planned if soloists is None else list(soloists)
     seed_base = segment * SEGMENT_SEED_STRIDE
     gains = turn_gains(solo_slots, n_slots(n), n_samples, sample_rate, turn_s, floor=patch.floor)
+    if only is not None:
+        gains = np.ones_like(gains)
     per_chip = [np.zeros(n_samples) for _ in range(n)]
     for s in range(n_slots(n)):
+        if only is not None and assign_device(s).__name__ not in only:
+            continue
         chip = slot_chip(s, n)
         per_chip[chip] += gains[s] * assign_device(s)(telemetry[chip], duration, sample_rate, seed=seed_base + s, patch=patch)
     signals = []

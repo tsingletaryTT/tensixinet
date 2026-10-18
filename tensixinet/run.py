@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 import soundfile as sf
@@ -29,6 +29,13 @@ from .telemetry import Telemetry
 
 def _dbfs(audio: np.ndarray) -> float:
     return 20 * math.log10(max(float(np.sqrt(np.mean(np.square(audio, dtype=np.float64)))), 1e-9))
+
+
+def log_only(log: RunLog, only: Optional[Sequence[str]]) -> None:
+    """One log line when the run is an audition of some devices, and nothing otherwise."""
+    if only is not None:
+        log.event("only", f"playing only {', '.join(only)}",
+                  "the other devices are silent and there is no turn-taking, so each chosen device is heard at full level as it is")
 
 
 def log_eq(log: RunLog, on: bool) -> None:
@@ -89,6 +96,7 @@ def run(
     patch_source: str = "the built-in default patch",
     normalise: bool = True,
     eq: bool = True,
+    only: Optional[Sequence[str]] = None,
 ) -> np.ndarray:
     if not telemetry:
         log.event("discover", "no chips found, nothing to play",
@@ -97,7 +105,8 @@ def run(
     describe_readings(telemetry, duration, log, source, patch, patch_source)
     log.event("render", f"rendering {duration:g}s at {sample_rate} Hz",
               "all chips are rendered, scaled by power, then mixed by current")
-    audio = render_chorus(telemetry, duration, sample_rate, patch=patch)
+    log_only(log, only)
+    audio = render_chorus(telemetry, duration, sample_rate, patch=patch, only=only)
     log_eq(log, eq)
     if eq:
         audio = apply_eq(audio, sample_rate)

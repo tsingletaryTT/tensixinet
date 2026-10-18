@@ -363,3 +363,45 @@ def test_live_mode_passes_the_eq_choice_to_the_loop(tmp_path, monkeypatch, flag,
     live(tmp_path, *flag)
     assert seen["eq"] is expected
 
+
+
+# --- --only ---------------------------------------------------------------------------------------------------------
+
+def test_only_plays_just_the_named_devices_and_says_so(tmp_path):
+    import soundfile as sf
+    import numpy as np
+    _, all_devices = run_cli(tmp_path, "all", "--patch-seed", "5", "--no-normalise", "--no-eq")
+    _, just_gong = run_cli(tmp_path, "gong", "--patch-seed", "5", "--only", "gong", "--no-normalise", "--no-eq")
+    a, b = sf.read(str(all_devices / "o.wav"))[0], sf.read(str(just_gong / "o.wav"))[0]
+    assert not np.allclose(a, b)
+    assert any(e["event"] == "only" and "gong" in e["what"] for e in read_events(just_gong / "logs"))
+
+
+def test_only_takes_a_comma_separated_list(tmp_path):
+    code, d = run_cli(tmp_path, "two", "--only", "gong,ttchoir")
+    assert code == 0
+    assert any(e["event"] == "only" and "gong" in e["what"] and "ttchoir" in e["what"] for e in read_events(d / "logs"))
+
+
+def test_an_unknown_device_is_refused_with_the_list_of_devices(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        run_cli(tmp_path, "bad", "--only", "nope")
+    assert e.value.code == 2
+    err = capsys.readouterr().err
+    assert "nope" in err and "ttchoir" in err and "gong" in err
+
+
+def test_live_mode_passes_only_to_the_loop(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    seen = {}
+    monkeypatch.setattr(cli, "run_live", lambda *a, **k: seen.update(k) or 0)
+    live(tmp_path, "--only", "ttavdog")
+    assert seen["only"] == ["ttavdog"]
+
+
+def test_spaces_around_the_commas_are_ignored_and_a_list_of_nothing_is_refused(tmp_path, capsys):
+    code, d = run_cli(tmp_path, "spaced", "--only", "gong, ttchoir ")
+    assert code == 0 and any(e["event"] == "only" and "gong, ttchoir" in e["what"] for e in read_events(d / "logs"))
+    with pytest.raises(SystemExit):
+        run_cli(tmp_path, "empty", "--only", " , ")
+    assert "none given" in capsys.readouterr().err
