@@ -295,7 +295,7 @@ legacy/        first prototype scripts, kept for reference
   diagram with five scenarios (quiet box, prompt heats chips 2 and 3, a chip near throttle, a memory error, live mode), a cable explorer drawn from six
   real seeds with a chaos slider per chip, the band, listening, prior art, kernels, credits.
   * `tests/test_site.py` checks that the device list and every drawn patch on the page equal what the code produces, that every local asset exists, and
-    that the credit line is present. Changing a depth in the page turned it red.
+    that the credit line is present. Changing a depth in the page turned it red (the first attempt matched nothing and proved nothing).
   * Side research (is a synth driven by a host's own signals new?): we found network sonification (Peep, SoNSTAR), early computer loudspeakers and radio
     interference, fan organs and EM-field synths, and no instrument in the Ciat-Lonbarde patch tradition driven by a processor's power, memory and link
     readings. The page says a search is not proof. Not checked: Patch Point's newest releases and Ciat-Lonbarde's current catalogue beyond what the search returned.
