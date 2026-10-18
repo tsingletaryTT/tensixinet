@@ -51,6 +51,7 @@ DEVICE_INPUTS = {
     "gong": frozenset({"asic_temperature", "aiclk", "heartbeat"}) | IDENTITY_FIELDS,
     "ttsteam": frozenset({"aiclk", "tensix_mask", "pcie_usage"}) | PRESSURE_FIELDS,
     "ttavdog": frozenset({"asic_temperature", "aiclk", "heartbeat"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
+    "ttchoir": frozenset({"asic_temperature", "gddr_temps", "aiclk"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ultrasonic_shimmer": frozenset({"gddr_temps", "aiclk", "heartbeat"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
 }
 

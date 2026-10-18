@@ -26,6 +26,7 @@ from ..music.devices import (
     strike_times,
 )
 from ..music.ttsteam import STEPS, dust_per_second, snare_decay, step_pattern
+from ..music.ttchoir import voice_scale, vowel_sequence
 from ..music.ttquantussy import castle_offset
 from ..music.ttsidrax import FALLBACK_ARCCLK, N_BARRES, barre_bounds
 from ..music.events import MAX_BREATHS, MAX_SWEEPS, MAX_TICKS
@@ -178,6 +179,23 @@ def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
             f"each gong strike ripples the drone: {SHOCK_RATE_BEATS / beat:.1f} swings a second, fading over {SHOCK_DECAY_BEATS * beat:.1f} s",
             "the drone rings in sympathy with the gong, after the shock wave an AVDog gives a Gongue: every gong strike on this chip sets off a damped swing "
             "that changes direction every half cycle, so the drone's level ripples and settles back",
+        ))
+    if "ttchoir" in devices:
+        scale_name = {1.0: "bass", 1.08: "baritone", 1.17: "alto", 1.25: "soprano"}[voice_scale(ident)]
+        vowels = "".join(vowel_sequence(t.gddr_temps, min(len(t.gddr_temps), 8), ident % len(t.gddr_temps)))
+        out.append(Decision(
+            f"ASIC {t.asic_temperature:.0f} C -> ttchoir pitch {temp_to_pitch_hz(t.asic_temperature):.0f} Hz, snapped to the patch's scale",
+            "the chip's pitch is moved to the nearest note of the patch's scale so a choir of chips sings in tune with itself, with a gentle vibrato",
+        ))
+        out.append(Decision(
+            f"GDDR channels -> vowels {' '.join(vowels)}",
+            "each bar the singer reads the next GDDR channel: a channel hotter than the average sings toward ee, a cooler one toward oo, "
+            "and equal temperatures sing ah; the formants glide from one vowel to the next",
+        ))
+        out.append(Decision(
+            f"chip identity {ident:08x} -> a {scale_name} voice (vocal tract x{voice_scale(ident):.2f}); pressure {pressure:.2f} -> glottal slope",
+            f"{pressure_why}; the Tensix columns and ethernet links a chip has pick its voice type, and pressure flattens the glottal "
+            "slope so a chip near a limit sings with more effort and a brighter tone",
         ))
     if "ttavdog" in devices:
         out.append(Decision(

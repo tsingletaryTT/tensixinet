@@ -19,13 +19,14 @@ from .devices import ttquantus, current_mix, gong, ttdrone, ttrollz, ttsidrax, u
 from .events import error_events
 from .lead import lead
 from .ttavdog import ttavdog
+from .ttchoir import ttchoir
 from .ttsteam import ttsteam
 from .mapping import aiclk_to_bpm, chip_pressure, power_to_volume, turn_weight
 from .patch import DEFAULT_PATCH, Patch
 from ..telemetry import Telemetry
 from .turns import soloists as plan_soloists, turn_gains
 
-DEVICES = (ttrollz, ttsidrax, ttquantus, ttdrone, lead, gong, ultrasonic_shimmer, ttsteam, ttavdog)  # new devices go on the end, so slot numbers do not move
+DEVICES = (ttrollz, ttsidrax, ttquantus, ttdrone, lead, gong, ultrasonic_shimmer, ttsteam, ttavdog, ttchoir)  # new devices go on the end, so slot numbers do not move
 
 
 def n_slots(n_chips: int) -> int:

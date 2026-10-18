@@ -46,7 +46,7 @@ machine, and nothing in the package imports `ttnn` (a test checks that for every
 
 ## Meet the band
 
-Nine devices, dealt out across however many chips you have. One chip plays all nine. Nine or more
+Ten devices, dealt out across however many chips you have. One chip plays all ten. Ten or more
 chips play one each. Anything in between shares them.
 
 | Device | What you hear | What drives it |
@@ -59,6 +59,7 @@ chips play one each. Anything in between shares them.
 | **Gong** | Inharmonic strikes with slowly beating partials, a gamelan or tam-tam ring. A strike waits for the chip's clock to get through a blocking window | temperature, clock, heartbeat, chip identity |
 | **Ultrasonic shimmer** | Two close tones at 12 to 20 kHz that swell and fade, swell more near a limit, and snap on every gong strike | temperature, clock, GDDR temperatures, pressure, heartbeat, chip identity |
 | **ttavdog** | A droning oscillator that a ringing filter opens. A white voice sounds on one half of each swing and a red voice answers on the other half, at the same pitch with the opposite slope. The wave is a triangle at rest and skews toward a saw near a limit | temperature, clock, heartbeat, pressure, chip identity |
+| **ttchoir** | A chip as a singer: a glottal buzz through a vocal tract of formant resonances, sung on "oo", "oh", "ah", "eh" and "ee". The pitch is the chip's, snapped to the patch's scale, so the chips sing in tune. Each bar reads the next GDDR channel: a hotter channel sings toward "ee", a cooler one toward "oo". The voice type comes from the chip's identity | temperature, clock, GDDR temperatures, pressure, chip identity |
 | **ttsteam and Snare** | A noise snare on the steps of a 14-step shift register. The steps are the chip's harvested Tensix columns, so each chip has its own rhythm of holes | clock, Tensix mask, pressure, PCIe usage |
 
 **The devices are patched together.** The Plumbutter's patches can send one clock to several modules at once.
@@ -218,7 +219,7 @@ If the endpoint is down, the music still plays and the log says so.
 | Folder | Job |
 |---|---|
 | `tensixinet/telemetry/` | `tt-smi -s` parsing for any chip count, and synthetic chips |
-| `tensixinet/music/` | The mapping table, the nine devices, patches, turn-taking, the mixer, and live mode's segment joins |
+| `tensixinet/music/` | The mapping table, the ten devices, patches, turn-taking, the mixer, and live mode's segment joins |
 | `tensixinet/live.py` | The live loop: read, render a turn, play it while the next is made |
 | `tensixinet/narrate/` | The what-and-why log |
 | `tensixinet/media/` | The language model client, the ffmpeg soundtrack step, and the players live mode sends sound to |
@@ -245,7 +246,7 @@ ffmpeg: `make demo`.
 
 The instrument works and is still growing.
 
-- **Done:** reading any number of chips, nine devices inspired by the instrument guides, turn-taking, patches, the log, the demo, the `tt-smi` readings beyond temperature, clock and power (limits, harvesting, links, errors, processes) shaping the sound, and a live mode that reads the chips every turn.
+- **Done:** reading any number of chips, ten devices (nine inspired by the instrument guides, and a choir), turn-taking, patches, the log, the demo, the `tt-smi` readings beyond temperature, clock and power (limits, harvesting, links, errors, processes) shaping the sound, and a live mode that reads the chips every turn.
 - **Not done:** a live mode whose devices keep their phases and ringing gongs across turns (each turn restarts them), a patch that re-draws as the readings drift, and the TT-Lang kernels
   in [`legacy/`](legacy/README.md), which are sketches that have never run on hardware.
 - **Next:** [docs/ROADMAP.md](docs/ROADMAP.md) lists what is open, in order. Contributions are welcome. Start

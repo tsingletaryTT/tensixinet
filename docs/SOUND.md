@@ -42,7 +42,7 @@ In short:
 
 The functions are in `tensixinet/music/mapping.py`. Readings outside a range hold the nearest end.
 
-## The nine devices
+## The ten devices
 
 | Device | Character | Reads |
 |---|---|---|
@@ -54,6 +54,7 @@ The functions are in `tensixinet/music/mapping.py`. Readings outside a range hol
 | Gong | Inharmonic strikes; the default tuning has partials 1, 2.76, 5.40, 8.45, each doubled and detuned 0.7 Hz | temperature, aiclk, heartbeat, chip identity |
 | Ultrasonic shimmer | Two close tones in 12-20 kHz, with a snap on each gong strike | temperature, aiclk, GDDR temperatures, pressure, heartbeat, chip identity |
 | ttavdog | A drone oscillator opened by a ringing filter: a white voice on one half of each swing, a red voice on the other | aiclk, temperature, heartbeat, pressure, chip identity |
+| ttchoir | A singer: a buzz through formant resonances, sung on vowels at the chip's pitch | temperature, aiclk, GDDR temperatures, pressure, chip identity |
 | ttsteam and Snare | A noise snare on the steps of a 14-step register that the harvested Tensix columns pick, over a bed of dust | aiclk, Tensix mask, pressure, PCIe usage |
 
 
@@ -129,6 +130,36 @@ the same pitch with the opposite slope, answers on the other half. The red out i
 Not modelled: the stereo panning between the two outs, the FM and wave-shape inputs (the purple jacks that modulate the
 innards of a module), the Trad/Gonz switch, and the AVDog's audio line input.
 
+## ttchoir
+
+Not from the instrument guides: a human voice, for some humanity in the mix. A voice is a source and a filter. The source is a buzz
+at the singer's pitch whose harmonics fall away as `1 / k^1.2` (a glottal pulse). The filter is the vocal tract, five resonances
+called formants. Moving the jaw, tongue and lips moves the formants, which is what makes "oo" sound unlike "ee". This is the additive
+form of formant synthesis: at each moment the sound is the sum of the source's harmonics, each as loud as the tract lets it be at its
+own frequency (`formant_response`).
+
+| Vowel | F1 | F2 | F3 |
+|---|---|---|---|
+| oo (u) | 300 | 870 | 2240 |
+| oh (o) | 570 | 840 | 2410 |
+| ah (a) | 730 | 1090 | 2440 |
+| eh (e) | 530 | 1840 | 2480 |
+| ee (i) | 270 | 2290 | 3010 |
+
+(Hz, a male voice, from Peterson and Barney. F4 and F5 are 3400 and 4400 Hz.)
+
+* **Pitch:** the chip's pitch (C3 to C5 from temperature), moved to the nearest note of the patch's scale so the chips sing in tune with
+  each other. A vibrato at 5.5 Hz, 0.25 semitone deep and up to 0.6 under pressure, plus a slow random drift of 0.04 semitone.
+* **Vowel:** one syllable is a bar (four beats). Each syllable reads the next GDDR channel, starting from a channel the chip's identity
+  picks: a channel hotter than the average channel sings toward "ee", a cooler one toward "oo", and equal temperatures sing "ah". The
+  formants glide between vowels over 0.12 s.
+* **Voice type:** the chip's identity makes the vocal tract 0%, 8%, 17% or 25% shorter, so every formant is higher (bass toward soprano).
+* **Effort:** pressure flattens the glottal slope from `1 / k^1.2` toward `1 / k^0.6`, so a chip near a limit sings brighter.
+* **Phrasing:** the voice fades in over 0.1 s and dips to 30% for about 80 ms where one syllable meets the next, as a singer breathes.
+
+Not yet: consonants (fricatives as shaped noise, plosives as a closure and a burst, nasals with an antiresonance), words, breath
+noise and a kernel for it. The numbers are textbook values and a first guess at phrasing. None of it has been heard.
+
 ## ttsteam and Snare
 
 A 14-step register, one step per Tensix column, stepped at eighth notes. A step fires where its column is
@@ -189,8 +220,8 @@ Replay one with `tensixinet --patch FILE`, or fix the seed with `--patch-seed N`
 
 ## Dealing devices to chips
 
-There are always at least nine slots, one per device. Slot `s` goes to chip `s % chips`. One chip
-plays all nine. Three chips play nine slots between them. Nine or more chips play one each.
+There are always at least ten slots, one per device. Slot `s` goes to chip `s % chips`. One chip
+plays all ten. Three chips play ten slots between them. Ten or more chips play one each.
 
 ## Trading solos
 

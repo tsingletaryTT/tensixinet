@@ -8,7 +8,7 @@ say what exists and what is left.
 |---|---|
 | `README.md` | What it is and how to run it |
 | `docs/ARCHITECTURE.md` | Data flow and where each piece lives |
-| `docs/SOUND.md` | Signal-to-sound table, the nine devices, turns, the lead, patches |
+| `docs/SOUND.md` | Signal-to-sound table, the ten devices, turns, the lead, patches |
 | `docs/CIRCUITS.md` | What the Ciat-Lonbarde guides say and which parts the code models |
 | `docs/DECISIONS.md` | Why the code is the way it is |
 | `docs/CONTRIBUTING.md` | How to add a device or change a mapping, test first |
@@ -264,3 +264,15 @@ legacy/        first prototype scripts, kept for reference
   saw's slope stays finite (without the clip the host divides by zero). The test now includes a chip at full pressure.
   * The full-pressure test also found a latent bug: `pressure()` divided by zero when the throttle limit equalled the 40 C floor.
     `_unit` now treats a degenerate range as a step.
+* **2026-10-18, "yes voice choir is needed too. it'll add some pseudo humanity":** `music/ttchoir.py`, a tenth device (on the end of
+  `DEVICES`). Additive formant synthesis: harmonics of the chip's pitch (snapped to the patch's scale) shaped by five formant
+  resonances, sung on oo/oh/ah/eh/ee that the GDDR channels pick, voice type from the chip's identity, pressure flattening the
+  glottal slope, vibrato, a breath dip between syllables. A 20 s voice renders in 0.55 s.
+  * Measured only: the harmonics pile up at each vowel's formants (oo has 0.6% of its amplitude above 1500 Hz, ah 3%, ee 9%, eh 16%), the
+    fundamental is at the chosen pitch, nothing is above 0.46 of the sample rate. Not heard.
+  * Mutation checks found survivors in the pinned numbers (bandwidths, level, vibrato depth and rate), the syllable length and the
+    identity wiring (voice type, first channel); each got a test. Frame rate, glide time and drift spacing are tuning constants and
+    survive. A short render (0.05 s) crashed `np.interp` because `np.convolve(mode="same")` returns the longer input; found by the
+    full suite after registering the device, fixed with a test first.
+  * Two tests I wrote first were wrong: one tried to hold a vowel steady through a device that moves on every bar, and one asserted
+    on a sine built inside the test. Both were rewritten.

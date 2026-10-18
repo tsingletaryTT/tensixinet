@@ -41,6 +41,8 @@ runs `tt-smi -s`.
 | | `ttsidrax.py` | Seven barres bouncing between each other's oscillators, with press and release gestures |
 | | `ttquantussy.py` | The ttquantussy's five petals and castles, and the coco's 8-bit buffer |
 | | `ttsteam.py` | A shift register that steps a noise snare, with the harvested Tensix columns as its pattern |
+| | `ttchoir.py` | A singer: a glottal buzz shaped by formant resonances, sung on vowels that the GDDR channels pick |
+| | `ttavdog.py` | The AVDog's dogtone under the two halves of an undulation: a white voice and a red voice that answer each other |
 | | `lead.py` | The lead voice and its shift/invert transforms |
 | | `events.py` | Tick, breath and sweep sounds for memory errors and thermal trips; silent on a healthy chip |
 | | `turns.py` | Who solos each turn, and the gain curves |
