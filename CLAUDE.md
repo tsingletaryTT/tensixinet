@@ -176,3 +176,6 @@ legacy/        first prototype scripts, kept for reference
   (-18 dBFS RMS, peak under -1 dBFS, at most +20 dB). `run` applies it and logs it, and `--no-normalise` skips it.
   `render_chorus` still keeps power as volume, so the gain is applied in `run`.
   * The mutation check caught a test that compared the gain cap to the constant it was testing. It now checks 10.0.
+* **2026-10-18, demo rebuilt** with the new devices and the loudness gain (`demo/build.sh`, read-only, one prompt to the
+  model on port 8011). The soundtrack measures -18.0 dB mean and -3.7 dB max. `demo/chorus.patch.json` is unchanged.
+  The README hero frame (`docs/media/demo-frame.png`) is a frame from the new video.
