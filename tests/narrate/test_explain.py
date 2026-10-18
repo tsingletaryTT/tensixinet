@@ -125,3 +125,67 @@ def test_the_dealing_text_uses_correct_plurals():
     assert "3 chips" in many and "slots 2, 5" in many
     single = explain_chip(2, FALLBACK, n_chips=9)[0].why
     assert "slot 2 " in single
+
+
+# --- explaining a patch -------------------------------------------------------------
+
+from tensixinet.music.chorus import plan_turns  # noqa: E402
+from tensixinet.music.patch import DEFAULT_PATCH, draw_patch, memory_to_asic_ratio  # noqa: E402
+from tensixinet.narrate.explain import explain_patch  # noqa: E402
+
+UNEVEN = [dataclasses.replace(FALLBACK, gddr_temps=(30.0, 54.0) * 4)] * 2
+
+
+def joined(decisions):
+    return " | ".join(d.what + " || " + d.why for d in decisions)
+
+
+def test_every_patch_decision_has_what_and_why():
+    ds = explain_patch(draw_patch(11, UNEVEN), UNEVEN, "test seed")
+    assert len(ds) >= 6 and all(d.what.strip() and d.why.strip() for d in ds)
+
+
+def test_the_patch_log_gives_the_seed_and_where_it_came_from():
+    p = draw_patch(11, UNEVEN)
+    first = explain_patch(p, UNEVEN, "chip readings plus entropy")[0]
+    assert "11" in first.what and "chip readings plus entropy" in first.why
+
+
+def test_the_scale_is_explained_from_the_gddr_spread_that_chose_it():
+    p = draw_patch(11, UNEVEN)
+    text = joined(explain_patch(p, UNEVEN, "s"))
+    assert p.scale_name in text and "24" in text  # the spread is 54 - 30 = 24 C
+    assert "GDDR" in text and "3 C" in text
+
+
+def test_the_gong_tuning_is_explained_from_the_temperature_ratio():
+    p = draw_patch(11, UNEVEN)
+    text = joined(explain_patch(p, UNEVEN, "s"))
+    assert p.gong_tuning in text and f"{memory_to_asic_ratio(UNEVEN):.2f}" in text
+
+
+def test_the_drawn_choices_are_reported_with_their_real_values():
+    p = draw_patch(11, UNEVEN)
+    text = joined(explain_patch(p, UNEVEN, "s"))
+    assert str(p.motif) in text
+    assert f"{p.shimmer_band[0]:.0f}" in text and f"{p.shimmer_band[1]:.0f}" in text
+    assert f"{p.bars_per_turn} bar" in text and f"{p.floor:.0%}" in text
+    assert f"{p.gong_beat_hz:g} Hz" in text
+
+
+def test_turn_times_follow_the_patch_turn_length():
+    chips2 = [FALLBACK] * 2
+    two = explain_turns(chips2, 60.0, patch=dataclasses.replace(DEFAULT_PATCH, bars_per_turn=2))
+    four = explain_turns(chips2, 60.0, patch=dataclasses.replace(DEFAULT_PATCH, bars_per_turn=4))
+    secs = lambda d: int(d.what.split("(")[1].split("s)")[0])
+    assert abs(secs(four[1]) - 2 * secs(two[1])) <= 1  # the log rounds to whole seconds
+
+
+def test_a_long_turn_list_says_how_many_more_turns_follow():
+    chips2 = [FALLBACK] * 2
+    one_bar = dataclasses.replace(DEFAULT_PATCH, bars_per_turn=1)
+    ds = explain_turns(chips2, 60.0, limit=5, patch=one_bar)
+    total = len(plan_turns(chips2, 60.0, one_bar)[0])
+    assert len(ds) == 6 and total > 5
+    assert f"{total - 5} more turns" in ds[-1].what and "limit" not in ds[-1].what.lower()
+    assert len(explain_turns(chips2, 60.0, limit=total, patch=one_bar)) == total  # nothing left out, no extra line

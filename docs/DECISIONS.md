@@ -19,6 +19,16 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 * **The ultrasonic shimmer is two tones in 12 to 20 kHz**, shrunk to fit below 0.45 of the sample
   rate. Temperature sets the pitch and GDDR spread sets the beat rate (0.2 Hz per degree C). At
   44.1 kHz the top is 19.8 kHz. Use `--sample-rate 96000` to go higher.
+* **A patch holds every drawn choice, and the default patch is the old constants.** That makes
+  "nothing changed" a test (`render_chorus(..., patch=DEFAULT_PATCH)` equals the render without a patch).
+  The system decides the scale (GDDR spread) and the gong tuning (memory-to-ASIC temperature ratio); a
+  seed decides the motif, gong beat, shimmer band, turn length and floor. The seed is a SHA-256 of all
+  readings plus entropy, so any one reading changing gives a new patch. The bucket rules (3 C per scale,
+  ratio times 10 for the tuning) are arbitrary but deterministic; their job is to move with the machine.
+* **The patch file is one line per field,** so it diffs well and can be edited by hand. `load_patch` refuses
+  a file whose gong partials do not start at 1.0, whose amplitudes do not match the partials, whose band is
+  not low-to-high, or whose turn length or floor is out of range.
+* **With no chips the CLI draws no patch,** so `run` still reports the clear "no chips" error.
 * **Turn fades use a running-sum average.** `np.convolve` over an 11,025-sample window made a 24 s
   render take minutes; the running sum gives the same numbers in milliseconds.
 * **A GDDR channel's temperature is the hotter of its two dies.** tt-smi packs each

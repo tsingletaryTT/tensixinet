@@ -14,6 +14,15 @@ import math
 from ..music.chorus import DEVICES, assign_device, chip_devices, n_slots, plan_turns, slot_chip
 from ..music.devices import DEVICE_INPUTS, sidrax_bounds
 from ..music.lead import lead_transforms
+from ..music.patch import (
+    DEFAULT_PATCH,
+    DEGREES_PER_SCALE_STEP_C,
+    GONG_TUNING_NAMES,
+    SCALE_NAMES,
+    Patch,
+    gddr_spread,
+    memory_to_asic_ratio,
+)
 from ..music.mapping import (
     aiclk_to_bpm,
     ddr_lane_divisions,
@@ -106,10 +115,12 @@ def explain_lead(t: Telemetry, duration: float) -> Decision:
     )
 
 
-def explain_turns(telemetry: Sequence[Telemetry], duration: float, limit: int = 12) -> List[Decision]:
+def explain_turns(
+    telemetry: Sequence[Telemetry], duration: float, limit: int = 12, patch: Patch = DEFAULT_PATCH
+) -> List[Decision]:
     """Who solos in each turn, and why."""
     n = len(telemetry)
-    solo_slots, turn_s = plan_turns(telemetry, duration)
+    solo_slots, turn_s = plan_turns(telemetry, duration, patch)
     out = []
     for k, slot in enumerate(solo_slots[:limit]):
         chip = slot_chip(slot, n)
@@ -118,4 +129,45 @@ def explain_turns(telemetry: Sequence[Telemetry], duration: float, limit: int = 
             "the soloist is drawn in proportion to the power each chip draws, nobody solos twice "
             "in a row, and everyone else drops to a lower level while it plays",
         ))
+    if len(solo_slots) > limit:
+        more = len(solo_slots) - limit
+        out.append(Decision(
+            f"{more} more turns follow the same way",
+            f"the run has {len(solo_slots)} turns of {turn_s:.1f}s; only the first {limit} are listed to keep the log short",
+        ))
     return out
+
+
+def explain_patch(patch: Patch, telemetry: Sequence[Telemetry], source: str) -> List[Decision]:
+    """Every choice a patch makes, with the reading or the seed that decided it."""
+    bars = f"{patch.bars_per_turn} bar{'' if patch.bars_per_turn == 1 else 's'}"
+    return [
+        Decision(
+            f"patch seed {patch.seed}",
+            f"{source}; the seed fixes every drawn choice below, so the same seed replays the same sound",
+        ),
+        Decision(
+            f"scale {patch.scale_name} (GDDR spread {gddr_spread(telemetry):.0f} C)",
+            f"each {DEGREES_PER_SCALE_STEP_C:g} C between the hottest and coolest GDDR channel moves one scale along "
+            f"({', '.join(SCALE_NAMES)}), so even memory plays the first and uneven memory wanders the list",
+        ),
+        Decision(
+            f"lead motif {patch.motif}",
+            "eight scale degrees drawn from the seed, starting at 0 and moving at most 2 degrees a step",
+        ),
+        Decision(
+            f"gong tuning {patch.gong_tuning} (memory/ASIC temperature {memory_to_asic_ratio(telemetry):.2f}), "
+            f"beat {patch.gong_beat_hz:g} Hz",
+            f"the average GDDR temperature divided by the average ASIC temperature, times 10 and rounded, "
+            f"picks one of {len(GONG_TUNING_NAMES)} tunings ({', '.join(GONG_TUNING_NAMES)}); the seed picks the beat",
+        ),
+        Decision(
+            f"shimmer band {patch.shimmer_band[0]:.0f}-{patch.shimmer_band[1]:.0f} Hz",
+            "drawn from the seed: a low edge of 10 to 14 kHz and a width of 4 to 7 kHz, "
+            "squeezed under 0.45 of the sample rate when needed",
+        ),
+        Decision(
+            f"turns last {bars}; everyone else drops to {patch.floor:.0%}",
+            "drawn from the seed: 1 to 4 bars per turn, and a floor between 25% and 45%",
+        ),
+    ]

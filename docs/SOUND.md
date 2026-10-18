@@ -35,8 +35,28 @@ The functions are in `tensixinet/music/mapping.py`. Readings outside a range hol
 | Cocoquantus | Sample-and-hold melody on a pentatonic scale | temperature, aiclk |
 | Plumbutter drone | Three-voice C major drone | temperature |
 | Lead | Eight-note motif, shifted or inverted bar by bar | temperature, aiclk, GDDR temperatures |
-| Gong | Inharmonic strikes, partials 1, 2.76, 5.40, 8.45, each doubled and detuned 0.7 Hz | temperature, aiclk |
+| Gong | Inharmonic strikes; the default tuning has partials 1, 2.76, 5.40, 8.45, each doubled and detuned 0.7 Hz | temperature, aiclk |
 | Ultrasonic shimmer | Two close tones in 12-20 kHz | temperature, GDDR temperatures |
+
+## Patches: a different set of choices every run
+
+A patch holds the choices that used to be fixed constants. Two sources decide it.
+
+**The system decides two things**, so the sound follows the machine:
+
+| Choice | Decided by | Rule |
+|---|---|---|
+| Scale | GDDR spread (hottest minus coolest channel, all chips) | Each 3 C moves one scale along: major pentatonic, minor pentatonic, hirajoshi, dorian, whole tone, phrygian dominant. Even memory plays the first |
+| Gong tuning | Average GDDR temperature divided by average ASIC temperature | Ratio times 10, rounded, picks bell, tam-tam or singing bowl |
+
+**A seed decides the rest:** the lead motif (eight scale degrees from 0, steps of at most 2), the gong's
+beat (0.4 to 1.2 Hz), the shimmer band (low edge 10 to 14 kHz, 4 to 7 kHz wide), the turn length (1 to 4
+bars) and how far non-soloists drop (25% to 45%).
+
+The seed is a hash of every reading on every chip plus entropy (the clock), so no two runs match. Each run
+writes its patch to `patch_<time>.json` beside its log and prints every choice with its reason.
+Replay one with `tensixinet --patch FILE`, or fix the seed with `--patch-seed N`. The built-in
+`DEFAULT_PATCH` holds the constants from before patches existed (`tensixinet/music/patch.py`).
 
 ## Dealing devices to chips
 
@@ -45,8 +65,8 @@ plays all seven. Three chips play seven slots between them. Seven or more chips 
 
 ## Trading solos
 
-A turn lasts two bars at the average tempo. In each turn one slot is featured and the others drop
-to 35% volume, with 0.25 s fades. The soloist is drawn in proportion to the power its chip draws,
+A turn lasts `bars_per_turn` bars (default 2) at the average tempo. In each turn one slot is featured
+and the others drop to the patch's floor (default 35%) with 0.25 s fades. The soloist is drawn in proportion to the power its chip draws,
 never repeats back to back, and a quiet chip still gets turns. `music/turns.py` draws from a
 golden-ratio sequence, so the same chips always give the same order.
 

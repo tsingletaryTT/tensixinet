@@ -18,6 +18,7 @@ pip install .                                  # numpy and soundfile
 tensixinet --mock-chips 8 --duration 20        # no hardware: 8 synthetic chips
 tensixinet --duration 60                       # your real chips, read with `tt-smi -s`
 tensixinet "describe a hardware synth" --duration 60   # prompt a local model first
+tensixinet --patch logs/patch_20261017_120000.json     # replay an earlier run's choices exactly
 ```
 
 Output is a 16-bit WAV (`--out`, default `audio/`) and a run log (`--log-dir`, default `logs/`).
@@ -52,6 +53,14 @@ plays and the log says so.
 Power sets each chip's volume and current sets its share of the mix. A 1-chip box plays all seven
 devices; a box with 7 or more chips plays one each. The full signal-to-sound table, the turn-taking
 rule and the reasons behind them are in [docs/SOUND.md](docs/SOUND.md).
+
+## A different patch every run
+
+Each run draws a patch from the chips' readings plus the clock, so no two runs sound alike. The scale
+follows how unevenly the memory channels are heated, the gong tuning follows the memory-to-ASIC temperature
+ratio, and a seed picks the lead's motif, the shimmer band, how long solos last and how quiet the others get.
+The patch is saved as JSON next to the log, and every choice is logged with its reason. Replay one with
+`--patch FILE`. Details are in [docs/SOUND.md](docs/SOUND.md).
 
 ## Test it
 

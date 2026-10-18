@@ -251,3 +251,49 @@ def test_gong_fundamental_is_a_beating_pair_not_a_single_line():
     s = spec[near]
     peaks = [i for i in range(1, len(s) - 1) if s[i] > s[i - 1] and s[i] > s[i + 1] and s[i] > 0.3 * s.max()]
     assert len(peaks) >= 2
+
+
+# --- the patch reaches the devices ------------------------------------------------
+
+from tensixinet.music.patch import DEFAULT_PATCH, SCALES  # noqa: E402
+
+
+def test_every_device_accepts_a_patch_and_the_default_changes_nothing():
+    for dev in (rollz, sidrax, cocoquantus, plumbutter_drone, gong, ultrasonic_shimmer):
+        assert np.array_equal(dev(_FB, 1.0, _SR, 3), dev(_FB, 1.0, _SR, 3, patch=DEFAULT_PATCH)), dev.__name__
+
+
+def test_cocoquantus_quantises_onto_the_patch_scale():
+    patch = _dc.replace(DEFAULT_PATCH, scale_name="whole_tone", scale=SCALES["whole_tone"])
+    steps = cocoquantus_steps(_FB, 4.0, _SR, 0, patch=patch)
+    allowed = {12 * o + d for o in range(2) for d in SCALES["whole_tone"]}
+    assert set(np.unique(steps)) <= allowed and len(set(np.unique(steps))) > 3
+
+
+def test_a_patch_scale_changes_cocoquantus_audio():
+    patch = _dc.replace(DEFAULT_PATCH, scale_name="whole_tone", scale=SCALES["whole_tone"])
+    assert not np.allclose(cocoquantus(_FB, 2.0, _SR, 0), cocoquantus(_FB, 2.0, _SR, 0, patch=patch))
+
+
+def test_gong_uses_the_patch_partials():
+    t = _dc.replace(_FB, asic_temperature=60.0, aiclk=400.0)
+    f0 = _pitch(60.0) / 2
+    patched = _dc.replace(DEFAULT_PATCH, gong_partials=(1.0, 3.3), gong_amps=(1.0, 1.0))
+    x = gong(t, 4.0, _SR, 0, patch=patched)
+    spec = np.abs(np.fft.rfft(x))
+    freqs = np.fft.rfftfreq(len(x), 1 / _SR)
+    near = lambda f: spec[(freqs > f - 3) & (freqs < f + 3)].max()
+    assert near(3.3 * f0) > 5 * near(2.76 * f0)  # the default's second partial is gone
+
+
+def test_gong_uses_the_patch_beat():
+    t = _dc.replace(_FB, asic_temperature=60.0, aiclk=400.0)
+    slow = gong(t, 4.0, _SR, 0, patch=_dc.replace(DEFAULT_PATCH, gong_beat_hz=0.4))
+    fast = gong(t, 4.0, _SR, 0, patch=_dc.replace(DEFAULT_PATCH, gong_beat_hz=1.2))
+    assert not np.allclose(slow, fast)
+
+
+def test_the_shimmer_sits_in_the_patch_band():
+    patch = _dc.replace(DEFAULT_PATCH, shimmer_band=(6000.0, 8000.0))
+    out = ultrasonic_shimmer(_dc.replace(_FB, asic_temperature=60.0), 1.0, _HI, 0, patch=patch)
+    assert 6000 <= _peak_hz(out, _HI) <= 8100

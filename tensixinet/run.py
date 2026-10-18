@@ -8,7 +8,8 @@ import numpy as np
 import soundfile as sf
 
 from .music.chorus import chip_devices, render_chorus
-from .narrate.explain import explain_chip, explain_lead, explain_mix, explain_turns
+from .music.patch import DEFAULT_PATCH, Patch
+from .narrate.explain import explain_chip, explain_lead, explain_mix, explain_patch, explain_turns
 from .narrate.runlog import RunLog
 from .telemetry import Telemetry
 
@@ -20,6 +21,8 @@ def run(
     log: RunLog,
     sample_rate: int = 44100,
     source: str = "the telemetry source",
+    patch: Patch = DEFAULT_PATCH,
+    patch_source: str = "the built-in default patch",
 ) -> np.ndarray:
     if not telemetry:
         log.event("discover", "no chips found, nothing to play",
@@ -28,6 +31,8 @@ def run(
     n = len(telemetry)
     log.event("discover", f"found {n} chip{'' if n == 1 else 's'}",
               f"the chip count comes from {source}; nothing in the synth assumes a number")
+    for d in explain_patch(patch, telemetry, patch_source):
+        log.event("patch", d.what, d.why)
     for i, t in enumerate(telemetry):
         for d in explain_chip(i, t, n):
             log.event("chip", d.what, d.why, chip=i)
@@ -36,11 +41,11 @@ def run(
             log.event("lead", d.what, d.why, chip=i)
     for i, d in enumerate(explain_mix(telemetry)):
         log.event("mix", d.what, d.why, chip=i)
-    for k, d in enumerate(explain_turns(telemetry, duration)):
+    for k, d in enumerate(explain_turns(telemetry, duration, patch=patch)):
         log.event("turn", d.what, d.why, turn=k)
     log.event("render", f"rendering {duration:g}s at {sample_rate} Hz",
               "all chips are rendered, scaled by power, then mixed by current")
-    audio = render_chorus(telemetry, duration, sample_rate)
+    audio = render_chorus(telemetry, duration, sample_rate, patch=patch)
     out_path = Path(out_path)
     sf.write(str(out_path), audio, sample_rate, subtype="PCM_16")
     log.event("done", f"wrote {out_path}",

@@ -8,7 +8,11 @@ cd "$(dirname "$0")/.." || exit 1
 clear
 PROMPT="In a few sentences, describe what four hardware synthesizers sound like when each one is played by a different chip."
 printf '$ python3 -m tensixinet "%s"\n\n' "$PROMPT"
+# demo/chorus.patch.json was drawn from this machine's chips (seed picked for one-bar turns,
+# a low floor and a lively motif), so rebuilding the demo plays the same music. Delete the
+# --patch line to draw a fresh one-of-a-kind patch every time.
 python3 -m tensixinet "$PROMPT" \
+  --patch demo/chorus.patch.json \
   --duration "${DEMO_SECONDS:-50}" \
   --out demo/assets/chorus.wav \
   --log-dir demo/assets/logs

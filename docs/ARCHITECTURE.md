@@ -36,6 +36,7 @@ runs `tt-smi -s`.
 | | `devices.py` | Rollz, Sidrax, Cocoquantus, Plumbutter drone, gong, ultrasonic shimmer, and the current mixer. `DEVICE_INPUTS` says which fields each device reads |
 | | `lead.py` | The lead voice and its shift/invert transforms |
 | | `turns.py` | Who solos each turn, and the gain curves |
+| | `patch.py` | The `Patch` (every drawn choice of a run), drawing it from a seed and the chips, JSON save and load |
 | | `chorus.py` | Deals device slots to chips, plans turns, mixes |
 | `narrate/` | `explain.py` | Plain-language what/why for every choice, built from the same functions the audio uses |
 | | `runlog.py` | JSONL for programs, wrapped left-bar text for people |
@@ -50,7 +51,7 @@ Keep it that way: `music` must never import `narrate`.
 
 ## Why the tests are shaped like this
 
-* A device is `f(telemetry, duration, sample_rate, seed) -> float32 array`, so every device is
+* A device is `f(telemetry, duration, sample_rate, seed, patch=DEFAULT_PATCH) -> float32 array`, so every device is
   tested the same way, with no hardware.
 * `DEVICE_INPUTS` is a claim about what each device reads. `tests/narrate/test_explain.py` changes
   one field at a time and requires the audio to move exactly when the claim says it should, so the

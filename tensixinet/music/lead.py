@@ -14,9 +14,10 @@ from typing import Sequence, Tuple
 import numpy as np
 
 from .mapping import aiclk_to_bpm, temp_to_pitch_hz
+from .patch import DEFAULT_PATCH, SCALES, Patch
 
-PENTATONIC = (0, 2, 4, 7, 9)  # major pentatonic semitones
-MOTIF: Tuple[int, ...] = (0, 2, 1, 3, 2, 4, 3, 1)  # scale degrees, one per eighth note
+PENTATONIC = SCALES["major_pentatonic"]
+MOTIF: Tuple[int, ...] = DEFAULT_PATCH.motif  # scale degrees, one per eighth note; a patch brings its own
 REPEAT_BAND = 1.0  # deg C: closer to the average than this repeats the phrase
 MAX_SHIFT = 4  # scale degrees
 
@@ -27,9 +28,9 @@ class Transform:
     amount: int  # scale degrees for a shift; 0 otherwise
 
 
-def degree_to_semitones(degree: int) -> int:
-    octave, step = divmod(degree, len(PENTATONIC))
-    return 12 * octave + PENTATONIC[step]
+def degree_to_semitones(degree: int, scale: Sequence[int] = PENTATONIC) -> int:
+    octave, step = divmod(degree, len(scale))
+    return 12 * octave + scale[step]
 
 
 def phrase_transform(delta_c: float) -> Transform:
@@ -64,20 +65,20 @@ def _note(freq: float, n: int, sample_rate: int) -> np.ndarray:
     return np.sin(2 * math.pi * freq * k) * env
 
 
-def lead(t, duration: float, sample_rate: int, seed: int) -> np.ndarray:
+def lead(t, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     n_total = int(duration * sample_rate)
     bpm = aiclk_to_bpm(t.aiclk)
     eighth = int(round(30.0 / bpm * sample_rate))
-    bar = eighth * len(MOTIF)
+    bar = eighth * len(patch.motif)
     base = temp_to_pitch_hz(t.asic_temperature)
     transforms = lead_transforms(t.gddr_temps, n_total // bar + 1)
     out = np.zeros(n_total)
     for phrase, tr in enumerate(transforms):
-        for i, degree in enumerate(apply_transform(MOTIF, tr)):
+        for i, degree in enumerate(apply_transform(patch.motif, tr)):
             start = phrase * bar + i * eighth
             if start >= n_total:
                 break
-            freq = min(base * 2 ** (degree_to_semitones(degree) / 12), 0.45 * sample_rate)
+            freq = min(base * 2 ** (degree_to_semitones(degree, patch.scale) / 12), 0.45 * sample_rate)
             seg = _note(freq, eighth, sample_rate)[: n_total - start]
             out[start:start + len(seg)] += 0.8 * seg
     return out.astype(np.float32)

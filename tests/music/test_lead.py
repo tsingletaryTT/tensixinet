@@ -150,3 +150,31 @@ def test_temperature_sets_the_pitch_of_the_lead():
     cool = lead(dataclasses.replace(tel((30.0,) * 4), asic_temperature=30.0), 2.0, SR, 0)
     hot = lead(dataclasses.replace(tel((30.0,) * 4), asic_temperature=90.0), 2.0, SR, 0)
     assert not np.allclose(cool, hot)
+
+
+# --- the patch moves the lead -----------------------------------------------------
+
+from tensixinet.music.patch import DEFAULT_PATCH, SCALES  # noqa: E402
+
+
+def test_the_default_patch_leaves_the_lead_as_it_was():
+    t = tel((30.0, 36.0, 28.0, 31.0))
+    assert np.array_equal(lead(t, 4.0, SR, 0), lead(t, 4.0, SR, 0, patch=DEFAULT_PATCH))
+
+
+def test_a_patch_motif_replaces_the_default_motif():
+    t = tel((30.0,) * 4)
+    other = dataclasses.replace(DEFAULT_PATCH, motif=(0, 1, 0, 1, 0, 1, 0, 1))
+    assert not np.allclose(lead(t, 2.0, SR, 0), lead(t, 2.0, SR, 0, patch=other))
+
+
+def test_a_patch_scale_changes_the_pitches_of_the_same_motif():
+    t = tel((30.0,) * 4)
+    whole = dataclasses.replace(DEFAULT_PATCH, scale_name="whole_tone", scale=SCALES["whole_tone"])
+    assert not np.allclose(lead(t, 2.0, SR, 0), lead(t, 2.0, SR, 0, patch=whole))
+
+
+def test_degrees_walk_whatever_scale_they_are_given():
+    assert degree_to_semitones(6, SCALES["whole_tone"]) == 12      # 6 steps of a 6-note scale is an octave
+    assert degree_to_semitones(1, SCALES["dorian"]) == 2
+    assert degree_to_semitones(-1, SCALES["dorian"]) == -2         # 10 semitones, one octave down

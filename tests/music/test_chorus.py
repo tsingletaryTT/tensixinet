@@ -137,3 +137,48 @@ def test_the_chorus_is_the_soloist_weighted_sum_of_its_devices_mixed_by_current(
     total = sum(gains[s] * assign_device(s)(t, dur, SR, seed=s) for s in range(len(DEVICES)))
     expected = current_mix([total / math.sqrt(len(DEVICES)) * power_to_volume(t.power)], [t.current])
     assert np.allclose(render_chorus([t], dur, SR), expected.astype(np.float32), atol=1e-6)
+
+
+# --- patches ---------------------------------------------------------------------
+
+from tensixinet.music.patch import DEFAULT_PATCH, draw_patch  # noqa: E402
+
+
+def test_the_default_patch_leaves_the_chorus_as_it_was():
+    t = chips(3)
+    assert np.array_equal(render_chorus(t, 4.0, SR), render_chorus(t, 4.0, SR, patch=DEFAULT_PATCH))
+
+
+def test_a_different_patch_changes_the_chorus():
+    t = [dataclasses.replace(FALLBACK, gddr_temps=(30.0, 40.0) * 4)] * 3
+    assert not np.allclose(render_chorus(t, 6.0, SR), render_chorus(t, 6.0, SR, patch=draw_patch(9, t)))
+
+
+def test_the_patch_sets_the_turn_length():
+    two = plan_turns(chips(2), 30.0, patch=dataclasses.replace(DEFAULT_PATCH, bars_per_turn=2))[1]
+    four = plan_turns(chips(2), 30.0, patch=dataclasses.replace(DEFAULT_PATCH, bars_per_turn=4))[1]
+    assert four == pytest.approx(2 * two)
+
+
+def test_the_patch_sets_how_far_non_soloists_drop():
+    quiet = dataclasses.replace(DEFAULT_PATCH, floor=0.05)
+    loud = dataclasses.replace(DEFAULT_PATCH, floor=0.9)
+    t = chips(3)
+    a, b = render_chorus(t, 6.0, SR, patch=quiet), render_chorus(t, 6.0, SR, patch=loud)
+    assert float(np.sqrt(np.mean(b ** 2))) > 1.1 * float(np.sqrt(np.mean(a ** 2)))
+
+
+@pytest.mark.parametrize("change", [
+    {"motif": (0, 1, 0, 1, 0, 1, 0, 1)},
+    {"scale_name": "whole_tone", "scale": (0, 2, 4, 6, 8, 10)},
+    {"gong_beat_hz": 1.2},
+    {"gong_partials": (1.0, 3.3), "gong_amps": (1.0, 1.0)},
+    {"shimmer_band": (6500.0, 7500.0)},
+], ids=lambda c: next(iter(c)))
+def test_each_device_field_of_a_patch_reaches_the_chorus(change):
+    # Only one field changes, and the turn length and floor stay the same, so a difference
+    # can only come from that field being passed down to its device.
+    t = chips(1)
+    base = render_chorus(t, 30.0, 22050, patch=DEFAULT_PATCH)
+    changed = render_chorus(t, 30.0, 22050, patch=dataclasses.replace(DEFAULT_PATCH, **change))
+    assert not np.allclose(base, changed)

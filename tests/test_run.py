@@ -65,3 +65,45 @@ def test_run_log_says_who_solos_and_how_the_lead_changes(tmp_path):
     assert "turn" in kinds and "lead" in kinds
     assert kinds.index("turn") < kinds.index("render")
     assert "plays rollz" in next(e["what"] for e in events if e["event"] == "chip")
+
+
+# --- patches in a run --------------------------------------------------------------
+
+from tensixinet.music.patch import DEFAULT_PATCH, draw_patch  # noqa: E402
+
+
+def _events(tmp_path):
+    return [json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines()]
+
+
+def test_run_logs_the_patch_before_it_describes_any_chip(tmp_path):
+    chips = mock_telemetry(2, seed=4)
+    log = _log(tmp_path)
+    run(chips, 2.0, tmp_path / "o.wav", log, 8000, patch=draw_patch(5, chips), patch_source="a test seed")
+    log.close()
+    kinds = [e["event"] for e in _events(tmp_path)]
+    assert "patch" in kinds and kinds.index("patch") < kinds.index("chip")
+    assert "a test seed" in next(e["why"] for e in _events(tmp_path) if e["event"] == "patch")
+
+
+def test_run_plays_the_patch_it_was_given(tmp_path):
+    chips = mock_telemetry(3, seed=4)
+    log = _log(tmp_path)
+    plain = run(chips, 6.0, tmp_path / "a.wav", log, 8000)
+    same = run(chips, 6.0, tmp_path / "b.wav", log, 8000, patch=DEFAULT_PATCH)
+    other = run(chips, 6.0, tmp_path / "c.wav", log, 8000, patch=draw_patch(5, chips))
+    log.close()
+    assert (plain == same).all() and not (plain == other).all()
+
+
+def test_run_logs_turns_with_the_patch_turn_length(tmp_path):
+    import dataclasses
+    chips = mock_telemetry(2, seed=4)
+    times = {}
+    for bars in (1, 4):
+        log = RunLog(jsonl=open(tmp_path / f"{bars}.jsonl", "w"), stream=open(tmp_path / f"{bars}.txt", "w"))
+        run(chips, 40.0, tmp_path / f"{bars}.wav", log, 8000, patch=dataclasses.replace(DEFAULT_PATCH, bars_per_turn=bars))
+        log.close()
+        evs = [json.loads(l) for l in (tmp_path / f"{bars}.jsonl").read_text().splitlines()]
+        times[bars] = [e["what"] for e in evs if e["event"] == "turn"]
+    assert times[1] != times[4]

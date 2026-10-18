@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from .media import llm
+from .music.patch import DEFAULT_PATCH, draw_patch, load_patch, save_patch, seed_from_telemetry
 from .run import run
 from .narrate.runlog import RunLog
 from .telemetry import fetch_snapshot, mock_telemetry, parse_snapshot
@@ -49,6 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log-dir", default="logs", help="where the run log goes (default logs/)")
     p.add_argument("--mock-chips", type=_positive_int, metavar="N", help="play N synthetic chips; reads no hardware")
     p.add_argument("--seed", type=int, default=0, help="seed for --mock-chips")
+    p.add_argument("--patch", metavar="FILE", help="replay a saved patch (patch_*.json from an earlier run's log dir)")
+    p.add_argument("--patch-seed", type=int, metavar="N", help="draw the patch from this seed instead of from the chips and entropy")
     p.add_argument("--endpoint", default="http://127.0.0.1:8011", help="OpenAI-compatible LLM endpoint")
     p.add_argument("--model", help="model name (default: whatever the endpoint serves)")
     return p
@@ -58,6 +61,7 @@ def main(
     argv: Optional[Sequence[str]] = None,
     ask: Optional[Callable] = None,
     sample: Optional[Callable] = None,
+    entropy: Optional[Callable] = None,
 ) -> int:
     a = build_parser().parse_args(argv)
     stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -85,6 +89,13 @@ def main(
         source = "the supplied telemetry source"
 
     try:
+        replay = None
+        if a.patch:
+            try:
+                replay = load_patch(a.patch)
+            except ValueError as e:
+                log.event("patch", f"cannot read patch {a.patch}", f"{e}; nothing was played")
+                return 2
         if a.prompt:
             try:
                 reply = ask(a.prompt, a.endpoint)
@@ -94,7 +105,21 @@ def main(
                 log.event("llm", f"LLM unavailable: {e}",
                           "continuing with telemetry only; the chorus does not need the LLM to play")
         try:
-            run(sample(), a.duration, out, log, a.sample_rate, source=source)
+            chips = sample()
+            if not chips:  # run() logs that there is nothing to play and raises
+                patch, patch_source = DEFAULT_PATCH, "no chips, so no patch was drawn"
+            elif replay is not None:
+                patch, patch_source = replay, f"replayed from {a.patch}, so this run sounds like the one that saved it"
+            elif a.patch_seed is not None:
+                patch, patch_source = draw_patch(a.patch_seed, chips), f"seed {a.patch_seed} given with --patch-seed"
+            else:
+                noise = (entropy or time.time_ns)()
+                seed = seed_from_telemetry(chips, noise)
+                patch = draw_patch(seed, chips)
+                patch_source = f"seed {seed} comes from every chip reading plus entropy {noise}, so no two runs match"
+            if chips:
+                save_patch(patch, log_dir / f"patch_{stamp}.json")
+            run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source)
         except ValueError:
             return 2
         return 0

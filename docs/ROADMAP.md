@@ -2,15 +2,14 @@
 
 Open work in rough order. Each item starts with a failing test (see `CONTRIBUTING.md`).
 
-1. **Replayable one-of-a-kind patches.** Each run draws a "patch" (lead motif, scale or mode, gong
-   partial ratios, shimmer band, turn length, which devices run) from a seed taken from the chips'
-   readings. The patch is saved as JSON, printed in the run log with the reason for each choice,
-   and replayed with `--patch FILE`. Tests: same seed repeats exactly, different seeds differ, and
-   the patch file round-trips.
-2. **Let the system pick the mode.** For example the GDDR spread chooses the scale and the ratio of
-   memory to ASIC temperature chooses the gong tuning, so the diversity follows the machine.
-3. **Live mode.** Today it samples telemetry once and renders. Sampling during playback would make
-   the lead, the turns and the gong follow the chips as they heat up under load.
+1. **More of the patch.** Which devices run at all is not in the patch yet. More fields could join it: the
+   motif length, the transform rules (shift and invert thresholds), the number of lanes in Rollz, the Sidrax
+   bound spread. Each new field needs the "only this field changes the chorus" test.
+2. **Let more of the system pick.** Today GDDR spread picks the scale and the memory-to-ASIC ratio picks the gong
+   tuning. Power spread across chips could pick the turn length, and aiclk spread could pick Rollz's asymmetry.
+3. **Live mode.** Today it samples telemetry once, draws one patch and renders. Sampling during playback
+   would make the lead, the turns and the gong follow the chips as they heat up under load, and could
+   re-draw the patch as the readings drift.
 4. **Demo pacing.** The whole log appears within about 3 s, then the left pane is still for the
    rest of the clip, and the longer log scrolls the first lines off the top. Print the chip lines
    gradually, in time with the music, or loop prompts.

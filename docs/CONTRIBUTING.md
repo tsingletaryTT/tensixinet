@@ -27,8 +27,9 @@ nothing on your machine hides a missing dependency.
 
 ## Add a device
 
-1. Write the device as `f(telemetry, duration, sample_rate, seed) -> float32 array`, bounded by 1 and
-   deterministic for a seed. Put it in `tensixinet/music/devices.py`, or in its own module under
+1. Write the device as `f(telemetry, duration, sample_rate, seed, patch=DEFAULT_PATCH) -> float32 array`,
+   bounded by 1 and deterministic for a seed. If it has choices that should differ between runs, add the
+   field to `Patch` in `music/patch.py` (draw it, validate it, test the round trip) and read it from `patch`. Put it in `tensixinet/music/devices.py`, or in its own module under
    `music/` if it is large (like `lead.py`).
 2. Add it to `DEVICE_INPUTS` in `devices.py` with exactly the telemetry fields it reads.
    `tests/narrate/test_explain.py` fails if that list and the audio disagree.
@@ -38,6 +39,8 @@ nothing on your machine hides a missing dependency.
    for any device.
 5. If a field should change what the log says, extend `narrate/explain.py` and test the text.
 6. Update `docs/SOUND.md` and the README table.
+7. If you added a patch field, add a test that changing only that field changes the chorus, so a field
+   that is never passed down is caught.
 
 ## Change a mapping
 

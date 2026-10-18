@@ -8,7 +8,7 @@ say what exists and what is left.
 |---|---|
 | `README.md` | What it is and how to run it |
 | `docs/ARCHITECTURE.md` | Data flow and where each piece lives |
-| `docs/SOUND.md` | Signal-to-sound table, the seven devices, turns, the lead |
+| `docs/SOUND.md` | Signal-to-sound table, the seven devices, turns, the lead, patches |
 | `docs/DECISIONS.md` | Why the code is the way it is |
 | `docs/CONTRIBUTING.md` | How to add a device or change a mapping, test first |
 | `docs/ROADMAP.md` | Open work, in order |
@@ -31,7 +31,7 @@ programs, every reason kept) and a text file (what you see on screen, each reaso
 ```
 tensixinet/
   telemetry/   snapshot.py (tt-smi JSON to Telemetry), mock.py (synthetic N chips)
-  music/       mapping, synth, devices, lead, turns, chorus
+  music/       mapping, synth, devices, lead, turns, patch, chorus
   narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
   media/       llm (OpenAI-compatible endpoint), mux (WAV under a video)
   run.py cli.py __main__.py     wiring and the command line
@@ -114,3 +114,14 @@ legacy/        first prototype scripts, kept for reference
   * An earlier edit that was meant to update the "Chip count" decision silently matched nothing,
     and the old text (a 1-chip box plays only Rollz) stayed for a while. Check that a scripted
     text replacement changed something.
+* **2026-10-17, "I agree with the above" (replayable one-of-a-kind patches):** each run now draws a
+  `Patch` (scale, lead motif, gong tuning and beat, shimmer band, turn length, floor). The system picks
+  the scale (GDDR spread) and gong tuning (memory-to-ASIC ratio); a seed from all readings plus the clock
+  picks the rest. The patch is saved as JSON, logged with reasons, and replayed with `--patch`. The demo
+  replays `demo/chorus.patch.json`, so rebuilding it plays the same music.
+  * The mutation battery had three survivors the first time: a seed that hashed only the first fields
+    of the readings, the chorus not passing the patch down to the devices (masked by other patch fields
+    changing the audio), and the run log not passing the patch to the turn log. Each got a test that
+    changes only that one thing.
+  * Drawing a patch from no chips crashed before the existing "no chips" message; the CLI now skips the
+    draw in that case.
