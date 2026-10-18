@@ -1,7 +1,7 @@
 """Soundtrack: lay the chorus WAV under a recorded demo video."""
 import pytest
 
-from tensixinet.mux import mux, mux_command
+from tensixinet.media.mux import mux, mux_command
 
 
 def test_mux_command_copies_video_and_encodes_audio_trimmed_to_the_video():
@@ -34,7 +34,7 @@ def test_mux_surfaces_ffmpeg_errors():
 
 
 def test_cli_muxes_and_reports_the_output(capsys):
-    from tensixinet.mux import main
+    from tensixinet.media.mux import main
     calls = []
     code = main(["v.mp4", "a.wav", "o.mp4"], run=lambda c, **k: calls.append(c) or Result(0))
     assert code == 0 and calls[0][-1] == "o.mp4"
@@ -42,6 +42,6 @@ def test_cli_muxes_and_reports_the_output(capsys):
 
 
 def test_cli_returns_nonzero_and_says_why_when_ffmpeg_fails(capsys):
-    from tensixinet.mux import main
+    from tensixinet.media.mux import main
     assert main(["v.mp4", "a.wav", "o.mp4"], run=lambda c, **k: Result(1, "bad input")) == 1
     assert "bad input" in capsys.readouterr().err

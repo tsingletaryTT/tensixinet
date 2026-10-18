@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from tensixinet.synth import Voice, build_voices, render
+from tensixinet.music.synth import Voice, build_voices, render
 from tensixinet.telemetry import FALLBACK, Telemetry
 
 SR = 8000  # low rate keeps tests fast; the synth takes sample_rate as an argument

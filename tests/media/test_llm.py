@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from tensixinet.llm import LLMError, ask, discover_model
+from tensixinet.media.llm import LLMError, ask, discover_model
 
 
 class FakeResponse(io.BytesIO):

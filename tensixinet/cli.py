@@ -8,11 +8,10 @@ import time
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-from . import llm
-from .mock import mock_telemetry
+from .media import llm
 from .run import run
-from .runlog import RunLog
-from .telemetry import fetch_snapshot, parse_snapshot
+from .narrate.runlog import RunLog
+from .telemetry import fetch_snapshot, mock_telemetry, parse_snapshot
 
 
 class _Tee:

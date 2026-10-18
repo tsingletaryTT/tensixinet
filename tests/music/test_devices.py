@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from tensixinet.devices import (
+from tensixinet.music.devices import (
     bounce_wave,
     cocoquantus,
     cocoquantus_steps,
@@ -164,8 +164,8 @@ def test_plumbutter_drone_has_the_chips_pitch_voices():
 
 # --- gong: inharmonic, long-ringing ---------------------------------------------
 
-from tensixinet.devices import GONG_PARTIALS, gong, ultrasonic_shimmer  # noqa: E402
-from tensixinet.mapping import temp_to_pitch_hz as _pitch  # noqa: E402
+from tensixinet.music.devices import GONG_PARTIALS, gong, ultrasonic_shimmer  # noqa: E402
+from tensixinet.music.mapping import temp_to_pitch_hz as _pitch  # noqa: E402
 from tensixinet.telemetry import FALLBACK as _FB  # noqa: E402
 import dataclasses as _dc  # noqa: E402
 

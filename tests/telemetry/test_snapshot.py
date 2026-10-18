@@ -8,15 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from tensixinet.telemetry import (
+from tensixinet.telemetry.snapshot import (
     FALLBACK,
-    Telemetry,
     decode_gddr_channel_temps,
     decode_ddr_status,
     parse_snapshot,
 )
 
-FIXTURE = Path(__file__).parent / "fixtures" / "tt_smi_snapshot.json"
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "tt_smi_snapshot.json"
 
 
 @pytest.fixture(scope="module")

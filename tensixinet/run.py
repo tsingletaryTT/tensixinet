@@ -7,10 +7,9 @@ from typing import Sequence
 import numpy as np
 import soundfile as sf
 
-from .chorus import render_chorus
-from .chorus import chip_devices
-from .explain import explain_chip, explain_lead, explain_mix, explain_turns
-from .runlog import RunLog
+from .music.chorus import chip_devices, render_chorus
+from .narrate.explain import explain_chip, explain_lead, explain_mix, explain_turns
+from .narrate.runlog import RunLog
 from .telemetry import Telemetry
 
 

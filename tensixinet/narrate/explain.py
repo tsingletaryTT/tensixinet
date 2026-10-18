@@ -11,16 +11,16 @@ from typing import List, Optional, Sequence
 
 import math
 
-from .chorus import DEVICES, assign_device, chip_devices, n_slots, plan_turns, slot_chip
-from .devices import DEVICE_INPUTS, sidrax_bounds
-from .lead import lead_transforms
-from .mapping import (
+from ..music.chorus import DEVICES, assign_device, chip_devices, n_slots, plan_turns, slot_chip
+from ..music.devices import DEVICE_INPUTS, sidrax_bounds
+from ..music.lead import lead_transforms
+from ..music.mapping import (
     aiclk_to_bpm,
     ddr_lane_divisions,
     power_to_volume,
     temp_to_pitch_hz,
 )
-from .telemetry import Telemetry
+from ..telemetry import Telemetry
 
 
 @dataclass(frozen=True)

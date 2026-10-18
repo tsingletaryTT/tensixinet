@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 tt-demo record chorus
 tt-demo compress demo/assets/chorus.cast
 tt-demo render chorus --mp4
-python3 -m tensixinet.mux demo/assets/chorus.mp4 demo/assets/chorus.wav demo/assets/chorus.final.mp4
+python3 -m tensixinet.media.mux demo/assets/chorus.mp4 demo/assets/chorus.wav demo/assets/chorus.final.mp4
 tt-demo verify chorus
 echo "soundtrack check:"
 ffprobe -v error -show_entries stream=codec_type,codec_name,duration -of csv=p=0 demo/assets/chorus.final.mp4

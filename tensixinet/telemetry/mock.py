@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .telemetry import Telemetry
+from .snapshot import Telemetry
 
 
 def mock_telemetry(n_chips: int, seed: int = 0) -> list:

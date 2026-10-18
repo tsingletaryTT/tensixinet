@@ -4,8 +4,8 @@ import dataclasses
 import numpy as np
 import pytest
 
-from tensixinet.chorus import DEVICES, assign_device, chip_devices, plan_turns, render_chorus
-from tensixinet.mapping import aiclk_to_bpm
+from tensixinet.music.chorus import DEVICES, assign_device, chip_devices, plan_turns, render_chorus
+from tensixinet.music.mapping import aiclk_to_bpm
 from tensixinet.telemetry import FALLBACK
 
 SR = 8000
@@ -127,9 +127,9 @@ def test_the_chorus_is_the_soloist_weighted_sum_of_its_devices_mixed_by_current(
     # every device is scaled by its turn gain, the chip's devices are summed and divided by
     # sqrt(device count), then scaled by power and mixed by current.
     import math
-    from tensixinet.devices import current_mix
-    from tensixinet.mapping import power_to_volume
-    from tensixinet.turns import turn_gains
+    from tensixinet.music.devices import current_mix
+    from tensixinet.music.mapping import power_to_volume
+    from tensixinet.music.turns import turn_gains
     t = dataclasses.replace(FALLBACK, ddr_status=(1, 1, 1, 1), gddr_temps=(30.0, 38.0, 34.0, 29.0) * 2)
     dur = 20.0
     solo, turn_s = plan_turns([t], dur)

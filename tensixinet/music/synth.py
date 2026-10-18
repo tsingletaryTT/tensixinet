@@ -12,7 +12,7 @@ from typing import List, Sequence
 
 import numpy as np
 
-from .telemetry import Telemetry
+from ..telemetry import Telemetry
 
 # Semitone offsets of a C major triad; voice k takes the next chord tone upward.
 _TRIAD = (0, 4, 7)

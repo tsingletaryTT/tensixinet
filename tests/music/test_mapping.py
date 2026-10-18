@@ -1,7 +1,7 @@
 """The README's hardware -> music table, as executable spec."""
 import pytest
 
-from tensixinet.mapping import (
+from tensixinet.music.mapping import (
     aiclk_to_bpm,
     ddr_lane_divisions,
     norm_temp,

@@ -4,7 +4,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from tensixinet.lead import (
+from tensixinet.music.lead import (
     MOTIF,
     Transform,
     apply_transform,
@@ -13,7 +13,7 @@ from tensixinet.lead import (
     lead_transforms,
     phrase_transform,
 )
-from tensixinet.mapping import aiclk_to_bpm
+from tensixinet.music.mapping import aiclk_to_bpm
 from tensixinet.telemetry import FALLBACK
 
 SR = 8000
@@ -133,7 +133,6 @@ def test_a_hot_channel_changes_the_bar_that_reads_it_and_only_that_bar():
 
 def test_a_shifted_phrase_is_higher_than_the_loop():
     flat = bars(lead(tel((30.0,) * 4), 2.0, SR, 0), 1)[0]
-    temps = (30.0, 30.0, 30.0, 70.0)  # mean 40; use only channel 3 hot by rotating
     hot_first = bars(lead(tel((70.0, 30.0, 30.0, 30.0)), 2.0, SR, 0), 1)[0]  # phrase 0 reads 70 C
     def centroid(x):
         spec = np.abs(np.fft.rfft(x))

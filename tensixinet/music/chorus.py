@@ -16,7 +16,7 @@ import numpy as np
 from .devices import cocoquantus, current_mix, gong, plumbutter_drone, rollz, sidrax, ultrasonic_shimmer
 from .lead import lead
 from .mapping import aiclk_to_bpm, power_to_volume
-from .telemetry import Telemetry
+from ..telemetry import Telemetry
 from .turns import soloists, turn_gains
 
 DEVICES = (rollz, sidrax, cocoquantus, plumbutter_drone, lead, gong, ultrasonic_shimmer)

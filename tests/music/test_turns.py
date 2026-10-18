@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from tensixinet.turns import soloists, turn_gains
+from tensixinet.music.turns import soloists, turn_gains
 
 
 def test_one_voice_always_solos():

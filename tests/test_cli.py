@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from tensixinet.cli import main
-from tensixinet.llm import LLMError
-from tensixinet.mock import mock_telemetry
+from tensixinet.media.llm import LLMError
+from tensixinet.telemetry.mock import mock_telemetry
 
 
 def read_events(log_dir):

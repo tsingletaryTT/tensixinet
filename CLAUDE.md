@@ -1,39 +1,45 @@
 # tensixinet
 
 Tenstorrent chip telemetry played as a chorus of Ciat-Lonbarde-style devices. Devices are dealt
-across the chips, and they trade solos. The README has the musical background and the signal-to-sound table.
+across the chips and trade solos. Read this file first. It says how to work here. The other docs
+say what exists and what is left.
 
-Read this file first. It says what exists, how to check it, and what is left.
+| Read | For |
+|---|---|
+| `README.md` | What it is and how to run it |
+| `docs/ARCHITECTURE.md` | Data flow and where each piece lives |
+| `docs/SOUND.md` | Signal-to-sound table, the seven devices, turns, the lead |
+| `docs/DECISIONS.md` | Why the code is the way it is |
+| `docs/CONTRIBUTING.md` | How to add a device or change a mapping, test first |
+| `docs/ROADMAP.md` | Open work, in order |
+| `legacy/README.md` | The old prototype scripts (unsafe to run) |
 
 ## Run it
 
 ```bash
-python3 -m tensixinet --mock-chips 4 --duration 20      # no hardware needed
+make test                                               # about 1 s, no hardware
+python3 -m tensixinet --mock-chips 4 --duration 20      # synthetic chips, no hardware
 python3 -m tensixinet "your prompt" --duration 60       # real chips + the LLM endpoint
-python3 -m pytest                                       # 226 tests, about 1 s, no hardware
-demo/build.sh                                           # record the split-pane demo + soundtrack
+make demo                                               # record the split-pane demo + soundtrack
 ```
 
-`python3 -m tensixinet --help` lists every option. The run log goes to `logs/` as JSONL
-(for programs, every reason kept) and a text file (what you see on screen, each reason once).
+`python3 -m tensixinet --help` lists every option. The run log goes to `logs/` as JSONL (for
+programs, every reason kept) and a text file (what you see on screen, each reason once).
 
 ## Layout
 
-| File | Job |
-|---|---|
-| `tensixinet/telemetry.py` | `tt-smi -s` JSON to `Telemetry` readings. Pure except `fetch_snapshot`. |
-| `tensixinet/mapping.py` | The README table as functions (temperature to pitch, aiclk to BPM, power to volume, DDR to lanes). |
-| `tensixinet/synth.py` | Drone voices for any chip count. |
-| `tensixinet/devices.py` | Rollz, Sidrax, Cocoquantus, Plumbutter drone, a gong and an ultrasonic shimmer, plus the current-based mixer. `DEVICE_INPUTS` says which telemetry fields each device reads. |
-| `tensixinet/lead.py` | The lead voice: a motif that is shifted or inverted by GDDR channel readings. |
-| `tensixinet/turns.py` | Who solos each turn (weighted by chip power, never the same twice) and the gain curves. |
-| `tensixinet/chorus.py` | Deals device slots to chips, plans the turns, scales by power, mixes by current. |
-| `tensixinet/explain.py`, `runlog.py` | The what/why log. |
-| `tensixinet/llm.py` | Prompts any OpenAI-compatible endpoint; the model name is read from the endpoint. |
-| `tensixinet/mux.py` | Puts the WAV under a video with ffmpeg. |
-| `tensixinet/mock.py` | Synthetic N-chip telemetry. |
-| `demo/` | `tt-demo` manifest, left-pane script, `build.sh`. |
-| `tests/` | One test file per module. `tests/fixtures/tt_smi_snapshot.json` is a real 4-chip capture. |
+```
+tensixinet/
+  telemetry/   snapshot.py (tt-smi JSON to Telemetry), mock.py (synthetic N chips)
+  music/       mapping, synth, devices, lead, turns, chorus
+  narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
+  media/       llm (OpenAI-compatible endpoint), mux (WAV under a video)
+  run.py cli.py __main__.py     wiring and the command line
+tests/         mirrors the package: tests/music/test_devices.py tests the music/devices.py module
+demo/          tt-demo manifest, left-pane script, build.sh
+docs/          architecture, sound design, decisions, contributing, roadmap
+legacy/        first prototype scripts, kept for reference
+```
 
 ## Rules for working here
 
@@ -41,42 +47,19 @@ demo/build.sh                                           # record the split-pane 
   After it passes, break the code on purpose (swap a `min` for a `max`, drop a term) and
   confirm a test goes red. A mutant that survives means a test is missing or too weak. Also
   check the test was green before you mutate: a test that is already red "catches" everything.
-* **Never `import ttnn`, `ttl`, `torch` or `sounddevice` in `tensixinet/` or `tests/`.**
-  Importing `ttnn` opens the device. `tt-smi -s`, `tt-toplike --backend hybrid` and plain
-  HTTP to the LLM endpoint only read, so they need no gozer lease. Anything that opens
-  `/dev/tenstorrent/*` needs one (see the global CLAUDE.md).
-* **The old top-level scripts are superseded and unsafe to run.** `tensixinet_full_loop.py`
-  and `ciat_lonbarde_kernels.py` import `ttnn` and `ttl` at the top, so merely starting them
-  opens the device with no lease. `tensixinet_multichip.py`, `phase1_sonification.py` and
-  `tensixinet_tt_demo_maker.py` read device 0 only, hard-code 8 voices, and render with
-  per-sample Python loops (minutes for 2 minutes of audio; the new code takes about 0.1 s
-  for 10 s). They are kept for reference until the TT-Lang kernels are ported.
-* The log must match the code. `DEVICE_INPUTS` lists the fields each device reads, and a test
+* **Never `import ttnn`, `ttl`, `ttml`, `torch` or `sounddevice` in `tensixinet/` or `tests/`.**
+  Importing `ttnn` opens the device. `tests/test_hygiene.py` fails on any such import.
+  `tt-smi -s`, `tt-toplike --backend hybrid` and plain HTTP to the LLM endpoint only read, so
+  they need no gozer lease. Anything that opens `/dev/tenstorrent/*` needs one (see the global
+  CLAUDE.md).
+* **Every module has a test file in the matching `tests/` folder**, and every package folder has an
+  `__init__.py`. The hygiene test checks both.
+* **The log must match the code.** `DEVICE_INPUTS` lists the fields each device reads, and a test
   fails if that list and the audio disagree.
-* Bump nothing by hand in the README table without changing `mapping.py` and its tests.
-
-## Decisions
-
-* **Chip count is never assumed.** Voices, devices, GDDR channels and log text all come from
-  the telemetry. A 1-chip box plays only Rollz; a 32-chip box plays eight of each device.
-  Open question: should a small system play more than one device per chip so it still sounds
-  like a chorus? Not decided.
-* **A GDDR channel's temperature is the hotter of its two dies.** tt-smi packs each
-  `GDDR_x_y_TEMP` word as bottom and top die for two channels (`tt_smi/utils.py`,
-  `decode_gddr_pair_temps`). The old code read the bytes as four independent sensors and kept
-  8 of 16, so channels 4 to 7 never reached the synth. A test compares our decoder against
-  tt-smi's own.
-* **Phase is the running sum of frequency.** The old code used `sin(2*pi*f(t)*t)`, which
-  smears pitch whenever the frequency changes.
-* **Partials above Nyquist are dropped**, so high voices do not alias into the audible band.
-* **The chorus applies power and current; the devices never read them.** Power sets each
-  chip's volume. Current sets its share of the mix (Plumbutter 2: sources mix by current).
-* **`voltage` has no musical use.** A test pins that; adding one is a deliberate change.
-* **DDR status:** the code treats the low byte as four 2-bit fields and mutes a lane at 0.
-  tt-smi's source says newer firmware puts BIST bits in `[31:16]`. The meaning of values 1 to
-  3 is a guess and should be checked against firmware docs.
-* The chorus is not normalised to a fixed peak, because that would erase the power-to-volume
-  mapping. `tanh` in the mixer keeps it inside full scale.
+* **Change the mapping table only with `music/mapping.py` and its tests**, and update `docs/SOUND.md`.
+* **Check that a scripted edit changed something.** A search-and-replace that matches nothing
+  reports success.
+* **Docs that name numbers** (test counts, ranges) are updated in the same change as the code.
 
 ## What happened (log)
 
@@ -114,20 +97,20 @@ demo/build.sh                                           # record the split-pane 
   claiming a prompt moved a chip.
 * **Chips 2 and 3 were held by another agent** and carry the
   model on port 8011. Everything here was read-only, so it did not interfere.
-
-## Open work, in rough order
-
-1. **Demo pacing.** The whole log appears within about 3 s, then the left pane is still for
-   the remaining 47 s. Print the chip lines gradually, in time with the music, or loop prompts.
-2. **Longer load.** The model answers in about 3 s. Add `--max-tokens` to the CLI (it is fixed
-   at 100 in `llm.ask`) or send several prompts so tt-toplike shows load for longer.
-3. **Align audio to the LLM reply.** The soundtrack starts at video time 0, but telemetry is
-   sampled after the reply.
-4. **Live mode.** Today it samples telemetry once and renders. Sampling during playback would
-   make the music follow the chips as they change.
-5. **Port the TT-Lang kernels** in `ciat_lonbarde_kernels.py` once they can be tested on
-   hardware (needs a gozer lease and a hardware-marked test; `pyproject.toml` already
-   declares the `hardware` marker, and nothing uses it yet).
-6. Move the superseded scripts to `archive/`.
-7. This directory is not a git repository. Create one (default branch `main`) before more
-   changes land. `audio/`, `logs/`, `demo/assets/` and `*.mp4` are large and should be ignored.
+* **2026-10-17, repo made public prep:** git repo on `main`; the test fixture was scrubbed of the
+  hostname, board and ASIC IDs and process command lines; `archive/` (editor backups and memory
+  snapshots) stays ignored. Only `demo/assets/chorus.final.mp4` and its contact sheet are tracked
+  from the demo output.
+* **2026-10-17, "better structure and organize the whole repo":** the flat package became
+  `telemetry/`, `music/`, `narrate/` and `media/`, with tests in matching folders. Prototype
+  scripts moved to `legacy/`. Docs split into `docs/`. Added `pyproject.toml` packaging with a
+  `tensixinet` command, a Makefile and a CI workflow. A new `tests/test_hygiene.py` reads every
+  module and fails on `ttnn`/`ttl`/`ttml`/`torch`/`sounddevice` imports, a package folder without
+  `__init__.py`, or a module with no test file in its matching folder. It caught that the RunLog
+  tests were hiding inside `test_explain.py`.
+  * A mutation run (adding `import ttnn` to a module, removing an `__init__.py`, removing a test
+    file) turned the hygiene tests red each time. The first attempt at the import mutant used
+    `sed '1a'`, which landed inside a docstring and proved nothing, so it was redone by appending.
+  * An earlier edit that was meant to update the "Chip count" decision silently matched nothing,
+    and the old text (a 1-chip box plays only Rollz) stayed for a while. Check that a scripted
+    text replacement changed something.

@@ -18,7 +18,7 @@ from .mapping import (
     temp_to_pitch_hz,
 )
 from .synth import build_voices, render
-from .telemetry import Telemetry
+from ..telemetry import Telemetry
 
 PENTATONIC = (0, 2, 4, 7, 9)  # major pentatonic semitones
 
