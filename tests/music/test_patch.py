@@ -10,6 +10,7 @@ from tensixinet.music.lead import MOTIF
 from tensixinet.music.patch import (
     DEFAULT_PATCH,
     GONG_TUNINGS,
+    RAX_BAR_COUNTS,
     SCALES,
     draw_patch,
     load_patch,
@@ -35,6 +36,7 @@ def test_default_patch_is_the_pre_patch_sound():
     assert p.gong_partials == (1.0, 2.76, 5.40, 8.45) and p.gong_amps == (1.0, 0.6, 0.35, 0.2)
     assert p.gong_beat_hz == 0.7 and p.shimmer_band == (12000.0, 20000.0)
     assert p.bars_per_turn == 2 and p.floor == 0.35
+    assert p.rax_bars == 7  # the Sidrax, today's sound before this field existed
 
 
 # --- drawing -------------------------------------------------------------------
@@ -62,12 +64,13 @@ def test_every_drawn_patch_is_valid_and_playable(seed):
     assert 10000 <= lo < hi <= 20500 and hi - lo >= 3000
     assert p.bars_per_turn in (1, 2, 3, 4) and 0.25 <= p.floor <= 0.45
     assert 0.4 <= p.gong_beat_hz <= 1.2
+    assert p.rax_bars in RAX_BAR_COUNTS
     assert p.seed == seed
 
 
 def test_the_seed_moves_every_drawn_field_somewhere():
     ps = [draw_patch(s, UNEVEN) for s in range(80)]
-    for field in ("motif", "gong_beat_hz", "shimmer_band", "bars_per_turn", "floor"):
+    for field in ("motif", "gong_beat_hz", "shimmer_band", "bars_per_turn", "floor", "rax_bars"):
         assert len({getattr(p, field) for p in ps}) > 1, field
 
 
@@ -95,6 +98,16 @@ def test_the_gong_tuning_follows_the_memory_to_asic_temperature_ratio():
     assert a.gong_tuning != b.gong_tuning
     assert a.gong_partials == GONG_TUNINGS[a.gong_tuning][0]
     assert len({draw_patch(s, cool_asic).gong_tuning for s in range(30)}) == 1
+
+
+# --- ttrax: Tetrax, Sidrax or Quatrax ------------------------------------------
+
+def test_the_rax_bar_counts_are_tetrax_sidrax_and_quatrax():
+    assert RAX_BAR_COUNTS == (4, 7, 14)
+
+
+def test_every_bar_count_is_drawn_somewhere_in_a_run_of_seeds():
+    assert {draw_patch(s, UNEVEN).rax_bars for s in range(60)} == set(RAX_BAR_COUNTS)
 
 
 # --- seeds from the chips -------------------------------------------------------
@@ -126,6 +139,14 @@ def test_the_default_patch_round_trips_too(tmp_path):
     assert load_patch(tmp_path / "d.json") == DEFAULT_PATCH
 
 
+def test_a_patch_saved_before_rax_bars_existed_still_loads_as_the_sidrax(tmp_path):
+    d = json.loads(json.dumps(dataclasses.asdict(DEFAULT_PATCH)))
+    del d["rax_bars"]
+    path = tmp_path / "old.json"
+    path.write_text(json.dumps(d))
+    assert load_patch(path).rax_bars == 7
+
+
 @pytest.mark.parametrize("change", [
     {"motif": []},
     {"scale": []},
@@ -135,6 +156,7 @@ def test_the_default_patch_round_trips_too(tmp_path):
     {"bars_per_turn": 0},
     {"floor": 0.0},
     {"floor": 1.5},
+    {"rax_bars": 5},
 ])
 def test_a_broken_patch_file_is_refused_with_a_reason(tmp_path, change):
     d = json.loads(json.dumps(dataclasses.asdict(DEFAULT_PATCH)))

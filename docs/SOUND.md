@@ -47,7 +47,7 @@ The functions are in `tensixinet/music/mapping.py`. Readings outside a range hol
 | Device | Character | Reads |
 |---|---|---|
 | ttrollz | Lopsided pulse clock plus a roll for each DDR channel and each group of ethernet links | temperature, aiclk, DDR status, ethernet links |
-| ttrax | Seven barres. A press plays a tone and a release plays a glitch | temperature, aiclk, GDDR temperatures, arcclk, pressure |
+| ttrax | 4, 7 or 14 barres (Tetrax, Sidrax or Quatrax). A press plays a tone and a release plays a glitch | temperature, aiclk, GDDR temperatures, arcclk, pressure |
 | ttquantus | A repeating, drifting melody on the patch's scale, through an 8-bit buffer | temperature, aiclk, axiclk, chip identity |
 | ttdrone | Drone of 1 to 6 C major voices that ripples after each gong strike | temperature, voltage, PCIe usage, aiclk, heartbeat, chip identity |
 | Lead | Eight-note motif, shifted or inverted bar by bar | temperature, aiclk, GDDR temperatures, pressure, chip identity |
@@ -91,15 +91,17 @@ its roll.
 
 ## ttrax
 
-Seven barres tuned to the first seven degrees of the patch's scale, starting at the chip's pitch times
-arcclk / 800 MHz. Each barre has fixed walls, its own GDDR channel for the upper one and the next channel for the
-lower one: `-(0.2 + 0.7 x norm_temp)` and `0.2 + 0.7 x norm_temp`.
+`patch.rax_bars` barres (4, 7 or 14, after the real Tetrax, Sidrax and Quatrax) tuned to that many degrees of the
+patch's scale, starting at the chip's pitch times arcclk / 800 MHz. Each barre has fixed walls, its own GDDR
+channel for the upper one and the next channel for the lower one: `-(0.2 + 0.7 x norm_temp)` and
+`0.2 + 0.7 x norm_temp`.
 
 * **Press:** the tone bounces between the fixed walls.
-* **Release:** the glitch bounces between two other barres' oscillators, the pair the guide's table gives
-  for switch 3 (`BOUNDS_TABLE` in `music/ttrax.py`). Its frequency is the tone's times the fixed window over
-  the current window, between a quarter and eight times. Where the upper wall drops below the lower, it rides the
-  lower wall.
+* **Release:** the glitch bounces between the next barre's oscillator and the one after (`glitch_bounds` in
+  `music/ttrax.py`). For seven bars this reproduces the Sidrax guide's own Figure 1 (switch 3) exactly; Tetrax
+  and Quatrax have no guide here, so the same neighbour pattern is this code's own extension to them. Its
+  frequency is the tone's times the fixed window over the current window, between a quarter and eight times.
+  Where the upper wall drops below the lower, it rides the lower wall.
 * **Chaos:** pressure, plus (in live mode) how fast the chip's temperature and power are moving. The rates add up to
   1 for 1 C/s or 25 W/s, the faster of the two, and the sum stops at 1. Each barre's frequency is swung by the
   oscillator two barres along, by up to 200% at full chaos. Offline there are no rates, so chaos is the pressure.

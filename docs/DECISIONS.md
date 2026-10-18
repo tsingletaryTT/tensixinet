@@ -27,11 +27,16 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 * **The gong's trigger response is a blocking window.** A strike needs a clock pulse after the window. The window
   is two bars times 1 to 1.375 by chip identity, which makes the strikes sit on the chip's rhythm and makes chips
   divide their clock differently. This changes the strike times of any chip whose identity picks a longer window.
-* **ttrax is seven barres.** Frequency is bounce over bounds (clamped to a quarter to eight times, so a closing window
-  cannot alias), and the bounds of a released barre are two other barres from the guide's table. The press and release
-  gestures come from the ttrolzer barres, so the seven barres keep different tempos. Pressure is the chaos knob. The
-  output is mono, so the guide's stereo press and release channels sum. `sidrax_bounds` (coolest channel sets the lower
-  bound) is gone because the walls are now per barre.
+* **ttrax is seven barres by default, and 4 or 14 by the patch.** The real instrument comes in three sizes (Tetrax,
+  Sidrax, Quatrax); `patch.rax_bars` picks one, drawn uniformly from the seed, with the Sidrax default so an old
+  saved patch with no `rax_bars` field still plays as it always did. Frequency is bounce over bounds (clamped to a
+  quarter to eight times, so a closing window cannot alias), and the bounds of a released barre are the next barre
+  and the one after (`glitch_bounds`), a rule chosen because it reproduces the Sidrax guide's own table exactly for
+  seven bars; Tetrax and Quatrax have no guide here, so it is this code's own extension, not a transcription. The
+  press and release gestures come from the ttrolzer barres, whose guide-given tempo table has seven entries; past
+  that (Quatrax's fourteenth barre) the table wraps rather than indexing off the end. Pressure is the chaos knob.
+  The output is mono, so the guide's stereo press and release channels sum. `sidrax_bounds` (coolest channel sets
+  the lower bound) is gone because the walls are now per barre.
 * **ttquantus notes come from the ttquantussy.** The guide says the castle is deterministic,
   that low prime ratios between petals make a pattern that repeats, and that the buffer is 8-bit with the clock as
   its sample rate. The seed only nudges the ratios by up to 3%, so patterns drift. `sample_hold` is gone.

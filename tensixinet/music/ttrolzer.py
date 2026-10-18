@@ -31,8 +31,11 @@ ODD_INSTABILITY = 2.5  # an odd roll magnifies its tolerance this much
 
 
 def barre_bpm(chip_bpm: float, barre: int) -> float:
-    """Tempo of a ttrolzer barre when the chip's own tempo is that of the reference barre."""
-    return chip_bpm * BARRE_BPM[barre] / BARRE_BPM[REFERENCE_BARRE]
+    """Tempo of a ttrolzer barre when the chip's own tempo is that of the reference barre.
+
+    The guide's own table has seven entries; a barre index past that (Quatrax's fourteen) wraps,
+    so the same seven tempos repeat rather than index past the table."""
+    return chip_bpm * BARRE_BPM[barre % len(BARRE_BPM)] / BARRE_BPM[REFERENCE_BARRE]
 
 
 def roll_pulse_times(sides: int, bpm: float, duration: float, seed: int, tolerance: float = TOLERANCE) -> np.ndarray:

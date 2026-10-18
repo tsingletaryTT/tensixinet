@@ -1,6 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
-"""ttrax, after the Sidrax Guide: seven barres, each an oscillator that bounces between two bounds.
+"""ttrax, after the Sidrax Guide: barres, each an oscillator that bounces between two bounds.
+
+The real instruments come in three sizes: Tetrax (4 bars), Sidrax (7, the guide this module was built from)
+and Quatrax (14). `patch.rax_bars` picks which; everything here generalises from the Sidrax guide's own figures
+to any bar count. Tetrax and Quatrax have no guide here, so their behaviour is this module's own extension of
+the Sidrax pattern, not a transcription.
 
 An oscillator is a ball bouncing between two walls. Its frequency is the bounce divided by the distance
 between the walls, so narrowing the window raises the pitch and a window that closes makes the oscillator
@@ -43,6 +48,14 @@ CHAOS_INDEX = 2.0  # at full chaos the leader oscillator swings the frequency by
 GESTURE_STEPS = 4  # a barre is pressed every four steps of its ttrolzer barre
 GESTURE_DECAY = 0.15  # each channel's envelope falls with this time constant, in gesture periods
 LEVEL = 0.5  # drive into the output's saturation: seven barres sum, and tanh keeps the sum below 1
+
+
+def glitch_bounds(n_bars: int, barre: int) -> Tuple[int, int]:
+    """Which two barres' oscillators bound this barre's release glitch: the next barre and the one after.
+
+    For seven bars this reproduces the Sidrax guide's own Figure 1 ("3" bounds, `BOUNDS_TABLE["3"]`) exactly.
+    Tetrax (4 bars) and Quatrax (14) have no guide here, so the same neighbour pattern is extended to them."""
+    return ((barre + 1) % n_bars, (barre + 2) % n_bars)
 
 
 def bounce_wave(freq_hz: float, lower: float, upper: float, n: int, sample_rate: int) -> np.ndarray:
@@ -107,17 +120,18 @@ def gesture_envelopes(bpm: float, barre: int, duration: float, sample_rate: int)
 
 
 def ttrax(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
-    """Seven barres tuned to the patch's scale. Each plays a tone on its press and a glitch on its release.
+    """`patch.rax_bars` barres tuned to the patch's scale. Each plays a tone on its press and a glitch on its release.
 
     The tone bounces between fixed walls set by the memory temperatures. The glitch bounces between two other
     barres' oscillators. Pressure is the chaos knob."""
+    n_bars = patch.rax_bars
     n = int(duration * sample_rate)
     bpm = aiclk_to_bpm(t.aiclk)
     base = temp_to_pitch_hz(t.asic_temperature) * t.arcclk / FALLBACK_ARCCLK
     chaos = chip_chaos(t)
     nyquist_limit = 0.45 * sample_rate
-    freqs = [min(barre_frequency(base, b, patch.scale), nyquist_limit) for b in range(N_BARRES)]
-    bounds = [barre_bounds(t.gddr_temps, b) for b in range(N_BARRES)]
+    freqs = [min(barre_frequency(base, b, patch.scale), nyquist_limit) for b in range(n_bars)]
+    bounds = [barre_bounds(t.gddr_temps, b) for b in range(n_bars)]
     widths = [hi - lo for lo, hi in bounds]
     # Each barre's own oscillator between its fixed walls: what the other barres see as a wall.
     walls = [
@@ -125,12 +139,12 @@ def ttrax(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Pat
         for f, (lo, hi), w in zip(freqs, bounds, widths)
     ]
     total = np.zeros(n)
-    for b in range(N_BARRES):
+    for b in range(n_bars):
         lo, hi = bounds[b]
-        leader = walls[(b + 2) % N_BARRES] / 0.9
+        leader = walls[(b + 2) % n_bars] / 0.9
         press, release = gesture_envelopes(bpm, b, duration, sample_rate)
         tone = windowed_bounce(freqs[b], np.full(n, lo), np.full(n, hi), widths[b], sample_rate, chaos, leader)
-        lower_barre, upper_barre = BOUNDS_TABLE["3"][b]
+        lower_barre, upper_barre = glitch_bounds(n_bars, b)
         glitch = windowed_bounce(freqs[b], walls[lower_barre], walls[upper_barre], widths[b], sample_rate, chaos, leader)
         total += press * tone + release * glitch
     return np.tanh(LEVEL * total).astype(np.float32)

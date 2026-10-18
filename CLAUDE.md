@@ -324,6 +324,18 @@ legacy/        first prototype scripts, kept for reference
   near the ceiling may not begin) and `should_stop` (the cap or the ceiling, whichever comes first). Pure host-side logic, no device,
   tested without hardware; a mutation battery found three survivors (both constants unpinned, and `>` for `>=` at the pressure
   boundary) and each got a test. The load kernel itself (the part that actually burns cycles on a chip) is not built.
+* **2026-10-18, "let's also make ttrax configurable in bars ... like the tetrax, sidrax, and quatrax configurations":**
+  looked up the real instruments: Sidrax is 7 bars (the guide this module was built from), Tetrax is 4, Quatrax is
+  14 (44, 28 and 100 banana jacks respectively). `patch.rax_bars` (4, 7 or 14) picks ttrax's size, drawn uniformly
+  from the seed; an old saved patch with no `rax_bars` field defaults to 7, so it still replays as it always did.
+  * `glitch_bounds(n_bars, barre)` (next barre, one after) replaces the hardcoded `BOUNDS_TABLE["3"]` lookup in the
+    render path; it reproduces that table exactly for seven bars (tested), and for 4 or 14 it is this code's own
+    extension of the pattern, since there is no Tetrax or Quatrax guide here to transcribe from. `BOUNDS_TABLE`
+    itself is untouched and still documents the guide's figure 1.
+  * `ttrolzer.barre_bpm` wraps past its seven-entry tempo table (`barre % len(BARRE_BPM)`) rather than indexing off
+    the end, so Quatrax's extra barres play at one of the same seven tempos instead of crashing.
+  * Mutation checks: a battery of four deliberate breaks (`glitch_bounds` collapsed to one barre, the bar-count
+    tuple changed, the old-patch default changed, the tempo wrap off by one) were each caught by a test.
 * **2026-10-18, "make the site behave better on mobile ... the interactive UIs are great explainers ... triple down ... we want people to
   be excited enough that they'd want the hardware":** a third flagship interactive piece, `site/`'s mapping sandbox: four sliders
   (ASIC temperature, power, aiclk, GDDR spread) run the exact ported formulas from `mapping.py` and `patch.py` (`temp_to_pitch_hz`,

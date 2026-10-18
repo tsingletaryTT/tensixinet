@@ -43,6 +43,11 @@ GONG_TUNINGS = {
 }
 GONG_TUNING_NAMES = tuple(GONG_TUNINGS)
 
+# ttrax's bar count: Tetrax, Sidrax (the guide this code was built from) and Quatrax, after the real
+# instruments' own names. Sidrax is first because it was ttrax's only size before this field existed,
+# so an old saved patch with no rax_bars defaults to it.
+RAX_BAR_COUNTS = (4, 7, 14)
+
 MOTIF_LENGTH = 8
 MOTIF_RANGE = (-3, 6)  # scale degrees
 
@@ -60,6 +65,7 @@ class Patch:
     shimmer_band: Tuple[float, float]
     bars_per_turn: int
     floor: float  # volume of everyone who is not soloing
+    rax_bars: int  # ttrax's bar count: 4 (Tetrax), 7 (Sidrax) or 14 (Quatrax)
 
 
 DEFAULT_PATCH = Patch(
@@ -74,6 +80,7 @@ DEFAULT_PATCH = Patch(
     shimmer_band=(12000.0, 20000.0),
     bars_per_turn=2,
     floor=0.35,
+    rax_bars=7,
 )
 
 
@@ -138,6 +145,7 @@ def draw_patch(seed: int, telemetry: Sequence[Telemetry]) -> Patch:
         shimmer_band=(round(lo, 1), round(min(lo + width, 20500.0), 1)),
         bars_per_turn=int(rng.integers(1, 5)),
         floor=round(float(rng.uniform(0.25, 0.45)), 3),
+        rax_bars=int(rng.choice(RAX_BAR_COUNTS)),
     )
 
 
@@ -156,6 +164,8 @@ def _validate(p: Patch) -> Patch:
         raise ValueError("floor must be above 0 and at most 1")
     if p.gong_beat_hz < 0:
         raise ValueError("gong_beat_hz cannot be negative")
+    if p.rax_bars not in RAX_BAR_COUNTS:
+        raise ValueError(f"rax_bars must be one of {RAX_BAR_COUNTS}")
     return p
 
 
@@ -173,6 +183,8 @@ def patch_from_dict(d: dict) -> Patch:
             shimmer_band=tuple(float(x) for x in d["shimmer_band"]),
             bars_per_turn=int(d["bars_per_turn"]),
             floor=float(d["floor"]),
+            # a patch saved before this field existed has no rax_bars; it played as the Sidrax (7 bars)
+            rax_bars=int(d.get("rax_bars", 7)),
         ))
     except (KeyError, TypeError) as e:
         raise ValueError(f"patch is missing or has a malformed field: {e}") from e

@@ -285,3 +285,42 @@ def test_the_chaos_knob_is_pressure_plus_how_fast_the_readings_move(monkeypatch)
     seen.clear()
     ttrax(calm(temp_rate=0.5 * RATE_FULL_TEMP_C_PER_S), 0.5, SR, 0)
     assert set(seen) == {0.5}  # heating at half the full rate, no pressure: half chaos
+
+
+# --- a configurable bar count: Tetrax, Sidrax or Quatrax ---------------------------------------------------
+
+def test_glitch_bounds_reproduces_the_guides_table_exactly_for_seven_bars():
+    from tensixinet.music.ttrax import glitch_bounds
+    assert tuple(glitch_bounds(N_BARRES, b) for b in range(N_BARRES)) == BOUNDS_TABLE["3"]
+
+
+@pytest.mark.parametrize("n", [4, 7, 14])
+def test_glitch_bounds_is_a_barres_own_two_neighbours_for_any_bar_count(n):
+    from tensixinet.music.ttrax import glitch_bounds
+    for b in range(n):
+        lo, hi = glitch_bounds(n, b)
+        assert lo == (b + 1) % n and hi == (b + 2) % n
+        assert b not in (lo, hi) and lo != hi
+
+
+@pytest.mark.parametrize("n", [4, 7, 14])
+def test_ttrax_renders_at_every_rax_bar_count(n):
+    patch = dataclasses.replace(DEFAULT_PATCH, rax_bars=n)
+    audio = ttrax(calm(), 1.0, SR, 0, patch=patch)
+    assert audio.shape == (SR,) and audio.dtype == np.float32
+    assert np.isfinite(audio).all() and np.abs(audio).max() < 1.0
+
+
+def test_a_different_rax_bar_count_changes_the_sound():
+    t = calm()
+    tetrax = ttrax(t, 1.0, SR, 0, patch=dataclasses.replace(DEFAULT_PATCH, rax_bars=4))
+    sidrax = ttrax(t, 1.0, SR, 0, patch=dataclasses.replace(DEFAULT_PATCH, rax_bars=7))
+    quatrax = ttrax(t, 1.0, SR, 0, patch=dataclasses.replace(DEFAULT_PATCH, rax_bars=14))
+    assert not np.allclose(tetrax, sidrax) and not np.allclose(sidrax, quatrax)
+
+
+def test_quatrax_uses_barres_past_the_ttrolzer_tempo_table_without_crashing():
+    # fourteen barres, but the guide's own tempo table only has seven: barre_bpm wraps (see test_ttrolzer.py)
+    patch = dataclasses.replace(DEFAULT_PATCH, rax_bars=14)
+    audio = ttrax(calm(), 2.0, SR, 0, patch=patch)
+    assert np.any(audio != 0.0)

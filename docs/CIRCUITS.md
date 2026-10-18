@@ -42,13 +42,13 @@ a recreation of the instruments. Our devices carry a `tt` prefix for that reason
 
 | The guide says | The code does | Where |
 |---|---|---|
-| Seven barres, each with an oscillator, tuned by hand as intervals or as a scale. | The seven barres are tuned to the first seven degrees of the patch's scale. | `barre_frequency` |
+| Seven barres, each with an oscillator, tuned by hand as intervals or as a scale. | `patch.rax_bars` barres (4, 7 or 14, after Tetrax, Sidrax and Quatrax, the real instrument's three sizes) are tuned to that many degrees of the patch's scale. | `barre_frequency` |
 | An oscillator is a ball bouncing between two bounds. Its frequency is the bounce divided by the bounds. | The frequency is the nominal pitch times the nominal window over the current window, between a quarter and eight times. | `windowed_bounce` |
 | When the bounds converge the amplitude falls and the frequency rises. When the upper bound drops below the lower, the oscillator rides the lower bound. | Both happen. | `windowed_bounce` |
-| The bounds can be other oscillators. A table (figure 1) says which barres bound which when switch 3, switch 5 or both are on. | The table is in the code. A released barre switches 3 on, so it glitches between two other barres. | `BOUNDS_TABLE`, `sidrax` |
+| The bounds can be other oscillators. A table (figure 1) says which barres bound which when switch 3, switch 5 or both are on. | A released barre glitches between the next barre's oscillator and the one after (switch 3). For seven bars that reproduces figure 1's own table exactly; Tetrax and Quatrax have no guide here, so the same neighbour rule is this code's own extension to them. | `glitch_bounds`, `BOUNDS_TABLE`, `ttrax` |
 | A press opens one stereo channel and a release the other. In the Pressure Bound patch a press plays the tuned tone and a release switches the bounds on for a decaying glitch. | Each barre plays a tone on its press and a glitch on its release. The output is mono, so the two channels sum. | `gesture_envelopes` |
 | The chaos knob cross-modulates the oscillators. At the top it is noise. | Pressure is the chaos knob, and in live mode so is how fast the chip's temperature and power are moving. Each barre's frequency is swung by the barre two along, up to 200% at full chaos. | `windowed_bounce`, `chip_chaos` |
-| Barres are played by hand. | Barre b is pressed every four steps of Rolzer barre b, so the seven barres keep different tempos. | `gesture_envelopes` |
+| Barres are played by hand. | Barre b is pressed every four steps of Rolzer barre b, so the barres keep different tempos; past the guide's own seven tempos the table wraps (Quatrax's fourteenth barre plays as its seventh). | `gesture_envelopes`, `barre_bpm` |
 | Sequencing the global pitch transposes the whole chord (Chord ChChChChChanges). | The lead's shifts and flips play that role. The ARC clock sets the global pitch. | `lead.py` |
 | Stereo, FM inputs, the patch bay, piezo polarity. | Not modelled. | |
 

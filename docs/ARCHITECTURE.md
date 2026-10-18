@@ -38,7 +38,7 @@ runs `tt-smi -s`.
 | | `synth.py` | Drone voices for any chip count |
 | | `devices.py` | ttrollz, ttquantus, ttdrone, gong, ultrasonic shimmer, the strike times they share, and the current mixer. Re-exports ttrax. `DEVICE_INPUTS` says which fields each device reads |
 | | `ttrolzer.py` | The ttrolzer's rolls: barre tempos from E6 capacitors, steady even rolls, unstable odd ones |
-| | `ttrax.py` | Seven barres bouncing between each other's oscillators, with press and release gestures |
+| | `ttrax.py` | 4, 7 or 14 barres (Tetrax, Sidrax or Quatrax, from `patch.rax_bars`) bouncing between each other's oscillators, with press and release gestures |
 | | `ttquantussy.py` | The ttquantussy's five petals and castles, and the coco's 8-bit buffer |
 | | `ttsteam.py` | A shift register that steps a noise snare, with the harvested Tensix columns as its pattern |
 | | `ttchoir.py` | A singer: a glottal buzz shaped by formant resonances, sung on vowels that the GDDR channels pick |

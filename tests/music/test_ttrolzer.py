@@ -72,3 +72,9 @@ def test_an_odd_roll_spreads_its_steps_unevenly_over_exactly_one_cycle_of_its_ow
     d = np.diff(roll_pulse_times(sides, 60.0, 60.0, 0, tolerance=0.0))
     assert np.allclose(d[:sides], d[sides: 2 * sides]) and len(set(np.round(d[:sides], 6))) > 1
     assert d[:sides].sum() == pytest.approx(sides * 1.0)  # uneven, but a cycle still lasts `sides` mean steps
+
+
+def test_a_barre_index_past_the_table_wraps_so_a_bigger_rax_configuration_can_still_use_it():
+    """Quatrax has fourteen barres; the guide's tempo table has seven. Beyond it the pattern repeats."""
+    assert barre_bpm(120.0, 7) == pytest.approx(barre_bpm(120.0, 0))
+    assert barre_bpm(120.0, 13) == pytest.approx(barre_bpm(120.0, 6))
