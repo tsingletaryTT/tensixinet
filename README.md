@@ -22,6 +22,8 @@ draws a different patch, so no two runs sound alike unless you replay one.
 
 You do not need Tenstorrent hardware to try it. It can play any number of synthetic chips.
 
+**Project site:** <https://tsingletaryTT.github.io/tensixinet/> has the routing diagrams (with animated signal paths for five scenarios), the cable explorer and audio samples. Its source is in `site/`.
+
 ## Try it in a minute
 
 ```bash

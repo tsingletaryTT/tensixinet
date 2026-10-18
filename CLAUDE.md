@@ -14,6 +14,7 @@ say what exists and what is left.
 | `docs/CONTRIBUTING.md` | How to add a device or change a mapping, test first |
 | `docs/ROADMAP.md` | Open work, in order |
 | `kernels/README.md` | The devices as TT-Lang kernels: how to run them in the simulator and on a chip |
+| `site/index.html` | The project site (GitHub Pages, deployed from `site/` by `.github/workflows/pages.yml`): routing diagrams, cable explorer, audio |
 | `legacy/README.md` | The old prototype scripts (unsafe to run) |
 
 ## Run it
@@ -288,6 +289,16 @@ legacy/        first prototype scripts, kept for reference
 * **2026-10-18, "ttsidrax => ttrax":** the device and its module are now `ttrax` (`music/ttrax.py`, `tests/music/test_ttrax.py`, the
   `DEVICE_INPUTS` key and the log lines). The earlier entries in this log keep `ttsidrax`, the name in use when they were written.
   The guide's own name, Sidrax, is unchanged where the docs describe the original.
+* **2026-10-18, "create a gh_pages site ... as a site directory ... spotlight the unique instrument" and "show diagrams on how routing works, animate signal paths":**
+  `site/index.html` (one page, no build step), `site/assets/` (hero frame, six 30 s MP3s from `--mock-chips 4 --patch-seed 5`, one pair with and
+  without `--no-cables`), and `.github/workflows/pages.yml`, which deploys the `site/` folder (not a branch). Sections: the idea, an animated routing
+  diagram with five scenarios (quiet box, prompt heats chips 2 and 3, a chip near throttle, a memory error, live mode), a cable explorer drawn from six
+  real seeds with a chaos slider per chip, the band, listening, prior art, kernels, credits.
+  * `tests/test_site.py` checks that the device list and every drawn patch on the page equal what the code produces, that every local asset exists, and
+    that the credit line is present. Changing a depth in the page turned it red.
+  * Side research (is a synth driven by a host's own signals new?): we found network sonification (Peep, SoNSTAR), early computer loudspeakers and radio
+    interference, fan organs and EM-field synths, and no instrument in the Ciat-Lonbarde patch tradition driven by a processor's power, memory and link
+    readings. The page says a search is not proof. Not checked: Patch Point's newest releases and Ciat-Lonbarde's current catalogue beyond what the search returned.
 * **2026-10-18, `--only`:** since none of the new sound has been heard, `--only NAME[,NAME]` plays only the named devices at full level with
   no turn-taking (`render_chorus(..., only=[...])`, also in live mode). A log line says what is soloed. Mutation checks found two
   survivors in the command-line parsing (spaces around commas, a list of nothing); both got tests.
