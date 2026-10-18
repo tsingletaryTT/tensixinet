@@ -3,6 +3,7 @@
 """End-to-end: telemetry -> chorus -> WAV, logging what happens and why."""
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Sequence
 
@@ -10,6 +11,7 @@ import numpy as np
 import soundfile as sf
 
 from .music.chorus import chip_devices, render_chorus
+from .music.loudness import TARGET_RMS, normalise as normalise_level
 from .music.patch import DEFAULT_PATCH, Patch
 from .narrate.explain import (
     explain_chip,
@@ -24,6 +26,10 @@ from .narrate.runlog import RunLog
 from .telemetry import Telemetry
 
 
+def _dbfs(audio: np.ndarray) -> float:
+    return 20 * math.log10(max(float(np.sqrt(np.mean(np.square(audio, dtype=np.float64)))), 1e-9))
+
+
 def run(
     telemetry: Sequence[Telemetry],
     duration: float,
@@ -33,6 +39,7 @@ def run(
     source: str = "the telemetry source",
     patch: Patch = DEFAULT_PATCH,
     patch_source: str = "the built-in default patch",
+    normalise: bool = True,
 ) -> np.ndarray:
     if not telemetry:
         log.event("discover", "no chips found, nothing to play",
@@ -61,6 +68,15 @@ def run(
     log.event("render", f"rendering {duration:g}s at {sample_rate} Hz",
               "all chips are rendered, scaled by power, then mixed by current")
     audio = render_chorus(telemetry, duration, sample_rate, patch=patch)
+    if normalise:
+        raw_db = _dbfs(audio)
+        audio, gain = normalise_level(audio)
+        log.event("loudness", f"gain x{gain:.2f} ({20 * math.log10(gain):+.1f} dB): RMS {raw_db:.1f} to {_dbfs(audio):.1f} dBFS",
+                  f"one gain for the whole run brings it toward {20 * math.log10(TARGET_RMS):.0f} dBFS RMS (the peak stays under -1 dBFS and "
+                  "the gain is at most +20 dB), so runs land at the same level while the chips keep their level against each other")
+    else:
+        log.event("loudness", f"level left as rendered (RMS {_dbfs(audio):.1f} dBFS)",
+                  "normalising is off, so the level follows the chips' power and a quiet box stays quiet")
     out_path = Path(out_path)
     sf.write(str(out_path), audio, sample_rate, subtype="PCM_16")
     log.event("done", f"wrote {out_path}",

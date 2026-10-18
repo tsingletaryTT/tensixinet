@@ -81,7 +81,8 @@ A hotter channel shifts the motif up. A cooler one inverts it. A channel near th
 memory makes a loop, and uneven memory makes the melody wander.
 
 **Power and current mix the band.** Power sets each chip's volume. Current sets its share of the mix, the
-way patched banana plugs mix by current on a Plumbutter.
+way patched banana plugs mix by current on a Plumbutter. At the end one gain brings the whole file to -18 dBFS
+RMS, so every run lands at the same level and chips keep their level against each other.
 
 ## It tells you why
 
@@ -168,6 +169,7 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--mock-chips N` | Play N synthetic chips and read no hardware. `--seed` varies them |
 | `--mock-faults` | With `--mock-chips`, give some chips memory errors and thermal trips so the event sounds play |
 | `--patch FILE` / `--patch-seed N` | Replay a saved patch, or draw from a fixed seed |
+| `--no-normalise` | Keep the level the chips' power gives. By default one gain brings the finished render to -18 dBFS RMS |
 | `--out`, `--log-dir` | Where the WAV and the log go (`audio/`, `logs/`) |
 | `--endpoint`, `--model` | Any OpenAI-compatible endpoint (default `http://127.0.0.1:8011`). The model name is read from it |
 
@@ -202,7 +204,7 @@ If the endpoint is down, the music still plays and the log says so.
 ## Tested without hardware
 
 ```bash
-make test        # about 10 s: 920+ tests, no Tenstorrent packages, no chips
+make test        # about 10 s: 930+ tests, no Tenstorrent packages, no chips
 ```
 
 The tests are written first, then the code is broken on purpose (swap a `min` for a `max`, drop a term, stop

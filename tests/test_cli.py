@@ -173,3 +173,13 @@ def test_the_same_chips_on_a_different_host_draw_a_different_patch(tmp_path, mon
     b = _patch_seed_for(tmp_path, monkeypatch, "host-b", "b")
     again = _patch_seed_for(tmp_path, monkeypatch, "host-a", "c")
     assert a != b and a == again
+
+
+def test_no_normalise_keeps_the_absolute_level_and_normalising_is_the_default(tmp_path):
+    import soundfile as sf
+    import numpy as np
+    _, a = run_cli(tmp_path, "norm", "--patch-seed", "5")
+    _, b = run_cli(tmp_path, "raw", "--patch-seed", "5", "--no-normalise")
+    rms = lambda d: float(np.sqrt(np.mean(sf.read(str(d / "o.wav"))[0] ** 2)))
+    assert rms(a) > 1.5 * rms(b) and 0.1 < rms(a) < 0.15
+    assert any("left as rendered" in e["what"] for e in read_events(b / "logs"))

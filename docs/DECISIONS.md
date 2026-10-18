@@ -89,6 +89,9 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 * **DDR status:** the code treats the low byte as four 2-bit fields and mutes a lane at 0.
   tt-smi's source says newer firmware puts BIST bits in `[31:16]`. The meaning of values 1 to
   3 is a guess and should be checked against firmware docs.
-* The chorus is not normalised to a fixed peak, because that would erase the power-to-volume
-  mapping. `tanh` in the mixer keeps it inside full scale.
+* **The chorus keeps its absolute level, and `run` normalises the finished file.** `render_chorus` leaves power as
+  volume, and `tanh` in the mixer keeps it inside full scale. `run` then applies one gain over the whole render to
+  reach -18 dBFS RMS, limited to a peak of -1 dBFS and at most +20 dB (`music/loudness.py`). One gain keeps every
+  chip's level against the others and the swells and gaps, so the power-to-volume mapping survives. A quiet box
+  peaked near 0.2 and a loaded one near 0.4 before this. `--no-normalise` writes the render as it came.
 

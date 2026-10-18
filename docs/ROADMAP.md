@@ -23,8 +23,8 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
 7. **Port the TT-Lang kernels** in `legacy/ciat_lonbarde_kernels.py` once they can be tested on
    hardware. That needs a gozer lease and a test with the `hardware` marker, which `pyproject.toml`
    declares and nothing uses yet.
-8. **Loudness.** The chorus peaks around 0.4 on purpose, because power sets the volume.
-   Decide whether the soundtrack gets loudness normalisation when it is muxed.
+8. **Loudness.** Done in `music/loudness.py`: one gain to -18 dBFS RMS. A perceptual measure (LUFS, with
+   K-weighting) would match the level of runs with very different spectra more closely.
 9. **More of the guides.** The Gongue's Trad and Gonz filter modes, the shift register's feedback taps and buttons,
    the coco's delay and loops, and the Ultrasound's folding of ultrasound into the audible band (needs a higher
    sample rate) are not modelled. `docs/CIRCUITS.md` lists each one.

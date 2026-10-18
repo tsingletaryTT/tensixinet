@@ -132,3 +132,51 @@ def test_run_with_healthy_chips_logs_that_no_event_sounds_are_added(tmp_path):
     run(mock_telemetry(2, seed=1), 1.0, tmp_path / "o.wav", log, 8000)
     log.close()
     assert all("no memory errors" in e["what"] for e in _events(tmp_path) if e["event"] == "events")
+
+
+# --- loudness: one gain over the finished render ---------------------------------------------------------------
+
+import numpy as np  # noqa: E402
+import soundfile as sf  # noqa: E402
+
+from tensixinet.music.chorus import render_chorus  # noqa: E402
+from tensixinet.music.loudness import TARGET_RMS, loudness_gain  # noqa: E402
+
+
+def _events(tmp_path):
+    return [json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines()]
+
+
+def test_the_wav_lands_at_the_target_level_and_the_log_says_what_gain_did_it(tmp_path):
+    chips = mock_telemetry(3)
+    log = _log(tmp_path)
+    audio = run(chips, duration=3.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000)
+    log.close()
+    raw = render_chorus(chips, 3.0, 8000)
+    gain = loudness_gain(raw)
+    assert np.allclose(audio, raw * gain, atol=1e-6)
+    written, _ = sf.read(str(tmp_path / "o.wav"))
+    assert float(np.sqrt(np.mean(written ** 2))) == pytest.approx(TARGET_RMS, rel=0.05)
+    (ev,) = [e for e in _events(tmp_path) if e["event"] == "loudness"]
+    import math
+    assert f"x{gain:.2f}" in ev["what"] and f"({20 * math.log10(gain):+.1f} dB)" in ev["what"] and "dBFS" in ev["what"] and "one gain" in ev["why"]
+    kinds = [e["event"] for e in _events(tmp_path)]
+    assert kinds.index("render") < kinds.index("loudness") < kinds.index("done")
+
+
+def test_the_done_line_reports_the_peak_of_the_file_that_was_written(tmp_path):
+    log = _log(tmp_path)
+    audio = run(mock_telemetry(2), duration=2.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000)
+    log.close()
+    done = [e for e in _events(tmp_path) if e["event"] == "done"][0]
+    assert f"peak {float(np.max(np.abs(audio))):.2f}" in done["why"]
+
+
+def test_without_normalising_the_render_is_written_as_it_came_and_the_log_says_so(tmp_path):
+    chips = mock_telemetry(3)
+    log = _log(tmp_path)
+    audio = run(chips, duration=3.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000, normalise=False)
+    log.close()
+    assert np.array_equal(audio, render_chorus(chips, 3.0, 8000))
+    (ev,) = [e for e in _events(tmp_path) if e["event"] == "loudness"]
+    assert "left as rendered" in ev["what"] and "power" in ev["why"]

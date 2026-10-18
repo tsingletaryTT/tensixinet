@@ -32,7 +32,7 @@ programs, every reason kept) and a text file (what you see on screen, each reaso
 ```
 tensixinet/
   telemetry/   snapshot.py (tt-smi JSON to Telemetry), mock.py (synthetic N chips, optional faults)
-  music/       mapping, synth, devices, rolzer, sidrax, quantussy, mwtrs, lead, events, turns, patch, chorus
+  music/       mapping, synth, devices, rolzer, sidrax, quantussy, mwtrs, lead, events, loudness, turns, patch, chorus
   narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
   media/       llm (OpenAI-compatible endpoint), mux (WAV under a video)
   run.py cli.py __main__.py     wiring and the command line
@@ -172,3 +172,7 @@ legacy/        first prototype scripts, kept for reference
     snare's low-pass and dust constants). Each got a test. The snare was first white noise with a spectral centre near
     11 kHz, so it got a low-pass.
   * I have measured the audio (levels, spectra, determinism) and have not listened to it.
+* **2026-10-18, "build the loudness when you're done":** `music/loudness.py` gives one gain over the finished render
+  (-18 dBFS RMS, peak under -1 dBFS, at most +20 dB). `run` applies it and logs it, and `--no-normalise` skips it.
+  `render_chorus` still keeps power as volume, so the gain is applied in `run`.
+  * The mutation check caught a test that compared the gain cap to the constant it was testing. It now checks 10.0.

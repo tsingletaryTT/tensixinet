@@ -56,6 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="with --mock-chips, give some chips memory errors and thermal trips so the event sounds play")
     p.add_argument("--patch", metavar="FILE", help="replay a saved patch (patch_*.json from an earlier run's log dir)")
     p.add_argument("--patch-seed", type=int, metavar="N", help="draw the patch from this seed instead of from the chips and entropy")
+    p.add_argument("--no-normalise", action="store_true",
+                   help="write the render at the level the chips' power gives it, with no loudness gain")
     p.add_argument("--endpoint", default="http://127.0.0.1:8011", help="OpenAI-compatible LLM endpoint")
     p.add_argument("--model", help="model name (default: whatever the endpoint serves)")
     return p
@@ -132,7 +134,8 @@ def main(
                                 "so no two runs match")
             if chips:
                 save_patch(patch, log_dir / f"patch_{stamp}.json")
-            run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source)
+            run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source,
+                normalise=not a.no_normalise)
         except ValueError:
             return 2
         return 0

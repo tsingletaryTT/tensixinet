@@ -190,6 +190,13 @@ shifts the motif up one scale degree per degree C, at most four. Cooler inverts 
 note. Within 1 C it repeats. Even memory temperatures make the lead loop, and uneven ones make it
 wander.
 
+## Loudness
+
+`render_chorus` keeps power as volume, so a quiet box peaks near 0.2 and a loaded one near 0.4. `run` then
+multiplies the whole render by one number, `music/loudness.py`: the gain that brings its RMS to -18 dBFS, held
+down so the peak stays under -1 dBFS and the gain stays under +20 dB. Chips keep their level against each other and
+the swells and gaps survive, because one gain moves all of them. The log prints the gain. `--no-normalise` skips it.
+
 ## Ultrasonic content
 
 The shimmer sits between 12 and 20 kHz and shrinks to fit below 0.45 of the sample rate. At 44.1 kHz

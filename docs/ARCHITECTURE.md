@@ -15,7 +15,7 @@
    music/chorus.render_chorus                  narrate/explain
    plan_turns ► turn_gains                     what and why for every choice
    devices ► ×gain ► per chip ► ×power ►              │
-   current_mix                                        ▼
+   current_mix ► one loudness gain (run.py)           ▼
               │                                 narrate/runlog
               ▼                                 JSONL + left-bar text
         WAV (run.py) ──► media/mux ──► video soundtrack
@@ -41,6 +41,7 @@ runs `tt-smi -s`.
 | | `lead.py` | The lead voice and its shift/invert transforms |
 | | `events.py` | Tick, breath and sweep sounds for memory errors and thermal trips; silent on a healthy chip |
 | | `turns.py` | Who solos each turn, and the gain curves |
+| | `loudness.py` | One gain for a finished render: -18 dBFS RMS, peak under -1 dBFS, at most +20 dB |
 | | `patch.py` | The `Patch` (every drawn choice of a run), drawing it from a seed and the chips, JSON save and load |
 | | `chorus.py` | Deals device slots to chips, plans turns, mixes |
 | `narrate/` | `explain.py` | Plain-language what/why for every choice, built from the same functions the audio uses |
