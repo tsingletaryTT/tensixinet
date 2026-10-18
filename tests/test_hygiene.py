@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Repo rules that must hold for every module, checked by reading the source."""
 import ast
 from pathlib import Path
@@ -43,3 +45,29 @@ def test_every_module_has_a_test_in_the_matching_folder():
         if not any(c.exists() for c in candidates):
             missing.append(str(rel))
     assert not missing, f"no tests/<same folder>/test_<name>.py for: {missing}"
+
+
+# --- licensing -------------------------------------------------------------------
+
+SPDX = (
+    "# SPDX-License-Identifier: Apache-2.0",
+    "# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.",
+)
+LICENSED = sorted(
+    list(PACKAGE.rglob("*.py")) + list((ROOT / "tests").rglob("*.py")) + list((ROOT / "legacy").glob("*.py"))
+    + list((ROOT / "demo").glob("*.sh"))
+)
+
+
+@pytest.mark.parametrize("path", LICENSED, ids=lambda p: str(p.relative_to(ROOT)))
+def test_every_source_file_carries_the_spdx_header(path):
+    lines = path.read_text().splitlines()
+    if lines and lines[0].startswith("#!"):
+        lines = lines[1:]  # the header goes right after a shebang
+    assert tuple(lines[:2]) == SPDX, f"{path.relative_to(ROOT)} needs the two SPDX lines at the top"
+
+
+def test_the_license_files_are_present_and_are_apache_2():
+    text = (ROOT / "LICENSE").read_text()
+    assert "Apache License" in text and "Version 2.0, January 2004" in text
+    assert (ROOT / "LICENSE_understanding.txt").read_text().strip()

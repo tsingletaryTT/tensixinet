@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Run log: what the project is doing, and why, as JSONL plus readable lines.
 
 JSONL is for machines (one object per line, flushed immediately so a crash

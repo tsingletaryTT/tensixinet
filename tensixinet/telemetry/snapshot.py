@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Hardware telemetry: tt-smi JSON -> typed, immutable readings.
 
 Everything here is a pure function of its input except `fetch_snapshot`, which

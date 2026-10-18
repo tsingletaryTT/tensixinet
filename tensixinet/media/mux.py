@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Lay the chorus under a recorded demo video with ffmpeg."""
 from __future__ import annotations
 

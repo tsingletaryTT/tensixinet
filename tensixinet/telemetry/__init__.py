@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Chip readings: the `Telemetry` type, `tt-smi -s` parsing, and synthetic chips for testing."""
 from .mock import mock_telemetry
 from .snapshot import (

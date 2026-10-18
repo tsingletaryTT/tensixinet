@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Synthetic telemetry for N chips, for anyone without N Tenstorrent chips."""
 from __future__ import annotations
 

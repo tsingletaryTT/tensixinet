@@ -8,6 +8,12 @@ version = "0.2.0"
 description = "Tenstorrent chip telemetry played as a chorus of Ciat-Lonbarde-style devices"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Tenstorrent USA, Inc." }]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Multimedia :: Sound/Audio :: Sound Synthesis",
+]
 dependencies = ["numpy", "soundfile"]
 
 [project.optional-dependencies]

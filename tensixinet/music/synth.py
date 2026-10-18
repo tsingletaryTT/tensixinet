@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Multi-voice synthesis for any number of chips.
 
 Each chip owns `voices_per_chip` voices and drives them with its own telemetry.

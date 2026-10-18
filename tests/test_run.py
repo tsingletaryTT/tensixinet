@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """The end-to-end pipeline and the no-hardware path for N chips."""
 import json
 import wave

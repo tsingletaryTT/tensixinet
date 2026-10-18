@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Synthetic chips, for anyone without N Tenstorrent chips."""
 import pytest
 

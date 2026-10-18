@@ -22,4 +22,3 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    declares and nothing uses yet.
 8. **Loudness.** The chorus peaks around 0.23 to 0.31 on purpose, because power sets the volume.
    Decide whether the soundtrack gets loudness normalisation when it is muxed.
-9. **License.** The repo has none yet.

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Ciat-Lonbarde-style devices. Each is a pure function of one chip's telemetry."""
 import numpy as np
 import pytest

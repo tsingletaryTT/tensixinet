@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """A patch: every drawn choice of one run, so a run can be replayed exactly.
 
 Two things decide a patch. The system decides the scale (from how unevenly the memory

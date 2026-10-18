@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """The lead voice: a short motif, shifted or inverted when the system's readings say so.
 
 Cocoquantus-style variation, but driven by telemetry instead of a random

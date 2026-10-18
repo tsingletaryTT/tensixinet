@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Prompt an OpenAI-compatible endpoint (e.g. a local vLLM server).
 
 The model name is read from the endpoint unless given, so the client works

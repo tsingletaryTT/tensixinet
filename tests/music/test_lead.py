@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """The lead voice: a short motif that is shifted or inverted when signals say so."""
 import dataclasses
 

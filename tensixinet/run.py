@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """End-to-end: telemetry -> chorus -> WAV, logging what happens and why."""
 from __future__ import annotations
 

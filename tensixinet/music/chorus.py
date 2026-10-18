@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """A chorus of Ciat-Lonbarde-style devices, dealt out across any number of chips.
 
 Every device is a slot. There are always at least len(DEVICES) slots, dealt to the

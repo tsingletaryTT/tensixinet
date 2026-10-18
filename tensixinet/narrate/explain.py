@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Plain-language what/why for every choice the chorus makes.
 
 Numbers come from the same mapping functions the audio uses, and only inputs a

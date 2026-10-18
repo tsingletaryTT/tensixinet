@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 # Build the tensixinet demo: record the split-pane scene, then lay the chorus under it.
 #
 #   demo/build.sh            record + render + soundtrack

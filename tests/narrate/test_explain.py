@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Self-logging: the project says what it is doing and why, and the claims are checked."""
 import dataclasses
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 # Left pane of the tensixinet demo: prompt the LLM, then play the chips and say why.
 #
 # The prompt goes to the LLM first so its load is on the chips when telemetry is

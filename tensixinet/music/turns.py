@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Turn-taking: who solos next, decided by system conditions.
 
 Like players trading solos, a busy voice gets the floor more often, a quiet one

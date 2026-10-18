@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Hardware signal -> musical parameter. The README's table, as code.
 
 Ranges are clamped, so a reading outside the documented band holds the nearest

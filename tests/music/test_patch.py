@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """A patch is every drawn choice of one run: replayable, valid, and partly decided by the system."""
 import dataclasses
 import json

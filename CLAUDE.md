@@ -125,3 +125,10 @@ legacy/        first prototype scripts, kept for reference
     changes only that one thing.
   * Drawing a patch from no chips crashed before the existing "no chips" message; the CLI now skips the
     draw in that case.
+* **2026-10-17, "standard TT license ... make sure our README is amazing":** added the Apache-2.0
+  `LICENSE` and `LICENSE_understanding.txt` (copied from tt-gozer) and an SPDX header
+  (`Apache-2.0`, 2026 Tenstorrent USA, Inc.) on every `.py` and demo `.sh`. `tests/test_hygiene.py`
+  fails on a missing header or license file (removing a header from `run.py` and from
+  `left_pane.sh`, and removing `LICENSE`, each turned it red). README rewritten around the demo
+  frame, the band, the real log, patches and credits. The README's log excerpt and the hero frame
+  (`docs/media/demo-frame.png`) come from a real run and the final video.

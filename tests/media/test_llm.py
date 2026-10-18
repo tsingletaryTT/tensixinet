@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """LLM prompting: model discovered from the endpoint, failures reported not hidden."""
 import io
 import json

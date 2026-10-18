@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Command line: prompt the LLM, then sample chips, then play."""
 import json
 from pathlib import Path

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Voice layout and rendering for any number of chips. Pure numpy, no hardware."""
 import numpy as np
 import pytest

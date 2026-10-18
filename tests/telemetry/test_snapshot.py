@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Telemetry parsing: tt-smi JSON -> typed readings. Pure functions, no hardware.
 
 The fixture is a real `tt-smi -s` capture from a 4-device box (2026-10-17).

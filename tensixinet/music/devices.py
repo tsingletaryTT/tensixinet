@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Ciat-Lonbarde-inspired devices. Each renders one chip's telemetry as sound.
 
 A device is `f(telemetry, duration, sample_rate, seed) -> float32 array` with
