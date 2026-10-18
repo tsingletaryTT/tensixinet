@@ -188,8 +188,8 @@ def test_a_chip_that_heats_quickly_makes_the_log_say_so(tmp_path):
     assert len(motion) == 1 and "+2.0 C/s" in motion[0]["what"] and motion[0]["chip"] == 0 and motion[0]["segment"] == 1
 
 
-def test_the_log_says_whether_the_chip_plays_sidrax_so_its_chaos_is_what_moved(tmp_path):
-    sidrax_slot = [d.__name__ for d in DEVICES].index("sidrax")
+def test_the_log_says_whether_the_chip_plays_ttsidrax_so_its_chaos_is_what_moved(tmp_path):
+    ttsidrax_slot = [d.__name__ for d in DEVICES].index("ttsidrax")
     chips = [dataclasses.replace(FALLBACK, asic_temperature=40.0, power=10.0)] * len(DEVICES)  # one device per chip
 
     def sample(temps=iter(range(100))):
@@ -198,8 +198,8 @@ def test_the_log_says_whether_the_chip_plays_sidrax_so_its_chaos_is_what_moved(t
 
     _go(tmp_path, sample, duration=6.0)
     by_chip = {e["chip"]: e for e in _events(tmp_path) if e["event"] == "motion" and e["segment"] == 1}
-    assert "Sidrax" in by_chip[sidrax_slot]["why"] and "chaos" in by_chip[sidrax_slot]["why"]
-    assert "does not play Sidrax" in by_chip[(sidrax_slot + 1) % len(DEVICES)]["why"]
+    assert "ttsidrax" in by_chip[ttsidrax_slot]["why"] and "chaos" in by_chip[ttsidrax_slot]["why"]
+    assert "does not play ttsidrax" in by_chip[(ttsidrax_slot + 1) % len(DEVICES)]["why"]
 
 
 def test_a_still_chip_logs_no_motion(tmp_path):

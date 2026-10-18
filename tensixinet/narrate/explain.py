@@ -25,9 +25,9 @@ from ..music.devices import (
     gong_detune_cents,
     strike_times,
 )
-from ..music.mwtrs import STEPS, dust_per_second, snare_decay, step_pattern
-from ..music.quantussy import castle_offset
-from ..music.sidrax import FALLBACK_ARCCLK, N_BARRES, barre_bounds
+from ..music.ttsteam import STEPS, dust_per_second, snare_decay, step_pattern
+from ..music.ttquantussy import castle_offset
+from ..music.ttsidrax import FALLBACK_ARCCLK, N_BARRES, barre_bounds
 from ..music.events import MAX_BREATHS, MAX_SWEEPS, MAX_TICKS
 from ..music.lead import BRIGHTNESS, identity_offset, lead_transforms
 from ..music.patch import (
@@ -99,7 +99,7 @@ def explain_chip(index: int, t: Telemetry, n_chips: Optional[int] = None) -> Lis
     if "ddr_status" in uses:
         out.append(Decision(
             f"DDR status {t.ddr_status} -> rolls with {ddr_lane_sides(t.ddr_status)} sides",
-            "each DDR field adds a Rolzer roll of 3, 4, 5 or 6 sides on its own barre, so the lanes drift against "
+            "each DDR field adds a ttrolzer roll of 3, 4, 5 or 6 sides on its own barre, so the lanes drift against "
             "each other; an odd roll is unsteady and an even one swings; status 0 grounds the roll and mutes it",
         ))
     out.extend(_explain_wider_readings(t, devices))
@@ -123,23 +123,23 @@ def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
         f"how close the chip is to a limit: ASIC temperature from 40 C up to the {t.thm_limit_throttle:.0f} C throttle "
         f"point, or power from a quarter of the {t.tdp_limit:.0f} W limit up to it, whichever is closer"
     )
-    if "rollz" in devices:
+    if "ttrollz" in devices:
         links = bin(t.eth_mask).count("1")
         out.append(Decision(
             f"{links} of 16 ethernet links up -> lanes at {_percent_list(eth_lane_levels(t.eth_mask))}",
             "each group of four links drives one more slow roll on a grave barre, as loud as "
             "the share of its group that is up, so a link going down quietens its lane",
         ))
-    if "sidrax" in devices:
+    if "ttsidrax" in devices:
         walls = [barre_bounds(t.gddr_temps, b) for b in range(N_BARRES)]
         out.append(Decision(
             f"GDDR {min(t.gddr_temps):.0f}-{max(t.gddr_temps):.0f} C -> barre walls {min(w[0] for w in walls):.2f} to {max(w[1] for w in walls):.2f}",
-            "each of the seven Sidrax barres bounces between two walls: its own GDDR channel sets the upper one and the "
+            "each of the seven ttsidrax barres bounces between two walls: its own GDDR channel sets the upper one and the "
             "next channel the lower, so a hotter channel pushes a wall further out",
         ))
         out.append(Decision(
             f"ARC clock {t.arcclk:.0f} MHz -> bounce x{t.arcclk / FALLBACK_ARCCLK:.2f}",
-            f"Sidrax bounces at the chip's pitch when the ARC clock is {FALLBACK_ARCCLK:.0f} MHz and scales with it",
+            f"ttsidrax bounces at the chip's pitch when the ARC clock is {FALLBACK_ARCCLK:.0f} MHz and scales with it",
         ))
         chaos = chip_chaos(t)
         moving = rate_activity(t.temp_rate, t.power_rate)
@@ -148,23 +148,23 @@ def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
             "(the faster of the two, up to 1) to the knob"
         ) if moving else ""
         out.append(Decision(
-            f"pressure {pressure:.2f} -> Sidrax chaos {chaos:.0%}",
-            f"{pressure_why}{movement}; the Sidrax chaos knob cross-modulates the barres, and at the top it is noise. "
-            f"Each barre is pressed every four steps of its own Rolzer barre, at {aiclk_to_bpm(t.aiclk):.0f} BPM here",
+            f"pressure {pressure:.2f} -> ttsidrax chaos {chaos:.0%}",
+            f"{pressure_why}{movement}; the ttsidrax chaos knob cross-modulates the barres, and at the top it is noise. "
+            f"Each barre is pressed every four steps of its own ttrolzer barre, at {aiclk_to_bpm(t.aiclk):.0f} BPM here",
         ))
-    if "cocoquantus" in devices:
+    if "ttquantus" in devices:
         out.append(Decision(
             f"AXI clock {t.axiclk:.0f} MHz -> notes change x{t.axiclk / REFERENCE_AXICLK:.2f} as often",
-            f"Cocoquantus holds each note for an eighth when the AXI clock is {REFERENCE_AXICLK:.0f} MHz, "
+            f"ttquantus holds each note for an eighth when the AXI clock is {REFERENCE_AXICLK:.0f} MHz, "
             "and a faster AXI clock holds it for less",
         ))
-    if "cocoquantus" in devices:
+    if "ttquantus" in devices:
         out.append(Decision(
             f"chip identity {ident:08x} -> castle samples the petal {castle_offset(ident)} places round",
-            "the Quantussy's five petals each have a castle that samples another petal's triangle; the chip's "
+            "the ttquantussy's five petals each have a castle that samples another petal's triangle; the chip's "
             "Tensix and ethernet masks pick how far round the ring it looks (2, 3, 4 or 1 places), which changes the pattern of notes",
         ))
-    if "plumbutter_drone" in devices:
+    if "ttdrone" in devices:
         out.append(Decision(
             f"voltage {t.voltage:.2f} V -> {voltage_to_cents(t.voltage):+.0f} cents",
             "0.75 V is in tune; the drone goes sharp above it and flat below, 4 cents per 10 mV, up to 40 cents",
@@ -176,7 +176,7 @@ def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
         beat = 60.0 / aiclk_to_bpm(t.aiclk)
         out.append(Decision(
             f"each gong strike ripples the drone: {SHOCK_RATE_BEATS / beat:.1f} swings a second, fading over {SHOCK_DECAY_BEATS * beat:.1f} s",
-            "an AVDog rings in sympathy with a Gongue: every gong strike on this chip sets off a damped swing "
+            "the drone rings in sympathy with the gong, after the shock wave an AVDog gives a Gongue: every gong strike on this chip sets off a damped swing "
             "that changes direction every half cycle, so the drone's level ripples and settles back",
         ))
     if "lead" in devices:
@@ -199,15 +199,15 @@ def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
         strikes = strike_times(t, 60.0)[:4]
         out.append(Decision(
             f"trigger response: gong strikes at {', '.join(f'{x:.1f}' for x in strikes)} s",
-            f"the Gongue ignores its trigger for a blocking window after each strike: two bars, times "
+            f"the gong ignores its trigger for a blocking window after each strike, as a Gongue does with its trigger response: two bars, times "
             f"{1 + TRIGGER_RESPONSE_SPREAD * (ident % TRIGGER_RESPONSE_STEPS):.2f} for this chip's identity. "
-            "The strike lands on the next pulse of the chip's own rollz clock after the window, so a chip divides its clock its own way",
+            "The strike lands on the next pulse of the chip's own ttrollz clock after the window, so a chip divides its clock its own way",
         ))
         out.append(Decision(
             f"heartbeat {t.heartbeat} -> first gong strike {heartbeat_phase(t.heartbeat) * interval / 2:.1f} s in",
             "the firmware counter modulo 16, in sixteenths of half a strike interval, sets where the first strike lands",
         ))
-    if "mwtrs" in devices:
+    if "ttsteam" in devices:
         hits = [i for i, hit in enumerate(step_pattern(t.tensix_mask)) if hit]
         if hits:
             out.append(Decision(

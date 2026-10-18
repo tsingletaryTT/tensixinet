@@ -26,9 +26,9 @@ from .mapping import (
     voltage_to_cents,
 )
 from .patch import DEFAULT_PATCH, SCALES, Patch
-from .sidrax import FALLBACK_ARCCLK, barre_bounds, bounce_wave, sidrax  # noqa: F401  (re-exported: the chorus and the log import them from here)
-from .quantussy import castle_offset, castle_output, crunch, petal_phases, petal_ratios
-from .rolzer import DDR_LANE_BARRES, ETH_LANE_BARRES, ETH_LANE_SIDES, barre_bpm, roll_pulse_times
+from .ttsidrax import FALLBACK_ARCCLK, barre_bounds, bounce_wave, ttsidrax  # noqa: F401  (re-exported: the chorus and the log import them from here)
+from .ttquantussy import castle_offset, castle_output, crunch, petal_phases, petal_ratios
+from .ttrolzer import DDR_LANE_BARRES, ETH_LANE_BARRES, ETH_LANE_SIDES, barre_bpm, roll_pulse_times
 from .synth import build_voices, render
 from ..telemetry import Telemetry
 
@@ -43,20 +43,20 @@ PENTATONIC = SCALES["major_pentatonic"]
 PRESSURE_FIELDS = frozenset({"asic_temperature", "power", "thm_limit_throttle", "tdp_limit"})
 IDENTITY_FIELDS = frozenset({"tensix_mask", "eth_mask"})
 DEVICE_INPUTS = {
-    "rollz": frozenset({"asic_temperature", "aiclk", "ddr_status", "eth_mask"}),
-    "sidrax": frozenset({"asic_temperature", "gddr_temps", "arcclk", "aiclk", "temp_rate", "power_rate"}) | PRESSURE_FIELDS,
-    "cocoquantus": frozenset({"asic_temperature", "aiclk", "axiclk"}) | IDENTITY_FIELDS,
-    "plumbutter_drone": frozenset({"asic_temperature", "voltage", "pcie_usage", "aiclk", "heartbeat"}) | IDENTITY_FIELDS,
+    "ttrollz": frozenset({"asic_temperature", "aiclk", "ddr_status", "eth_mask"}),
+    "ttsidrax": frozenset({"asic_temperature", "gddr_temps", "arcclk", "aiclk", "temp_rate", "power_rate"}) | PRESSURE_FIELDS,
+    "ttquantus": frozenset({"asic_temperature", "aiclk", "axiclk"}) | IDENTITY_FIELDS,
+    "ttdrone": frozenset({"asic_temperature", "voltage", "pcie_usage", "aiclk", "heartbeat"}) | IDENTITY_FIELDS,
     "lead": frozenset({"aiclk", "gddr_temps"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "gong": frozenset({"asic_temperature", "aiclk", "heartbeat"}) | IDENTITY_FIELDS,
-    "mwtrs": frozenset({"aiclk", "tensix_mask", "pcie_usage"}) | PRESSURE_FIELDS,
+    "ttsteam": frozenset({"aiclk", "tensix_mask", "pcie_usage"}) | PRESSURE_FIELDS,
     "ultrasonic_shimmer": frozenset({"gddr_temps", "aiclk", "heartbeat"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
 }
 
 
-# --- Rollz: organic asymmetric pulses ------------------------------------------
+# --- ttrollz: organic asymmetric pulses ------------------------------------------
 
-def rollz_pulse_times(bpm: float, duration: float, asymmetry: float = 0.25) -> np.ndarray:
+def ttrollz_pulse_times(bpm: float, duration: float, asymmetry: float = 0.25) -> np.ndarray:
     """Pulse onsets (s). Intervals alternate long/short around 60/bpm.
 
     A long step of base*(1+a) followed by a short one of base*(1-a) keeps the
@@ -85,15 +85,15 @@ def _blips(times: np.ndarray, pitch: float, n: int, sr: int, decay_s: float = 0.
     return out
 
 
-def rollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+def ttrollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """The chip's clock, plus one roll per DDR channel and per group of ethernet links.
 
-    Every lane is a roll on its own Rolzer barre (see rolzer.py), so the lanes drift against each other
+    Every lane is a roll on its own ttrolzer barre (see ttrolzer.py), so the lanes drift against each other
     and against the bar and never lock into a polyrhythm."""
     n = int(duration * sample_rate)
     bpm = aiclk_to_bpm(t.aiclk)
     pitch = temp_to_pitch_hz(t.asic_temperature)
-    out = _blips(rollz_pulse_times(bpm, duration), pitch, n, sample_rate)
+    out = _blips(ttrollz_pulse_times(bpm, duration), pitch, n, sample_rate)
     for lane, sides in enumerate(ddr_lane_sides(t.ddr_status)):
         if sides:
             times = roll_pulse_times(sides, barre_bpm(bpm, DDR_LANE_BARRES[lane]), duration, seed * 8 + lane)
@@ -106,10 +106,10 @@ def rollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Pat
     return (np.tanh(out)).astype(np.float32)
 
 
-# --- Sidrax: seven barres bouncing between each other's oscillators (see sidrax.py) ---------------
+# --- ttsidrax: seven barres bouncing between each other's oscillators (see ttsidrax.py) ---------------
 
 
-# --- Cocoquantus: the Quantussy's castles, through an 8-bit buffer ---------------------------------------
+# --- ttquantus: the ttquantussy's castles, through an 8-bit buffer ---------------------------------------
 
 def quantize_to_scale(values: np.ndarray, scale: Sequence[int], octaves: int = 2) -> np.ndarray:
     """Map [0, 1] values onto semitone offsets of `scale` across `octaves`."""
@@ -123,10 +123,10 @@ CRUNCH_FULL_AXICLK = 1920.0  # MHz: at this AXI clock the buffer runs at the aud
 CRUNCH_MIN_RATE = 0.25  # the buffer clock never drops below this share of the sample rate
 
 
-def cocoquantus_steps(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+def ttquantus_steps(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """Per-sample semitone offsets: the first petal's castle on the patch's scale.
 
-    The Quantussy's first petal turns round twice per eighth note, so a note lasts an eighth. The other four
+    The ttquantussy's first petal turns round twice per eighth note, so a note lasts an eighth. The other four
     petals run at low prime ratios to it (the seed nudges them), so the notes make a pattern that repeats
     and slowly drifts. The chip's identity picks which petal the castle samples."""
     n = int(duration * sample_rate)
@@ -136,10 +136,10 @@ def cocoquantus_steps(t: Telemetry, duration: float, sample_rate: int, seed: int
     return quantize_to_scale(castle, patch.scale)
 
 
-def cocoquantus(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+def ttquantus(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """The castle's notes as a sine, through the coco's 8-bit buffer. A slower AXI clock slows the buffer's
     sample clock, which holds each sample longer and aliases."""
-    semis = cocoquantus_steps(t, duration, sample_rate, seed, patch)
+    semis = ttquantus_steps(t, duration, sample_rate, seed, patch)
     freq = temp_to_pitch_hz(t.asic_temperature) * 2 ** (semis / 12)
     phase = 2 * math.pi * np.cumsum(freq) / sample_rate
     rate = min(1.0, max(CRUNCH_MIN_RATE, t.axiclk / CRUNCH_FULL_AXICLK))
@@ -151,7 +151,7 @@ def cocoquantus(t: Telemetry, duration: float, sample_rate: int, seed: int, patc
 DRONE_SETTLED = 0.6  # the drone's level when no shock wave is passing; each strike swells it to full
 
 
-def plumbutter_drone(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+def ttdrone(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """A chord drone whose level ripples after every gong strike, as an AVDog rings in sympathy with a Gongue."""
     f_low = temp_to_pitch_hz(t.asic_temperature) / 2 * 2 ** (voltage_to_cents(t.voltage) / 1200)
     voices = build_voices(1, voices_per_chip=drone_voices(t.pcie_usage), f_low=f_low)
@@ -198,14 +198,14 @@ def strike_times(t: Telemetry, duration: float) -> np.ndarray:
     """When this chip's gong is struck. The same moments set off the shimmer's snap and the drone's shock wave,
     as a Plumbutter patch sends one clock to the Ultrasound, the Gongue and the AVDog together.
 
-    The clock is the chip's rollz pulse train. Two bars is the shortest gap, and the chip's identity
+    The clock is the chip's ttrollz pulse train. Two bars is the shortest gap, and the chip's identity
     lengthens the blocking window by up to six sixteenths of that, so chips divide the clock differently.
     The heartbeat sets how far into the first window the chip starts."""
     bpm = aiclk_to_bpm(t.aiclk)
     interval = 2 * 4 * 60.0 / bpm
     window = interval * (1 + TRIGGER_RESPONSE_SPREAD * (personality(t) % TRIGGER_RESPONSE_STEPS))
     first = heartbeat_phase(t.heartbeat) * interval / 2
-    return gate_triggers(rollz_pulse_times(bpm, duration), window, first)
+    return gate_triggers(ttrollz_pulse_times(bpm, duration), window, first)
 
 
 def seconds_since(strikes: np.ndarray, n: int, sample_rate: int) -> np.ndarray:

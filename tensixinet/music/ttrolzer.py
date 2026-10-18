@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
-"""The Rolzer's rolls, from the Plumbutter & Rolzer guide.
+"""ttrolzer's rolls, after the Rolzer in the Plumbutter & Rolzer Dance Party Guide.
 
 A roll is a ring of transistor stages with a capacitor each. The seven barres use the E6 capacitor
 values 1 to 10 uF, which sets their tempos. Capacitors are good to 20%, so no two steps last exactly as
@@ -31,7 +31,7 @@ ODD_INSTABILITY = 2.5  # an odd roll magnifies its tolerance this much
 
 
 def barre_bpm(chip_bpm: float, barre: int) -> float:
-    """Tempo of a Rolzer barre when the chip's own tempo is that of the reference barre."""
+    """Tempo of a ttrolzer barre when the chip's own tempo is that of the reference barre."""
     return chip_bpm * BARRE_BPM[barre] / BARRE_BPM[REFERENCE_BARRE]
 
 

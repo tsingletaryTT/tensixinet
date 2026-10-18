@@ -15,16 +15,16 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .devices import cocoquantus, current_mix, gong, plumbutter_drone, rollz, sidrax, ultrasonic_shimmer
+from .devices import ttquantus, current_mix, gong, ttdrone, ttrollz, ttsidrax, ultrasonic_shimmer
 from .events import error_events
 from .lead import lead
-from .mwtrs import mwtrs
+from .ttsteam import ttsteam
 from .mapping import aiclk_to_bpm, chip_pressure, power_to_volume, turn_weight
 from .patch import DEFAULT_PATCH, Patch
 from ..telemetry import Telemetry
 from .turns import soloists as plan_soloists, turn_gains
 
-DEVICES = (rollz, sidrax, cocoquantus, plumbutter_drone, lead, gong, ultrasonic_shimmer, mwtrs)
+DEVICES = (ttrollz, ttsidrax, ttquantus, ttdrone, lead, gong, ultrasonic_shimmer, ttsteam)
 
 
 def n_slots(n_chips: int) -> int:

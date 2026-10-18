@@ -13,7 +13,7 @@ The soundtrack is what the chips played.*
 
 Every chip reports its temperature, clock, power, current, memory temperatures, DDR status, harvesting and
 more. tensixinet turns those readings into music. Each chip joins a small band of synthesizers inspired by
-[Ciat-Lonbarde](https://www.ciat-lonbarde.net/) instruments, and the band trades solos. A cool chip and a hot chip
+[Ciat-Lonbarde](https://www.ciat-lonbarde.net/) instruments (see [Credits](#credits)), and the band trades solos. A cool chip and a hot chip
 sound different, a busy chip gets more solos, and uneven memory temperatures make the melody wander.
 
 You can prompt a local language model first. Its work heats the chips, so you can hear the model
@@ -51,17 +51,17 @@ chips play one each. Anything in between shares them.
 
 | Device | What you hear | What drives it |
 |---|---|---|
-| **Rollz** | A lopsided pulse clock, plus a Rolzer roll for each DDR channel and each group of ethernet links. Every roll runs on its own barre's tempo, so the lanes drift against each other | temperature, clock, DDR status, ethernet links |
-| **Sidrax** | Seven barres, each an oscillator bouncing between two walls. A press plays a tone. A release lets the walls become other barres' oscillators and the barre glitches | temperature, clock, GDDR temperatures, ARC clock, pressure |
-| **Cocoquantus** | A five-petal Quantussy plays a melody that repeats and slowly drifts, through an 8-bit buffer | temperature, clock, AXI clock, chip identity |
-| **Plumbutter drone** | A drone of one to six C major voices, a little sharp or flat, that ripples after every gong strike | temperature, voltage, PCIe usage, clock, heartbeat, chip identity |
+| **ttrollz** | A lopsided pulse clock, plus a ttrolzer roll for each DDR channel and each group of ethernet links. Every roll runs on its own barre's tempo, so the lanes drift against each other | temperature, clock, DDR status, ethernet links |
+| **ttsidrax** | Seven barres, each an oscillator bouncing between two walls. A press plays a tone. A release lets the walls become other barres' oscillators and the barre glitches | temperature, clock, GDDR temperatures, ARC clock, pressure |
+| **ttquantus** | A five-petal ttquantussy plays a melody that repeats and slowly drifts, through an 8-bit buffer | temperature, clock, AXI clock, chip identity |
+| **ttdrone** | A drone of one to six C major voices, a little sharp or flat, that ripples after every gong strike | temperature, voltage, PCIe usage, clock, heartbeat, chip identity |
 | **Lead** | An eight-note motif that gets shifted up or flipped upside down, bar by bar, and brighter near a limit | temperature, clock, GDDR temperatures, pressure, chip identity |
 | **Gong** | Inharmonic strikes with slowly beating partials, a gamelan or tam-tam ring. A strike waits for the chip's clock to get through a blocking window | temperature, clock, heartbeat, chip identity |
 | **Ultrasonic shimmer** | Two close tones at 12 to 20 kHz that swell and fade, swell more near a limit, and snap on every gong strike | temperature, clock, GDDR temperatures, pressure, heartbeat, chip identity |
-| **MWTRS and Snare** | A noise snare on the steps of a 14-step shift register. The steps are the chip's harvested Tensix columns, so each chip has its own rhythm of holes | clock, Tensix mask, pressure, PCIe usage |
+| **ttsteam and Snare** | A noise snare on the steps of a 14-step shift register. The steps are the chip's harvested Tensix columns, so each chip has its own rhythm of holes | clock, Tensix mask, pressure, PCIe usage |
 
-**The devices are patched together, like the real instruments.** A Plumbutter patch can send one clock to
-the Ultrasound, the Gongue and the AVDog at once. Here each chip's gong strikes set off the shimmer's snap
+**The devices are patched together.** The Plumbutter's patches can send one clock to several modules at once.
+Here each chip's gong strikes set off the shimmer's snap
 and a ripple in the drone. The gong needs a pulse from the chip's own clock after a blocking window, and the
 chip's identity sets the window, so chips divide their clock differently.
 
@@ -72,7 +72,7 @@ chips still get turns.
 
 **No two chips play alike.** Harvesting leaves every chip with different Tensix columns and ethernet links. That
 fingerprint transposes a chip's lead, detunes its gong, sets how its gong divides its clock and picks which
-petal its Quantussy samples. Its harvested columns are also the steps its snare fires on.
+petal its ttquantussy samples. Its harvested columns are also the steps its snare fires on.
 
 **Trouble is audible.** Correctable memory errors tick, uncorrectable ones breathe, and a thermal trip sweeps
 down. A healthy chip adds none of it. Try `--mock-chips 6 --mock-faults` to hear them.
@@ -90,24 +90,25 @@ RMS, so every run lands at the same level and chips keep their level against eac
 Every line of the log says what a reading became and the reason. This is a real run on four chips, trimmed:
 
 ```
-║ [00:00.3] chip 1 plays sidrax, gong
+║ [00:00.3] chip 1 plays ttsidrax, gong
 ║ [00:00.3] GDDR 46-48 C -> barre walls -0.41 to 0.41
-║          why: each of the seven Sidrax barres bounces between two walls: its
+║          why: each of the seven ttsidrax barres bounces between two walls: its
 ║               own GDDR channel sets the upper one and the next channel the
 ║               lower, so a hotter channel pushes a wall further out
-║ [00:00.3] pressure 0.14 -> Sidrax chaos 14%
+║ [00:00.3] pressure 0.14 -> ttsidrax chaos 14%
 ║          why: how close the chip is to a limit: ASIC temperature from 40 C up
 ║               to the 90 C throttle point, or power from a quarter of the 125
-║               W limit up to it, whichever is closer; the Sidrax chaos knob
+║               W limit up to it, whichever is closer; the ttsidrax chaos knob
 ║               cross-modulates the barres, and at the top it is noise. Each
-║               barre is pressed every four steps of its own Rolzer barre, at
+║               barre is pressed every four steps of its own ttrolzer barre, at
 ║               111 BPM here
 ║ [00:00.3] trigger response: gong strikes at 0.7, 5.0, 9.4, 14.1 s
-║          why: the Gongue ignores its trigger for a blocking window after each
-║               strike: two bars, times 1.00 for this chip's identity. The
-║               strike lands on the next pulse of the chip's own rollz clock
-║               after the window, so a chip divides its clock its own way
-║ [00:00.3] chip 3 plays plumbutter_drone, mwtrs
+║          why: the gong ignores its trigger for a blocking window after each
+║               strike, as a Gongue does with its trigger response: two bars,
+║               times 1.00 for this chip's identity. The strike lands on the
+║               next pulse of the chip's own ttrollz clock after the window, so
+║               a chip divides its clock its own way
+║ [00:00.3] chip 3 plays ttdrone, ttsteam
 ║ [00:00.3] Tensix mask 0x3fdd -> snare hits on steps 1, 5 of 14
 ║          why: the shift register has one step per Tensix column and fires a
 ║               step where its column is harvested (the mask bit is 0), so each
@@ -125,7 +126,7 @@ describe a mapping that is not in the sound.
 ## No two runs alike
 
 Each run draws a **patch**: the scale, the lead's motif, the gong's tuning and beat, the shimmer band, how long
-solos last and how quiet everyone else gets. The scale also sets what the Sidrax barres and the Cocoquantus play.
+solos last and how quiet everyone else gets. The scale also sets what the ttsidrax barres and the ttquantus play.
 
 - **The machine decides two things.** The scale follows how unevenly the memory channels are heated. The gong
   tuning follows the ratio of memory to ASIC temperature.
@@ -142,7 +143,7 @@ The demo replays [`demo/chorus.patch.json`](demo/chorus.patch.json), so rebuildi
 Each turn is rendered from a fresh reading and played while the next one is made, so the sound is about one turn
 behind the chips. A chip that heats up or draws more power changes the music within a turn or two:
 
-* **How fast the readings move** (degrees and watts per second) turns up Sidrax's chaos knob, on top of
+* **How fast the readings move** (degrees and watts per second) turns up ttsidrax's chaos knob, on top of
   pressure. A cool chip that heats quickly gets as unsettled as a hot one.
 * **The soloist is drawn again every turn** from the chips' current weights.
 * **New errors play once.** A memory error or thermal trip that appears mid-run ticks, breathes or sweeps in
@@ -163,15 +164,15 @@ each turn restarts the devices' clocks, so a ringing gong fades at the end of it
 | AI clock | Tempo | 400-1350 MHz is 60-180 BPM |
 | Power | Chip volume, exponential curve | 0-200 W is 0.3 to 1.0 |
 | Current | Share of the mix | each chip's fraction of the total |
-| GDDR temperatures | Sidrax walls, the lead's shifts and flips, the shimmer's beat | every channel the board reports |
-| DDR status | Rollz rolls of 3, 4, 5 and 6 sides; status 0 grounds a roll | 4 fields |
+| GDDR temperatures | ttsidrax walls, the lead's shifts and flips, the shimmer's beat | every channel the board reports |
+| DDR status | ttrollz rolls of 3, 4, 5 and 6 sides; status 0 grounds a roll | 4 fields |
 | Voltage | Drone detune, 4 cents per 10 mV | 0.70-0.90 V is -20 to +60 cents, capped at 40 |
 | PCIe usage | Drone voices, and the snare's dust | 1 to 6 |
-| ARC clock, AXI clock | Sidrax pitch, Cocoquantus hold rate and buffer clock | 1.0 at 800 and 960 MHz |
-| Ethernet links | Four slow Rollz rolls, loud in proportion to the links up in each group of four | 16 links |
-| Tensix and ethernet masks | Chip identity: lead transpose, gong detune and trigger response, Cocoquantus castle. The harvested Tensix columns are the snare's steps | per chip |
+| ARC clock, AXI clock | ttsidrax pitch, ttquantus hold rate and buffer clock | 1.0 at 800 and 960 MHz |
+| Ethernet links | Four slow ttrollz rolls, loud in proportion to the links up in each group of four | 16 links |
+| Tensix and ethernet masks | Chip identity: lead transpose, gong detune and trigger response, ttquantus castle. The harvested Tensix columns are the snare's steps | per chip |
 | Heartbeat | Where the gong starts in its first blocking window | counter mod 16 |
-| Pressure | Lead overtone, shimmer level, Sidrax chaos, snare decay, turn weight | 0-1, from the throttle temperature and the power limit |
+| Pressure | Lead overtone, shimmer level, ttsidrax chaos, snare decay, turn weight | 0-1, from the throttle temperature and the power limit |
 | Board power, processes using the chip | Turn weight | |
 | Memory errors, thermal trips | Ticks, breaths and sweeps | counts |
 
@@ -251,10 +252,13 @@ The instrument works and is still growing.
 
 ## Credits
 
-The devices are modelled on instruments from [Ciat-Lonbarde](https://www.ciat-lonbarde.net/), Peter Blasser's
-workshop: Rollz and Rolzer, Sidrax, Cocoquantus and Plumbutter. The behaviour follows three guides by Josh Singer
-(the Sidrax Guide, the Cocoquantus Tasting Guide and the Plumbutter & Rolzer Dance Party Guide). [docs/CIRCUITS.md](docs/CIRCUITS.md)
-says what each guide describes and which parts the code models. It does not simulate the circuits. Telemetry comes from [tt-smi](https://github.com/tenstorrent/tt-smi), and the
+tensixinet is inspired by the instruments of [Ciat-Lonbarde](https://www.ciat-lonbarde.net/), Peter Blasser's
+workshop, and owes them its ideas. It is not a recreation of them and does not simulate their circuits. The devices carry
+a `tt` prefix to say so: ttrollz and ttrolzer follow the Plumbutter and Rolzer, ttsidrax the Sidrax, ttquantus and
+ttquantussy the Cocoquantus and its Quantussy, ttsteam the Man With The Red Steam, and tthorn (not built yet) would follow the
+Deerhorn. The behaviour comes from three guides by Josh Singer (the Sidrax Guide, the Cocoquantus Tasting Guide and the
+Plumbutter & Rolzer Dance Party Guide). [docs/CIRCUITS.md](docs/CIRCUITS.md) says what each guide describes and which parts
+the code takes from it. Please buy and play the real instruments. Telemetry comes from [tt-smi](https://github.com/tenstorrent/tt-smi), and the
 demo uses [tt-toplike](https://github.com/tenstorrent/tt-toplike).
 
 ## License

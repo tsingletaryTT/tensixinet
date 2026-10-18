@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
-"""The Quantussy: five triangle oscillators, each with a castle that samples another petal's triangle."""
+"""The ttquantussy: five triangle oscillators, each with a castle that samples another petal's triangle."""
 import numpy as np
 import pytest
 
-from tensixinet.music.quantussy import (
+from tensixinet.music.ttquantussy import (
     N_PETALS,
     castle_leader,
     castle_output,
@@ -132,7 +132,7 @@ def test_phases_and_ratios_do_not_share_one_random_stream():
 
 # --- the castle mod select: which petal each castle samples ----------------------------------------------------------------
 
-from tensixinet.music.quantussy import castle_offset  # noqa: E402
+from tensixinet.music.ttquantussy import castle_offset  # noqa: E402
 
 
 def test_a_chips_identity_picks_one_of_the_four_leader_offsets_the_guide_cycles_through():

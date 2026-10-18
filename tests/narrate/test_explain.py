@@ -14,7 +14,7 @@ from tensixinet.telemetry import FALLBACK
 SR = 8000
 LONG = 15.0
 # The snare plays the holes in the Tensix mask, so its base chip needs one for the other fields to matter.
-BASE_OVERRIDES = {"mwtrs": {"tensix_mask": 0x37F7}}
+BASE_OVERRIDES = {"ttsteam": {"tensix_mask": 0x37F7}}
 CHANGES = {
     "asic_temperature": 90.0,
     "aiclk": 1350.0,
@@ -80,10 +80,10 @@ def test_explanation_reports_the_numbers_the_mapping_actually_produces():
 
 
 def test_explanation_only_mentions_inputs_the_chips_device_consumes():
-    rollz_chip = subjects(explain_chip(0, FALLBACK))  # chip 0 plays rollz
-    sidrax_chip = subjects(explain_chip(1, FALLBACK))  # chip 1 plays sidrax
-    assert "DDR" in rollz_chip and "GDDR" not in rollz_chip
-    assert "GDDR" in sidrax_chip and "DDR status" not in sidrax_chip
+    ttrollz_chip = subjects(explain_chip(0, FALLBACK))  # chip 0 plays ttrollz
+    ttsidrax_chip = subjects(explain_chip(1, FALLBACK))  # chip 1 plays ttsidrax
+    assert "DDR" in ttrollz_chip and "GDDR" not in ttrollz_chip
+    assert "GDDR" in ttsidrax_chip and "DDR status" not in ttsidrax_chip
 
 
 def test_explanation_names_the_device_and_why_it_was_chosen():
@@ -114,7 +114,7 @@ def test_a_one_chip_box_says_it_plays_every_device_and_explains_the_inputs_of_al
     first = decisions[0]
     assert all(d.__name__ in first.what for d in DEVICES)
     text = subjects(decisions)
-    assert "DDR status" in text and "GDDR" in text  # rollz and sidrax both read their fields
+    assert "DDR status" in text and "GDDR" in text  # ttrollz and ttsidrax both read their fields
 
 
 def test_the_dealing_rule_is_explained_with_the_real_slot_numbers():
@@ -232,12 +232,12 @@ def _chip_text(index):
     return subjects(explain_chip(index, LOADED, n_chips=len(DEVICES)))  # with one chip per device, chip i plays DEVICES[i] alone
 
 
-def test_rollz_says_how_many_ethernet_links_are_up_and_what_lanes_that_makes():
+def test_ttrollz_says_how_many_ethernet_links_are_up_and_what_lanes_that_makes():
     text = _chip_text(0)
     assert "12 of 16 ethernet links" in text and "lanes" in text and "GDDR" not in text
 
 
-def test_sidrax_and_cocoquantus_say_what_the_other_two_clocks_do():
+def test_ttsidrax_and_ttquantus_say_what_the_other_two_clocks_do():
     assert "ARC clock 1600 MHz" in _chip_text(1) and "x2.00" in _chip_text(1)
     assert "AXI clock 1920 MHz" in _chip_text(2) and "x2.00" in _chip_text(2)
 
@@ -299,7 +299,7 @@ def test_each_wider_decision_appears_only_on_chips_that_play_its_device():
     assert "ethernet" in texts[0] and not any("ethernet" in texts[i] for i in others({0}))
     assert "ARC clock" in texts[1] and not any("ARC clock" in texts[i] for i in others({1}))
     assert "AXI clock" in texts[2] and not any("AXI clock" in texts[i] for i in others({2}))
-    assert all("pressure" in texts[i] for i in (1, 4, 6, 7)) and not any("pressure" in texts[i] for i in others({1, 4, 6, 7}))  # Sidrax's chaos, the lead, the shimmer, the snare
+    assert all("pressure" in texts[i] for i in (1, 4, 6, 7)) and not any("pressure" in texts[i] for i in others({1, 4, 6, 7}))  # ttsidrax's chaos, the lead, the shimmer, the snare
     assert "snare" in texts[7] and not any("snare" in texts[i] for i in others({7}))
     assert "chaos" in texts[1] and "barre walls" in texts[1] and "barre walls" not in texts[4]
     assert "gong tuned" in texts[5] and "lead starts" in texts[4] and "lead starts" not in texts[5]
@@ -316,9 +316,9 @@ def test_a_chip_with_every_column_enabled_says_the_snare_stays_silent():
     assert "no harvested" in text
 
 
-def test_the_cocoquantus_says_which_petal_its_castle_samples_and_why():
+def test_the_ttquantus_says_which_petal_its_castle_samples_and_why():
     from tensixinet.music.mapping import personality
-    from tensixinet.music.quantussy import castle_offset
+    from tensixinet.music.ttquantussy import castle_offset
     decisions = explain_chip(2, LOADED, n_chips=len(DEVICES))
     text = subjects(decisions)
     assert f"{castle_offset(personality(LOADED))} places" in text and "castle" in text

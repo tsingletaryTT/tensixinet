@@ -17,7 +17,7 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 * **The devices follow the instrument guides.** The first versions were impressions from memory. After reading
   the Sidrax, Cocoquantus and Plumbutter & Rolzer guides they were rebuilt around what the circuits do
   (`docs/CIRCUITS.md` has the full list). The reasons, one by one, follow.
-* **Rollz lanes are rolls on barres.** The guide says the Rolzer's barres run at about 2:3 of each
+* **ttrollz lanes are rolls on barres.** The guide says the Rolzer's barres run at about 2:3 of each
   other, capacitors are good to 20% and the rolls are never locked, so the old lanes of 3, 4, 5 and 7 pulses per bar
   were the opposite of the circuit. Barre 2 (84 BPM) plays at the chip's tempo so the lanes keep about the old density.
 * **One clock drives the gong, the shimmer and the drone.** On a Plumbutter one trigger can ring the Gongue, the
@@ -27,12 +27,12 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 * **The gong's trigger response is a blocking window.** A strike needs a clock pulse after the window. The window
   is two bars times 1 to 1.375 by chip identity, which makes the strikes sit on the chip's rhythm and makes chips
   divide their clock differently. This changes the strike times of any chip whose identity picks a longer window.
-* **Sidrax is seven barres.** Frequency is bounce over bounds (clamped to a quarter to eight times, so a closing window
+* **ttsidrax is seven barres.** Frequency is bounce over bounds (clamped to a quarter to eight times, so a closing window
   cannot alias), and the bounds of a released barre are two other barres from the guide's table. The press and release
-  gestures come from the Rolzer barres, so the seven barres keep different tempos. Pressure is the chaos knob. The
+  gestures come from the ttrolzer barres, so the seven barres keep different tempos. Pressure is the chaos knob. The
   output is mono, so the guide's stereo press and release channels sum. `sidrax_bounds` (coolest channel sets the lower
   bound) is gone because the walls are now per barre.
-* **Cocoquantus notes come from the Quantussy.** The guide says the castle is deterministic,
+* **ttquantus notes come from the ttquantussy.** The guide says the castle is deterministic,
   that low prime ratios between petals make a pattern that repeats, and that the buffer is 8-bit with the clock as
   its sample rate. The seed only nudges the ratios by up to 3%, so patterns drift. `sample_hold` is gone.
 * **The Tensix holes are a rhythm.** The shift register has one step per Tensix column and fires where a column is
@@ -67,7 +67,7 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 * **The chorus applies power and current; the devices never read them.** Power sets each
   chip's volume. Current sets its share of the mix (Plumbutter 2: sources mix by current).
 * **Every `tt-smi` reading that varies now reaches the sound.** Voltage detunes the drone, PCIe usage sets its voices,
-  ARC and AXI clocks scale Sidrax and Cocoquantus, ethernet links add Rollz lanes, the heartbeat places the first gong
+  ARC and AXI clocks scale ttsidrax and ttquantus, ethernet links add ttrollz lanes, the heartbeat places the first gong
   strike, and the harvesting and link masks give each chip an identity. New `Telemetry` fields have neutral defaults, so
   a source that does not report them plays as before.
 * **Ethernet links:** the code reads the low 16 bits of `ETH_LIVE_STATUS` as one bit per port, bit N set when port N
@@ -87,7 +87,7 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   same chips on another machine draw another patch. `--patch` replay does not depend on it.
 * **Rate of change comes from live mode.** One snapshot has no rate, so `Telemetry.temp_rate` and `power_rate` default
   to 0 and an offline run behaves as it did. In live mode `music/live.Tracker` fills them in, over a baseline at least
-  2 s old (a 0.3 s gap between two readings turned a 0.3 degree wobble into a "heating" of 1 C/s). Only Sidrax reads
+  2 s old (a 0.3 s gap between two readings turned a 0.3 degree wobble into a "heating" of 1 C/s). Only ttsidrax reads
   them: its chaos knob is pressure plus the faster of the two rates, each scaled so 1 C/s or 25 W/s is the full amount,
   capped at 1. The other devices keep reading pressure.
 * **DDR status:** the code treats the low byte as four 2-bit fields and mutes a lane at 0.

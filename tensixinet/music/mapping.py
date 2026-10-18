@@ -20,7 +20,7 @@ VOLUME_CURVE = 2.0  # exponential steepness
 C3_HZ = 130.8128  # equal temperament, A4 = 440 Hz
 PITCH_SEMITONES = 24  # C3 -> C5
 
-# One Rolzer roll per DDR status field: a triangle, square, pentagon and hexagon.
+# One ttrolzer roll per DDR status field: a triangle, square, pentagon and hexagon.
 DDR_LANE_SIDES = (3, 4, 5, 6)
 
 
@@ -96,7 +96,7 @@ def rate_activity(temp_rate: float, power_rate: float) -> float:
 
 
 def chip_chaos(t) -> float:
-    """The Sidrax chaos knob: the chip's pressure plus how fast its readings are moving, up to 1.
+    """The ttsidrax chaos knob: the chip's pressure plus how fast its readings are moving, up to 1.
     A snapshot has no rates, so offline this is the pressure."""
     return min(1.0, chip_pressure(t) + rate_activity(t.temp_rate, t.power_rate))
 

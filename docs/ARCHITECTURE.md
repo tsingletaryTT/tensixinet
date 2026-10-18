@@ -36,11 +36,11 @@ runs `tt-smi -s`.
 | | `mock.py` | Deterministic synthetic readings for N chips |
 | `music/` | `mapping.py` | The signal-to-sound table as functions, including pressure, chip identity and turn weight |
 | | `synth.py` | Drone voices for any chip count |
-| | `devices.py` | Rollz, Cocoquantus, Plumbutter drone, gong, ultrasonic shimmer, the strike times they share, and the current mixer. Re-exports Sidrax. `DEVICE_INPUTS` says which fields each device reads |
-| | `rolzer.py` | The Rolzer's rolls: barre tempos from E6 capacitors, steady even rolls, unstable odd ones |
-| | `sidrax.py` | Seven barres bouncing between each other's oscillators, with press and release gestures |
-| | `quantussy.py` | The Quantussy's five petals and castles, and the coco's 8-bit buffer |
-| | `mwtrs.py` | A shift register that steps a noise snare, with the harvested Tensix columns as its pattern |
+| | `devices.py` | ttrollz, ttquantus, ttdrone, gong, ultrasonic shimmer, the strike times they share, and the current mixer. Re-exports ttsidrax. `DEVICE_INPUTS` says which fields each device reads |
+| | `ttrolzer.py` | The ttrolzer's rolls: barre tempos from E6 capacitors, steady even rolls, unstable odd ones |
+| | `ttsidrax.py` | Seven barres bouncing between each other's oscillators, with press and release gestures |
+| | `ttquantussy.py` | The ttquantussy's five petals and castles, and the coco's 8-bit buffer |
+| | `ttsteam.py` | A shift register that steps a noise snare, with the harvested Tensix columns as its pattern |
 | | `lead.py` | The lead voice and its shift/invert transforms |
 | | `events.py` | Tick, breath and sweep sounds for memory errors and thermal trips; silent on a healthy chip |
 | | `turns.py` | Who solos each turn, and the gain curves |
@@ -57,7 +57,7 @@ runs `tt-smi -s`.
 ## Dependencies run one way
 
 `telemetry` depends on nothing in the package. `music` depends on `telemetry`. Inside `music`, `devices.py` builds on
-`rolzer`, `sidrax` and `quantussy`, and `mwtrs.py` builds on `devices.py` for the strike helpers. `narrate` depends on
+`ttrolzer`, `ttsidrax` and `ttquantussy`, and `ttsteam.py` builds on `devices.py` for the strike helpers. `narrate` depends on
 `music` and `telemetry`. `media` depends on nothing. `run.py`, `live.py` and `cli.py` depend on all of them.
 Keep it that way: `music` must never import `narrate`.
 

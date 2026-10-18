@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
-"""The Cocoquantus's Quantussy, from the Cocoquantus tasting guide.
+"""ttquantus's petals and castles, after the Quantussy in the Cocoquantus Tasting Guide.
 
 Five petals, each a triangle oscillator. Every petal also has a castle: a sample-and-hold that, at each
 peak and valley of its own petal's triangle, samples the triangle of another petal (its leader) and holds

@@ -66,7 +66,7 @@ def test_run_log_says_who_solos_and_how_the_lead_changes(tmp_path):
     kinds = [e["event"] for e in events]
     assert "turn" in kinds and "lead" in kinds
     assert kinds.index("turn") < kinds.index("render")
-    assert "plays rollz" in next(e["what"] for e in events if e["event"] == "chip")
+    assert "plays ttrollz" in next(e["what"] for e in events if e["event"] == "chip")
 
 
 # --- patches in a run --------------------------------------------------------------

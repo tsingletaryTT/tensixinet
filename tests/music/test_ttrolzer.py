@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
-"""The Rolzer's rolls: barre tempos from E6 capacitors, stable even rolls, unstable odd ones."""
+"""The ttrolzer's rolls: barre tempos from E6 capacitors, stable even rolls, unstable odd ones."""
 import numpy as np
 import pytest
 
-from tensixinet.music.rolzer import BARRE_BPM, REFERENCE_BARRE, barre_bpm, roll_pulse_times
+from tensixinet.music.ttrolzer import BARRE_BPM, REFERENCE_BARRE, barre_bpm, roll_pulse_times
 
 
 def _cv(times):

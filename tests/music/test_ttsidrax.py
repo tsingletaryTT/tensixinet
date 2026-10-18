@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
-"""Sidrax: seven barres whose oscillators bounce between each other, from the Sidrax guide."""
+"""ttsidrax: seven barres whose oscillators bounce between each other, from the Sidrax guide."""
 import dataclasses
 
 import numpy as np
@@ -8,15 +8,15 @@ import pytest
 
 from tensixinet.music.mapping import aiclk_to_bpm, temp_to_pitch_hz
 from tensixinet.music.patch import DEFAULT_PATCH
-from tensixinet.music.rolzer import barre_bpm
-from tensixinet.music.sidrax import (
+from tensixinet.music.ttrolzer import barre_bpm
+from tensixinet.music.ttsidrax import (
     BOUNDS_TABLE,
     N_BARRES,
     barre_bounds,
     barre_frequency,
     bounce_wave,
     gesture_envelopes,
-    sidrax,
+    ttsidrax,
     windowed_bounce,
 )
 from tensixinet.telemetry import FALLBACK
@@ -121,7 +121,7 @@ def test_chaos_modulates_the_frequency_of_the_bounce_and_zero_chaos_changes_noth
 
 # --- gestures: a press opens one channel, the release the other -----------------------------------------------------
 
-def test_a_barre_is_pressed_every_four_steps_of_its_own_rolzer_barre():
+def test_a_barre_is_pressed_every_four_steps_of_its_own_ttrolzer_barre():
     bpm = 120.0
     press, release = gesture_envelopes(bpm, 2, 30.0, SR)
     period = 4 * 60.0 / barre_bpm(bpm, 2)
@@ -153,10 +153,10 @@ def test_the_seven_barres_are_tuned_to_the_first_seven_scale_degrees():
     assert semis == pytest.approx([0, 2, 4, 7, 9, 12, 14], abs=1e-6)  # major pentatonic, then up an octave
 
 
-def test_sidrax_is_bounded_deterministic_and_audible():
-    out = sidrax(calm(), 4.0, SR, 0)
+def test_ttsidrax_is_bounded_deterministic_and_audible():
+    out = ttsidrax(calm(), 4.0, SR, 0)
     assert out.dtype == np.float32 and np.abs(out).max() <= 1.0 and np.abs(out).max() > 0.1
-    assert np.array_equal(out, sidrax(calm(), 4.0, SR, 0))
+    assert np.array_equal(out, ttsidrax(calm(), 4.0, SR, 0))
 
 
 def _centroid(x, sr):
@@ -165,13 +165,13 @@ def _centroid(x, sr):
 
 
 def test_a_faster_arc_clock_raises_every_barre_in_proportion(monkeypatch):
-    from tensixinet.music import sidrax as sidrax_module
+    from tensixinet.music import ttsidrax as ttsidrax_module
     def tuned(arcclk):
         seen = []
-        real = sidrax_module.windowed_bounce
-        monkeypatch.setattr(sidrax_module, "windowed_bounce", lambda f, *a, **k: seen.append(f) or real(f, *a, **k))
-        sidrax(calm(arcclk=arcclk), 0.5, 44100, 0)
-        monkeypatch.setattr(sidrax_module, "windowed_bounce", real)
+        real = ttsidrax_module.windowed_bounce
+        monkeypatch.setattr(ttsidrax_module, "windowed_bounce", lambda f, *a, **k: seen.append(f) or real(f, *a, **k))
+        ttsidrax(calm(arcclk=arcclk), 0.5, 44100, 0)
+        monkeypatch.setattr(ttsidrax_module, "windowed_bounce", real)
         return seen[:N_BARRES]  # the seven walls are built first, one per barre
     slow, fast = tuned(800.0), tuned(1600.0)
     assert len(slow) == N_BARRES and fast == pytest.approx([2 * f for f in slow])
@@ -181,26 +181,26 @@ def test_pressure_is_the_chaos_knob_so_a_stressed_chip_is_noisier():
     def flatness(x):  # geometric over arithmetic mean of the spectrum: 1 for noise, near 0 for tones
         spec = np.abs(np.fft.rfft(x)) ** 2 + 1e-12
         return float(np.exp(np.mean(np.log(spec))) / np.mean(spec))
-    cool = sidrax(calm(), 8.0, SR, 0)
-    stressed = sidrax(dataclasses.replace(FALLBACK, asic_temperature=89.0, power=124.0), 8.0, SR, 0)
+    cool = ttsidrax(calm(), 8.0, SR, 0)
+    stressed = ttsidrax(dataclasses.replace(FALLBACK, asic_temperature=89.0, power=124.0), 8.0, SR, 0)
     assert flatness(stressed) > 2 * flatness(cool)
 
 
 def test_the_gesture_rate_follows_the_chips_tempo():
-    slow = sidrax(calm(aiclk=400.0), 8.0, SR, 0)
-    fast = sidrax(calm(aiclk=1350.0), 8.0, SR, 0)
+    slow = ttsidrax(calm(aiclk=400.0), 8.0, SR, 0)
+    fast = ttsidrax(calm(aiclk=1350.0), 8.0, SR, 0)
     assert not np.allclose(slow, fast)
 
 
-def test_sidrax_follows_the_patch_scale():
+def test_ttsidrax_follows_the_patch_scale():
     from tensixinet.music.patch import SCALES
     whole = dataclasses.replace(DEFAULT_PATCH, scale_name="whole_tone", scale=SCALES["whole_tone"])
-    assert not np.allclose(sidrax(calm(), 4.0, SR, 0), sidrax(calm(), 4.0, SR, 0, patch=whole))
+    assert not np.allclose(ttsidrax(calm(), 4.0, SR, 0), ttsidrax(calm(), 4.0, SR, 0, patch=whole))
 
 
 def test_wider_memory_spread_makes_a_wider_swing():
-    narrow = sidrax(calm(gddr_temps=(50.0,) * 8), 2.0, SR, 0)
-    wide = sidrax(calm(gddr_temps=(26.0, 99.0) * 4), 2.0, SR, 0)
+    narrow = ttsidrax(calm(gddr_temps=(50.0,) * 8), 2.0, SR, 0)
+    wide = ttsidrax(calm(gddr_temps=(26.0, 99.0) * 4), 2.0, SR, 0)
     assert np.ptp(wide) > np.ptp(narrow)
 
 
@@ -238,16 +238,16 @@ def test_each_envelope_is_exactly_zero_outside_its_own_half_of_the_period():
 
 @pytest.fixture
 def traced(monkeypatch):
-    """Every windowed_bounce call of one sidrax render: (args, returned array)."""
-    from tensixinet.music import sidrax as sidrax_module
+    """Every windowed_bounce call of one ttsidrax render: (args, returned array)."""
+    from tensixinet.music import ttsidrax as ttsidrax_module
     calls = []
-    real = sidrax_module.windowed_bounce
+    real = ttsidrax_module.windowed_bounce
     def spy(*a, **k):
         out = real(*a, **k)
         calls.append((a, out))
         return out
-    monkeypatch.setattr(sidrax_module, "windowed_bounce", spy)
-    sidrax(calm(), 1.0, SR, 0)
+    monkeypatch.setattr(ttsidrax_module, "windowed_bounce", spy)
+    ttsidrax(calm(), 1.0, SR, 0)
     return calls
 
 
@@ -270,18 +270,18 @@ def test_the_sum_of_the_barres_goes_through_a_saturating_tanh(monkeypatch):
     seen = []
     real = np.tanh
     monkeypatch.setattr(np, "tanh", lambda x: seen.append(len(x)) or real(x))
-    sidrax(calm(), 0.5, SR, 0)
+    ttsidrax(calm(), 0.5, SR, 0)
     assert seen == [SR // 2]
 
 
 def test_the_chaos_knob_is_pressure_plus_how_fast_the_readings_move(monkeypatch):
-    from tensixinet.music import sidrax as sidrax_module
+    from tensixinet.music import ttsidrax as ttsidrax_module
     from tensixinet.music.mapping import RATE_FULL_TEMP_C_PER_S
     seen = []
-    real = sidrax_module.windowed_bounce
-    monkeypatch.setattr(sidrax_module, "windowed_bounce", lambda *a, **k: (seen.append(a[5]) if len(a) > 5 else None) or real(*a, **k))  # the fixed walls take no chaos
-    sidrax(calm(), 0.5, SR, 0)
+    real = ttsidrax_module.windowed_bounce
+    monkeypatch.setattr(ttsidrax_module, "windowed_bounce", lambda *a, **k: (seen.append(a[5]) if len(a) > 5 else None) or real(*a, **k))  # the fixed walls take no chaos
+    ttsidrax(calm(), 0.5, SR, 0)
     assert set(seen) == {0.0}  # a calm chip that holds still
     seen.clear()
-    sidrax(calm(temp_rate=0.5 * RATE_FULL_TEMP_C_PER_S), 0.5, SR, 0)
+    ttsidrax(calm(temp_rate=0.5 * RATE_FULL_TEMP_C_PER_S), 0.5, SR, 0)
     assert set(seen) == {0.5}  # heating at half the full rate, no pressure: half chaos

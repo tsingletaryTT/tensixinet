@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
-"""Man With The Red Steam, from the Plumbutter guide: a shift register that steps the Snare.
+"""ttsteam, after Man With The Red Steam in the Plumbutter guide: a shift register that steps the Snare.
 
 The register passes a pulse up its stack on every clock, and each step can fire a module. Here the
 clock is the chip's eighth notes and the stack is as long as the chip has Tensix columns, 14. A step
@@ -54,7 +54,7 @@ def lowpass(x: np.ndarray, cutoff_hz: float, sample_rate: int) -> np.ndarray:
     return np.convolve(once, kernel)[: len(x)]
 
 
-def mwtrs(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+def ttsteam(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """A noise snare on the steps the Tensix holes pick, with a bed of dust."""
     n = int(duration * sample_rate)
     rng = np.random.default_rng(seed)

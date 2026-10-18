@@ -5,15 +5,15 @@ import numpy as np
 import pytest
 
 from tensixinet.music.devices import (
-    cocoquantus,
-    cocoquantus_steps,
+    ttquantus,
+    ttquantus_steps,
     current_mix,
     PENTATONIC,
-    plumbutter_drone,
+    ttdrone,
     quantize_to_scale,
-    rollz,
-    rollz_pulse_times,
-    sidrax,
+    ttrollz,
+    ttrollz_pulse_times,
+    ttsidrax,
 )
 from tensixinet.telemetry import FALLBACK, Telemetry
 
@@ -24,40 +24,40 @@ def tel(**kw):
     return Telemetry(**{**FALLBACK.__dict__, **kw})
 
 
-# --- Rollz: asymmetric pulses --------------------------------------------------
+# --- ttrollz: asymmetric pulses --------------------------------------------------
 
-def test_rollz_mean_interval_matches_the_bpm():
-    times = rollz_pulse_times(bpm=120, duration=60, asymmetry=0.3)
+def test_ttrollz_mean_interval_matches_the_bpm():
+    times = ttrollz_pulse_times(bpm=120, duration=60, asymmetry=0.3)
     assert np.mean(np.diff(times)) == pytest.approx(0.5, rel=0.02)
 
 
-def test_rollz_intervals_are_not_all_equal():
-    d = np.diff(rollz_pulse_times(bpm=120, duration=10, asymmetry=0.3))
+def test_ttrollz_intervals_are_not_all_equal():
+    d = np.diff(ttrollz_pulse_times(bpm=120, duration=10, asymmetry=0.3))
     assert d.max() > d.min() * 1.5
 
 
-def test_rollz_zero_asymmetry_is_a_plain_clock():
-    d = np.diff(rollz_pulse_times(bpm=60, duration=10, asymmetry=0.0))
+def test_ttrollz_zero_asymmetry_is_a_plain_clock():
+    d = np.diff(ttrollz_pulse_times(bpm=60, duration=10, asymmetry=0.0))
     assert np.allclose(d, 1.0)
 
 
-def test_rollz_pulses_stay_inside_the_duration():
-    assert rollz_pulse_times(90, 5, 0.2).max() < 5
+def test_ttrollz_pulses_stay_inside_the_duration():
+    assert ttrollz_pulse_times(90, 5, 0.2).max() < 5
 
 
-def test_rollz_faster_aiclk_means_more_onsets():
-    slow = rollz(tel(aiclk=400), 4.0, SR, seed=0)
-    fast = rollz(tel(aiclk=1350), 4.0, SR, seed=0)
+def test_ttrollz_faster_aiclk_means_more_onsets():
+    slow = ttrollz(tel(aiclk=400), 4.0, SR, seed=0)
+    fast = ttrollz(tel(aiclk=1350), 4.0, SR, seed=0)
     assert np.sum(np.abs(fast)) > np.sum(np.abs(slow))
 
 
-def test_rollz_ddr_lanes_add_voices():
-    none = rollz(tel(ddr_status=(0, 0, 0, 0)), 4.0, SR, seed=0)
-    all4 = rollz(tel(ddr_status=(1, 1, 1, 1)), 4.0, SR, seed=0)
+def test_ttrollz_ddr_lanes_add_voices():
+    none = ttrollz(tel(ddr_status=(0, 0, 0, 0)), 4.0, SR, seed=0)
+    all4 = ttrollz(tel(ddr_status=(1, 1, 1, 1)), 4.0, SR, seed=0)
     assert not np.allclose(none, all4)
 
 
-# --- Cocoquantus: sample and hold ----------------------------------------------
+# --- ttquantus: sample and hold ----------------------------------------------
 
 def test_quantize_puts_every_value_on_the_scale():
     v = np.linspace(0, 0.999, 500)
@@ -67,15 +67,15 @@ def test_quantize_puts_every_value_on_the_scale():
     assert set(semis.tolist()) == allowed  # and the whole range is reachable
 
 
-def test_cocoquantus_steps_faster_when_aiclk_is_higher():
+def test_ttquantus_steps_faster_when_aiclk_is_higher():
     def changes(aiclk):
-        semis = cocoquantus_steps(tel(aiclk=aiclk), 8.0, SR, seed=5)
+        semis = ttquantus_steps(tel(aiclk=aiclk), 8.0, SR, seed=5)
         return int(np.count_nonzero(np.diff(semis)))
     assert changes(1350) > 2 * changes(400)
 
 
-def test_cocoquantus_plays_audible_stepped_pitches():
-    audio = cocoquantus(tel(asic_temperature=25.0), 2.0, SR, seed=3)
+def test_ttquantus_plays_audible_stepped_pitches():
+    audio = ttquantus(tel(asic_temperature=25.0), 2.0, SR, seed=3)
     assert audio.dtype == np.float32 and np.abs(audio).max() > 0.1
 
 
@@ -114,8 +114,8 @@ def test_zero_current_everywhere_falls_back_to_equal_weights():
     assert np.all(out > 0)
 
 
-def test_plumbutter_drone_has_the_chips_pitch_voices():
-    audio = plumbutter_drone(tel(), 1.0, SR, seed=0)
+def test_ttdrone_has_the_chips_pitch_voices():
+    audio = ttdrone(tel(), 1.0, SR, seed=0)
     assert audio.dtype == np.float32 and np.abs(audio).max() > 0
 
 
@@ -216,20 +216,20 @@ from tensixinet.music.patch import DEFAULT_PATCH, SCALES  # noqa: E402
 
 
 def test_every_device_accepts_a_patch_and_the_default_changes_nothing():
-    for dev in (rollz, sidrax, cocoquantus, plumbutter_drone, gong, ultrasonic_shimmer):
+    for dev in (ttrollz, ttsidrax, ttquantus, ttdrone, gong, ultrasonic_shimmer):
         assert np.array_equal(dev(_FB, 1.0, _SR, 3), dev(_FB, 1.0, _SR, 3, patch=DEFAULT_PATCH)), dev.__name__
 
 
-def test_cocoquantus_quantises_onto_the_patch_scale():
+def test_ttquantus_quantises_onto_the_patch_scale():
     patch = _dc.replace(DEFAULT_PATCH, scale_name="whole_tone", scale=SCALES["whole_tone"])
-    steps = cocoquantus_steps(_FB, 4.0, _SR, 0, patch=patch)
+    steps = ttquantus_steps(_FB, 4.0, _SR, 0, patch=patch)
     allowed = {12 * o + d for o in range(2) for d in SCALES["whole_tone"]}
     assert set(np.unique(steps)) <= allowed and len(set(np.unique(steps))) > 3
 
 
-def test_a_patch_scale_changes_cocoquantus_audio():
+def test_a_patch_scale_changes_ttquantus_audio():
     patch = _dc.replace(DEFAULT_PATCH, scale_name="whole_tone", scale=SCALES["whole_tone"])
-    assert not np.allclose(cocoquantus(_FB, 2.0, _SR, 0), cocoquantus(_FB, 2.0, _SR, 0, patch=patch))
+    assert not np.allclose(ttquantus(_FB, 2.0, _SR, 0), ttquantus(_FB, 2.0, _SR, 0, patch=patch))
 
 
 def test_gong_uses_the_patch_partials():
@@ -275,22 +275,22 @@ def _centroid(x, sr):
     return float((spec * np.arange(len(spec))).sum() / spec.sum() * sr / len(x))
 
 
-def _rollz_base(**kw):
+def _ttrollz_base(**kw):
     return tel(ddr_status=(0, 0, 0, 0), **kw)
 
 
-def test_rollz_ethernet_links_add_lanes_and_each_link_counts():
-    none = rollz(_rollz_base(eth_mask=0x0000), 4.0, SR, 0)
-    full = rollz(_rollz_base(eth_mask=0xFFFF), 4.0, SR, 0)
+def test_ttrollz_ethernet_links_add_lanes_and_each_link_counts():
+    none = ttrollz(_ttrollz_base(eth_mask=0x0000), 4.0, SR, 0)
+    full = ttrollz(_ttrollz_base(eth_mask=0xFFFF), 4.0, SR, 0)
     assert _rms(full) > _rms(none)
-    assert not np.allclose(rollz(_rollz_base(eth_mask=0xFFFF), 4.0, SR, 0), rollz(_rollz_base(eth_mask=0xFFFE), 4.0, SR, 0))
+    assert not np.allclose(ttrollz(_ttrollz_base(eth_mask=0xFFFF), 4.0, SR, 0), ttrollz(_ttrollz_base(eth_mask=0xFFFE), 4.0, SR, 0))
     # a lane belongs to a group of four links: losing the whole top group changes it again
-    assert not np.allclose(rollz(_rollz_base(eth_mask=0xFFFF), 4.0, SR, 0), rollz(_rollz_base(eth_mask=0x0FFF), 4.0, SR, 0))
+    assert not np.allclose(ttrollz(_ttrollz_base(eth_mask=0xFFFF), 4.0, SR, 0), ttrollz(_ttrollz_base(eth_mask=0x0FFF), 4.0, SR, 0))
 
 
-def test_cocoquantus_holds_each_note_for_less_time_when_axiclk_is_higher():
+def test_ttquantus_holds_each_note_for_less_time_when_axiclk_is_higher():
     def changes(axi):
-        return int(np.sum(np.diff(cocoquantus_steps(tel(axiclk=axi), 8.0, SR, 3)) != 0))
+        return int(np.sum(np.diff(ttquantus_steps(tel(axiclk=axi), 8.0, SR, 3)) != 0))
     assert changes(1920.0) > 1.5 * changes(960.0)
 
 
@@ -302,8 +302,8 @@ def _dominant_hz(x, sr, lo=40.0, hi=400.0):
 
 
 def test_a_higher_core_voltage_detunes_the_drone_upward():
-    low = plumbutter_drone(tel(voltage=0.71), 8.0, SR, 0)
-    high = plumbutter_drone(tel(voltage=0.90), 8.0, SR, 0)
+    low = ttdrone(tel(voltage=0.71), 8.0, SR, 0)
+    high = ttdrone(tel(voltage=0.90), 8.0, SR, 0)
     assert _dominant_hz(high, SR) > _dominant_hz(low, SR)
 
 
@@ -311,8 +311,8 @@ def test_the_drone_asks_for_as_many_voices_as_the_pcie_usage_gives(monkeypatch):
     seen = []
     real = devices_module.build_voices
     monkeypatch.setattr(devices_module, "build_voices", lambda *a, **k: seen.append(k.get("voices_per_chip")) or real(*a, **k))
-    plumbutter_drone(tel(pcie_usage=4), 0.2, SR, 0)
-    plumbutter_drone(tel(pcie_usage=1), 0.2, SR, 0)
+    ttdrone(tel(pcie_usage=4), 0.2, SR, 0)
+    ttdrone(tel(pcie_usage=1), 0.2, SR, 0)
     assert seen == [4, 1]
 
 
@@ -386,7 +386,7 @@ def test_no_pulse_after_the_start_means_no_strike():
 
 def test_strikes_sit_on_the_chips_own_clock():
     t = tel(aiclk=800.0, heartbeat=0)
-    clock = rollz_pulse_times(aiclk_to_bpm(800.0), 30.0)
+    clock = ttrollz_pulse_times(aiclk_to_bpm(800.0), 30.0)
     strikes = strike_times(t, 30.0)
     assert len(strikes) >= 2 and all(np.isclose(clock, s).any() for s in strikes)
 
@@ -451,7 +451,7 @@ def test_the_shimmer_snap_moves_with_the_strike_times():
 
 def test_the_drone_throbs_after_a_strike_and_settles_back():
     t = tel(aiclk=800.0, heartbeat=0, pcie_usage=1)
-    out = plumbutter_drone(t, 8.0, 4000, 0)
+    out = ttdrone(t, 8.0, 4000, 0)
     s = strike_times(t, 8.0)[0]
     ripple = lambda start: np.abs(out[int(start * 4000): int((start + 0.9) * 4000)]).reshape(-1, 100).max(axis=1)
     assert ripple(s + 0.05).std() > 3 * ripple(s + interval_s(t) - 0.95).std()  # steady again before the next strike
@@ -462,8 +462,8 @@ def interval_s(t):
 
 
 def test_a_chip_with_other_strike_times_throbs_at_other_moments():
-    a = plumbutter_drone(tel(heartbeat=0), 6.0, SR, 0)
-    b = plumbutter_drone(tel(heartbeat=8), 6.0, SR, 0)
+    a = ttdrone(tel(heartbeat=0), 6.0, SR, 0)
+    b = ttdrone(tel(heartbeat=8), 6.0, SR, 0)
     assert not np.allclose(a, b)
 
 
@@ -478,21 +478,21 @@ def test_the_drone_ripples_at_one_and_a_half_undulations_a_beat_and_rings_for_tw
     real = devices_module.shock_wave
     monkeypatch.setattr(devices_module, "shock_wave", lambda since, rate_hz, decay_s: seen.append((rate_hz, decay_s)) or real(since, rate_hz, decay_s))
     t = tel(aiclk=800.0)
-    plumbutter_drone(t, 0.2, SR, 0)
+    ttdrone(t, 0.2, SR, 0)
     beat = 60.0 / aiclk_to_bpm(800.0)
     assert seen == [pytest.approx((1.5 / beat, 2.0 * beat))]
 
 
-# --- Rollz lanes are rolls on the Rolzer's barres --------------------------------------------------------------
+# --- ttrollz lanes are rolls on the ttrolzer's barres --------------------------------------------------------------
 
-from tensixinet.music.rolzer import barre_bpm, DDR_LANE_BARRES, ETH_LANE_BARRES, ETH_LANE_SIDES  # noqa: E402
+from tensixinet.music.ttrolzer import barre_bpm, DDR_LANE_BARRES, ETH_LANE_BARRES, ETH_LANE_SIDES  # noqa: E402
 
 
 def _lane_calls(monkeypatch, t, seed=3):
     seen = []
     real = devices_module.roll_pulse_times
     monkeypatch.setattr(devices_module, "roll_pulse_times", lambda sides, bpm, duration, s: seen.append((sides, bpm, s)) or real(sides, bpm, duration, s))
-    rollz(t, 2.0, SR, seed)
+    ttrollz(t, 2.0, SR, seed)
     return seen
 
 
@@ -513,7 +513,7 @@ def test_each_ethernet_lane_with_a_link_up_is_a_slow_roll_on_a_grave_barre(monke
         (ETH_LANE_SIDES[0], pytest.approx(barre_bpm(bpm, ETH_LANE_BARRES[0]))),
         (ETH_LANE_SIDES[1], pytest.approx(barre_bpm(bpm, ETH_LANE_BARRES[1]))),
     ]
-    assert min(ETH_LANE_BARRES) > max(DDR_LANE_BARRES) - 2  # the grave end of the Rolzer
+    assert min(ETH_LANE_BARRES) > max(DDR_LANE_BARRES) - 2  # the grave end of the ttrolzer
 
 
 def test_no_two_lanes_share_a_seed_so_their_tolerances_differ(monkeypatch):
@@ -521,25 +521,25 @@ def test_no_two_lanes_share_a_seed_so_their_tolerances_differ(monkeypatch):
     assert len(seen) == 8 and len({s for _, _, s in seen}) == 8
 
 
-def test_rollz_lanes_are_not_locked_to_the_bar():
+def test_ttrollz_lanes_are_not_locked_to_the_bar():
     # the old lanes fired a whole number of times per bar; a roll on a barre drifts against the bar
     t = tel(ddr_status=(0, 1, 0, 0), eth_mask=0x0000, aiclk=800.0)
     bar = 4 * 60.0 / aiclk_to_bpm(800.0)
     onsets = devices_module.roll_pulse_times(4, barre_bpm(aiclk_to_bpm(800.0), DDR_LANE_BARRES[1]), 60.0, 0)
     assert len(set(np.round((onsets % bar) / bar, 2))) > len(onsets) / 2
-    assert rollz(t, 4.0, SR, 0).dtype == np.float32
+    assert ttrollz(t, 4.0, SR, 0).dtype == np.float32
 
 
-# --- Cocoquantus: the Quantussy chain and the 8-bit buffer ---------------------------------------------------------------
+# --- ttquantus: the ttquantussy chain and the 8-bit buffer ---------------------------------------------------------------
 
-from tensixinet.music.quantussy import petal_phases, petal_ratios  # noqa: E402
+from tensixinet.music.ttquantussy import petal_phases, petal_ratios  # noqa: E402
 
 
 def test_the_notes_come_from_the_first_petals_castle_with_every_petal_at_its_ratio_to_the_note_rate(monkeypatch):
     seen = []
     real = devices_module.castle_output
     monkeypatch.setattr(devices_module, "castle_output", lambda petal, freqs, phases, t, **k: seen.append((petal, freqs, phases)) or real(petal, freqs, phases, t, **k))
-    cocoquantus_steps(tel(aiclk=800.0, axiclk=1920.0), 1.0, SR, 7)
+    ttquantus_steps(tel(aiclk=800.0, axiclk=1920.0), 1.0, SR, 7)
     rate = aiclk_to_bpm(800.0) / 60.0 * 2 * 2.0  # eighth notes a second, doubled by an AXI clock at twice the reference
     petal, freqs, phases = seen[0]
     assert petal == 0
@@ -548,7 +548,7 @@ def test_the_notes_come_from_the_first_petals_castle_with_every_petal_at_its_rat
 
 
 def test_a_note_is_held_for_one_eighth_when_the_castle_turns_round_twice_a_cycle():
-    steps = cocoquantus_steps(tel(aiclk=800.0), 8.0, 4000, 3)
+    steps = ttquantus_steps(tel(aiclk=800.0), 8.0, 4000, 3)
     changes = np.flatnonzero(np.diff(steps) != 0) + 1
     eighth = 30.0 / aiclk_to_bpm(800.0)
     assert np.all(np.diff(changes) / 4000 >= eighth - 2 / 4000)  # no note is shorter than an eighth
@@ -556,7 +556,7 @@ def test_a_note_is_held_for_one_eighth_when_the_castle_turns_round_twice_a_cycle
 
 
 def test_the_notes_repeat_a_pattern_because_the_petal_ratios_are_low_primes():
-    steps = cocoquantus_steps(tel(aiclk=800.0), 30.0, 4000, 0)
+    steps = ttquantus_steps(tel(aiclk=800.0), 30.0, 4000, 0)
     eighth = int(30.0 / aiclk_to_bpm(800.0) * 4000)
     notes = steps[eighth // 2:: eighth]  # one reading per held note
     assert len(set(notes.tolist())) < len(notes) / 3  # a small set of notes comes round again and again
@@ -567,12 +567,12 @@ def test_a_slower_axi_clock_holds_the_buffers_samples_longer(monkeypatch, axi, r
     seen = []
     real = devices_module.crunch
     monkeypatch.setattr(devices_module, "crunch", lambda x, r: seen.append(r) or real(x, r))
-    cocoquantus(tel(axiclk=axi), 0.1, SR, 0)
+    ttquantus(tel(axiclk=axi), 0.1, SR, 0)
     assert seen == [pytest.approx(rate)]
 
 
-def test_the_cocoquantus_voice_is_eight_bit_and_stays_under_its_level():
-    out = cocoquantus(tel(axiclk=1920.0), 1.0, SR, 0)
+def test_the_ttquantus_voice_is_eight_bit_and_stays_under_its_level():
+    out = ttquantus(tel(axiclk=1920.0), 1.0, SR, 0)
     assert np.allclose(out * 127, np.round(out * 127), atol=1e-4) and np.abs(out).max() <= 0.8 + 1 / 127
 
 
@@ -580,13 +580,13 @@ def test_a_castle_at_the_very_top_of_its_range_plays_the_highest_note_and_does_n
     assert quantize_to_scale(np.array([1.0]), PENTATONIC, octaves=2)[0] == 12 + PENTATONIC[-1]
 
 
-def test_the_cocoquantus_castle_samples_the_petal_its_chips_identity_names(monkeypatch):
-    from tensixinet.music.quantussy import castle_offset
+def test_the_ttquantus_castle_samples_the_petal_its_chips_identity_names(monkeypatch):
+    from tensixinet.music.ttquantussy import castle_offset
     seen = []
     real = devices_module.castle_output
     monkeypatch.setattr(devices_module, "castle_output", lambda *a, **k: seen.append(k.get("offset")) or real(*a, **k))
     for mask in (0x3FFF, 0x1235, 0x37F7):
-        cocoquantus_steps(tel(tensix_mask=mask), 0.2, SR, 0)
+        ttquantus_steps(tel(tensix_mask=mask), 0.2, SR, 0)
     from tensixinet.music.mapping import personality as person
     assert seen == [castle_offset(person(tel(tensix_mask=m))) for m in (0x3FFF, 0x1235, 0x37F7)]
     assert len(set(seen)) > 1

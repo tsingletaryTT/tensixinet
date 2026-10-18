@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
-"""Sidrax, from the Sidrax guide: seven barres, each an oscillator that bounces between two bounds.
+"""ttsidrax, after the Sidrax Guide: seven barres, each an oscillator that bounces between two bounds.
 
 An oscillator is a ball bouncing between two walls. Its frequency is the bounce divided by the distance
 between the walls, so narrowing the window raises the pitch and a window that closes makes the oscillator
@@ -10,8 +10,8 @@ oscillators, and at the top it is noise.
 
 Playing a barre is two gestures. The press opens one stereo channel and the release the other. In the
 guide's Pressure Bound patch a press plays the tuned tone and the release switches the bounds on, so a
-tone is followed by a decaying glitch. Here the gestures come from the Rolzer: barre b is pressed every
-four steps of Rolzer barre b, so the seven barres keep different tempos.
+tone is followed by a decaying glitch. Here the gestures come from the ttrolzer: barre b is pressed every
+four steps of ttrolzer barre b, so the seven barres keep different tempos.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ import numpy as np
 from .lead import degree_to_semitones
 from .mapping import aiclk_to_bpm, chip_chaos, norm_temp, temp_to_pitch_hz
 from .patch import DEFAULT_PATCH, Patch
-from .rolzer import barre_bpm
+from .ttrolzer import barre_bpm
 from ..telemetry import Telemetry
 
 N_BARRES = 7
@@ -40,7 +40,7 @@ FALLBACK_ARCCLK = 800.0  # MHz: the ARC clock at which the first barre bounces a
 MAX_SPEEDUP = 8.0  # a closing window raises the pitch by at most this much, and the oscillator never passes Nyquist
 MIN_SPEED = 0.25  # a very wide window slows the oscillator by at most this much
 CHAOS_INDEX = 2.0  # at full chaos the leader oscillator swings the frequency by +-200%
-GESTURE_STEPS = 4  # a barre is pressed every four steps of its Rolzer barre
+GESTURE_STEPS = 4  # a barre is pressed every four steps of its ttrolzer barre
 GESTURE_DECAY = 0.15  # each channel's envelope falls with this time constant, in gesture periods
 LEVEL = 0.5  # drive into the output's saturation: seven barres sum, and tanh keeps the sum below 1
 
@@ -106,7 +106,7 @@ def gesture_envelopes(bpm: float, barre: int, duration: float, sample_rate: int)
     return press, release
 
 
-def sidrax(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+def ttsidrax(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """Seven barres tuned to the patch's scale. Each plays a tone on its press and a glitch on its release.
 
     The tone bounces between fixed walls set by the memory temperatures. The glitch bounces between two other

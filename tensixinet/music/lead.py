@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """The lead voice: a short motif, shifted or inverted when the system's readings say so.
 
-Cocoquantus-style variation, but driven by telemetry instead of a random
-generator. Each phrase (one bar) reads the next GDDR channel and compares it
+Shift and invert variation in the manner of the Cocoquantus, driven by
+telemetry. There is no random generator. Each phrase (one bar) reads the next GDDR channel and compares it
 with the average channel: a hotter channel shifts the motif up, a cooler one
 inverts it, and a reading near the average repeats it. Flat readings loop.
 """

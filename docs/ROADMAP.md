@@ -3,17 +3,17 @@
 Open work in rough order. Each item starts with a failing test (see `CONTRIBUTING.md`).
 
 1. **More of the patch.** Which devices run at all is not in the patch yet. More fields could join it: the
-   motif length, the transform rules (shift and invert thresholds), the number of lanes in Rollz, the Sidrax
-   wall spread, the Quantussy's ratios and the snare's cutoff. Each new field needs the "only this field changes the chorus" test.
+   motif length, the transform rules (shift and invert thresholds), the number of lanes in ttrollz, the ttsidrax
+   wall spread, the ttquantussy's ratios and the snare's cutoff. Each new field needs the "only this field changes the chorus" test.
 2. **Let more of the system pick.** Today GDDR spread picks the scale and the memory-to-ASIC ratio picks the gong
-   tuning. Power spread across chips could pick the turn length, and aiclk spread could pick Rollz's asymmetry.
+   tuning. Power spread across chips could pick the turn length, and aiclk spread could pick ttrollz's asymmetry.
 3. **Live mode, the rest.** `--live` works: it reads the chips every turn, draws the soloist from the current
-   weights, plays new errors once, moves Sidrax's chaos with how fast temperature and power change, and
+   weights, plays new errors once, moves ttsidrax's chaos with how fast temperature and power change, and
    crossfades the turns. What is open:
    * A start-time offset in every device, so a turn continues the last one. Today each turn restarts its clocks,
      and a ringing gong fades at the end of its turn.
    * Re-drawing the patch as the readings drift.
-   * A Deerhorn that follows the chips' movement (see `docs/CIRCUITS.md`).
+   * A tthorn that follows the chips' movement (see `docs/CIRCUITS.md`).
    * Recording a live demo (the demo still uses the offline render) and testing the players on a machine
      with real speakers. Only silence has been sent to `paplay`, `aplay` and `ffplay` so far.
    * Rates for more readings than temperature and power (clocks, link counts), and for the other devices.

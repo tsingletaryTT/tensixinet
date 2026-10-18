@@ -33,7 +33,7 @@ programs, every reason kept) and a text file (what you see on screen, each reaso
 ```
 tensixinet/
   telemetry/   snapshot.py (tt-smi JSON to Telemetry), mock.py (synthetic N chips, optional faults)
-  music/       mapping, synth, devices, rolzer, sidrax, quantussy, mwtrs, lead, events, loudness, turns, patch, chorus, live
+  music/       mapping, synth, devices, ttrolzer, ttsidrax, ttquantussy, ttsteam, lead, events, loudness, turns, patch, chorus, live
   narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
   media/       llm (OpenAI-compatible endpoint), mux (WAV under a video), player (live audio out)
   run.py live.py cli.py __main__.py     wiring (offline and live) and the command line
@@ -200,3 +200,13 @@ legacy/        first prototype scripts, kept for reference
     `PYTHONDONTWRITEBYTECODE`.
   * Known limit: each turn restarts the devices' clocks, so a ringing gong fades at the end of its turn. A start-time
     offset in every device would fix it (roadmap item 3).
+* **2026-10-18, "let's tt-ize some of our component names that are rips from CL":** the devices and modules now carry a `tt`
+  prefix, with credit to Ciat-Lonbarde and Josh Singer's guides and no claim to be a recreation. rollz -> `ttrollz`,
+  rolzer -> `ttrolzer`, sidrax -> `ttsidrax`, cocoquantus -> `ttquantus`, quantussy -> `ttquantussy`, plumbutter_drone ->
+  `ttdrone`, mwtrs -> `ttsteam`, deerhorn -> `tthorn` (not built). `gong`, `lead` and `ultrasonic_shimmer` are ordinary words
+  and keep their names. The old names stay where they describe the originals: the guides' titles, `docs/CIRCUITS.md`'s
+  left-hand column and its name table, "after the Gongue" style credit lines, and the history in this log. `legacy/` is untouched.
+  * Log lines, `DEVICE_INPUTS` keys and the `device` field in the live log use the new names, so logs from before this change
+    name the old devices. Saved patches do not name devices and still replay.
+  * Done with a scripted rename and a read through every line that mentions a guide. A scripted rename of "guide" lines
+    wrongly renamed the instruments in several docstrings and in `docs/DECISIONS.md`, and those were put back by hand.

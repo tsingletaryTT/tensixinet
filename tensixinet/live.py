@@ -192,12 +192,12 @@ def _log_changes(log: RunLog, chips: Sequence[Telemetry], segment: int, patch: P
     for i, t in enumerate(chips):
         activity = rate_activity(t.temp_rate, t.power_rate)
         if activity >= MOTION_LOGGED:
-            plays_sidrax = any(d.__name__ == "sidrax" for d in chip_devices(i, n))
+            plays_ttsidrax = any(d.__name__ == "ttsidrax" for d in chip_devices(i, n))
             why = (
-                f"this chip plays Sidrax, so its chaos knob is {chip_chaos(t):.0%}: pressure {chip_pressure(t):.2f} plus "
+                f"this chip plays ttsidrax, so its chaos knob is {chip_chaos(t):.0%}: pressure {chip_pressure(t):.2f} plus "
                 f"{activity:.2f} for the faster of the two readings, which moves at {activity:.0%} of the full rate"
-                if plays_sidrax else
-                "this chip does not play Sidrax, the only device whose sound follows how fast the readings move, "
+                if plays_ttsidrax else
+                "this chip does not play ttsidrax, the only device whose sound follows how fast the readings move, "
                 "so the movement is logged and only its pressure reaches the sound"
             )
             log.event("motion", f"chip {i}: ASIC {t.temp_rate:+.1f} C/s, power {t.power_rate:+.0f} W/s", why,
