@@ -241,6 +241,28 @@ shifts the motif up one scale degree per degree C, at most four. Cooler inverts 
 note. Within 1 C it repeats. Even memory temperatures make the lead loop, and uneven ones make it
 wander.
 
+## Patch cables
+
+The Ciat-Lonbarde guides describe jacks that reach into the innards of a module, so one instrument's signal degrades, mutates
+or inflates another's. `music/cables.py` does this between devices. The devices are rendered on their own, so a cable acts on a
+finished voice: the source voice drives it, the target voice is changed, and the result goes on to the turn gains and the mix.
+A device drives its cables whether or not it has the floor.
+
+| Kind | What it does to the target | Words in the log |
+|---|---|---|
+| `fm` | reads it through a delay (up to 3 ms) that follows the source waveform | mutates |
+| `crunch` | rounds it to steps up to 0.5 wide, wider while the source is loud | degrades |
+| `inflate` | multiplies it by up to 3 while the source sounds, with a soft ceiling above 0.9 | inflates |
+| `fold` | drives it by up to 5 and reflects what passes 0.9 back inside, which adds overtones | folds |
+
+The patch seed draws five to eight cables between different devices, one per ordered pair, with every kind in use. The choir
+always has one cable out and one in, so it bends other voices and is bent by them. The seed is the patch's, so live mode keeps
+the same wiring for the whole run and a saved patch replays with it. How hard a cable pushes comes from the chip that plays its
+source device: a quarter of the cable's depth from a calm chip, all of it from a chaotic one (`chip_chaos`: pressure plus how
+fast its readings move). Load on one chip therefore changes how other devices sound. `--no-cables` turns them off. Not built:
+cables that feed back (a target driving its own source), and cables into a device's internals (a chaos knob, a clock) instead of
+its output.
+
 ## EQ
 
 The devices span about 65 Hz (the gong and drone an octave below the chip's pitch) to 20 kHz (the shimmer). Small

@@ -276,6 +276,15 @@ legacy/        first prototype scripts, kept for reference
     full suite after registering the device, fixed with a test first.
   * Two tests I wrote first were wrong: one tried to hold a vowel steady through a device that moves on every bar, and one asserted
     on a sine built inside the test. Both were rewritten.
+* **2026-10-18, "purple cross-modulation jacks is what I meant ... even our choir should have the equivalent":** the owner of the real
+  instruments said the choir and AVDog sound right and that the purples are the cross-modulation jacks. `music/cables.py`: five to eight
+  cables drawn from the patch seed (`fm`, `crunch`, `inflate`, `fold`), the choir always one out and one in, pushed by the chaos of the
+  chip that plays the source, applied in `render_chorus` before the turn gains. `--no-cables`; one log line per cable.
+  * Mutation checks: the first battery left five survivors (the sizes of the FM delay, crunch step, inflate gain, knee and envelope
+    window); a test now pins each to a number. The kind offset survives because every kind is still used either way.
+  * Three tests had to change: the one that rebuilds the chorus from raw devices now renders unpatched, and the live tests' stand-in
+    for `render_chorus` accepts `cables`.
+  * Side research for the owner (is a synth driven by a host's own signals new?) is summarised in the session, not in the repo.
 * **2026-10-18, `--only`:** since none of the new sound has been heard, `--only NAME[,NAME]` plays only the named devices at full level with
   no turn-taking (`render_chorus(..., only=[...])`, also in live mode). A log line says what is soloed. Mutation checks found two
   survivors in the command-line parsing (spaces around commas, a list of nothing); both got tests.

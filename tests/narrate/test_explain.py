@@ -352,3 +352,33 @@ def test_a_still_chip_says_chaos_is_its_pressure_and_a_moving_one_says_how_fast_
     decisions = explain_chip(1, moving, n_chips=len(DEVICES))
     line = next(d for d in decisions if "chaos" in d.what)
     assert "chaos 100%" in line.what and "+0.5 C/s" in line.why and "-25 W/s" in line.why and "moving" in line.why
+
+
+# --- patch cables -----------------------------------------------------------------------------------------------
+
+def test_each_cable_is_explained_with_its_kind_depth_chip_and_push():
+    from tensixinet.music.cables import Cable, strength
+    from tensixinet.music.chorus import slot_chip
+    from tensixinet.music.mapping import chip_chaos
+    from tensixinet.narrate.explain import explain_cables
+    hot = dataclasses.replace(FALLBACK, asic_temperature=85.0, power=150.0)
+    cold = dataclasses.replace(FALLBACK, asic_temperature=30.0, power=20.0)
+    chips = [hot, cold]
+    cables = [Cable("ttrollz", "ttchoir", "fm", 0.8), Cable("ttsidrax", "ttrollz", "crunch", 0.5)]
+    out = explain_cables(cables, chips)
+    assert len(out) == 2
+    chaos = chip_chaos(chips[slot_chip(0, 2)])  # ttrollz is slot 0
+    assert "ttrollz" in out[0].what and "ttchoir" in out[0].what and "fm" in out[0].what and "0.80" in out[0].what
+    assert "chip 0" in out[0].what and f"{strength(cables[0], chaos):.2f}" in out[0].what
+    assert "chip 1" in out[1].what  # ttsidrax is slot 1
+    assert "chaos" in out[0].why and "mutates" in out[0].why
+    assert "degrades" in out[1].why
+
+
+def test_a_cable_kind_is_described_in_plain_words():
+    from tensixinet.music.cables import KINDS, Cable
+    from tensixinet.narrate.explain import explain_cables
+    words = {"fm": "mutates", "crunch": "degrades", "inflate": "inflates", "fold": "folds"}
+    assert set(words) == set(KINDS)
+    for kind, word in words.items():
+        assert word in explain_cables([Cable("ttrollz", "ttchoir", kind, 0.5)], [FALLBACK])[0].why

@@ -118,6 +118,11 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   plays only the increase since the last reading, so an old error does not tick in every turn.
 * **A failed reading plays the last good one again,** with no rates and no new errors, and the log says so. A reading with a
   different number of chips starts the rate baseline over. A first reading that fails stops the run.
+* **Cables act on rendered voices, drawn from the patch seed.** The devices have fixed signatures and render independently, so a
+  cable cannot reach their internals without rewriting them all. Acting on the finished voice gives the guides' degrade, mutate and
+  inflate, and keeps the devices testable alone. The wiring comes from the patch seed (not the segment seed), so live mode does
+  not rewire between turns, and no `Patch` field was added, so saved patches still replay (an old patch gets cables from its seed).
+  `inflate` and `fold` pass a level unchanged below 0.9 so that a silent source or a depth of zero leaves the target exactly alone.
 * **Live loudness is a running gain.** `LiveGain` moves the gain half way (in the log domain) toward each turn's own gain,
   ramps in a straight line across the turn, applies the peak limit at once and holds the gain through silence. A whole
   render still gets one gain.

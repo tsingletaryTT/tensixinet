@@ -10,11 +10,13 @@ from typing import Optional, Sequence
 import numpy as np
 import soundfile as sf
 
-from .music.chorus import chip_devices, render_chorus
+from .music.cables import draw_cables
+from .music.chorus import chip_devices, device_names, render_chorus
 from .music.eq import apply_eq
 from .music.loudness import TARGET_RMS, normalise as normalise_level
 from .music.patch import DEFAULT_PATCH, Patch
 from .narrate.explain import (
+    explain_cables,
     explain_chip,
     explain_events,
     explain_lead,
@@ -47,6 +49,15 @@ def log_eq(log: RunLog, on: bool) -> None:
                   "whole mix, after the chips are mixed and before the loudness gain")
     else:
         log.event("eq", "final EQ off", "the mix is left as the devices made it: the lows are quiet and the shimmer is at full strength")
+
+
+def log_cables(log: RunLog, telemetry: Sequence[Telemetry], patch: Patch, on: bool) -> None:
+    """One log line for each patch cable, or one saying there are none."""
+    if not on:
+        log.event("cable", "patch cables off", "the devices are mixed as they were made, with nothing bending anything else")
+        return
+    for d in explain_cables(draw_cables(patch.seed, device_names()), telemetry):
+        log.event("cable", d.what, d.why)
 
 
 def describe_readings(
@@ -97,6 +108,7 @@ def run(
     normalise: bool = True,
     eq: bool = True,
     only: Optional[Sequence[str]] = None,
+    cables: bool = True,
 ) -> np.ndarray:
     if not telemetry:
         log.event("discover", "no chips found, nothing to play",
@@ -106,7 +118,8 @@ def run(
     log.event("render", f"rendering {duration:g}s at {sample_rate} Hz",
               "all chips are rendered, scaled by power, then mixed by current")
     log_only(log, only)
-    audio = render_chorus(telemetry, duration, sample_rate, patch=patch, only=only)
+    log_cables(log, telemetry, patch, cables)
+    audio = render_chorus(telemetry, duration, sample_rate, patch=patch, only=only, cables=None if cables else [])
     log_eq(log, eq)
     if eq:
         audio = apply_eq(audio, sample_rate)

@@ -15,13 +15,14 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from .cables import Cable, apply_cables, draw_cables
 from .devices import ttquantus, current_mix, gong, ttdrone, ttrollz, ttsidrax, ultrasonic_shimmer
 from .events import error_events
 from .lead import lead
 from .ttavdog import ttavdog
 from .ttchoir import ttchoir
 from .ttsteam import ttsteam
-from .mapping import aiclk_to_bpm, chip_pressure, power_to_volume, turn_weight
+from .mapping import aiclk_to_bpm, chip_chaos, chip_pressure, power_to_volume, turn_weight
 from .patch import DEFAULT_PATCH, Patch
 from ..telemetry import Telemetry
 from .turns import soloists as plan_soloists, turn_gains
@@ -83,6 +84,7 @@ def render_chorus(
     segment: int = 0,
     soloists: Optional[Sequence[int]] = None,
     only: Optional[Sequence[str]] = None,
+    cables: Optional[Sequence[Cable]] = None,
 ) -> np.ndarray:
     """Render every device, give the soloist the floor, add each chip's event sounds, scale by power, mix by current.
 
@@ -91,7 +93,12 @@ def render_chorus(
     floor instead of planning it from the readings.
 
     `only` names the devices to play, for auditioning: the others are not rendered, and with no soloist the named
-    devices play at full level with no turn-taking, so one device is heard as it is."""
+    devices play at full level with no turn-taking, so one device is heard as it is.
+
+    `cables` are the patch cables between devices (`cables.py`). Left as None they are drawn from the patch seed, which
+    live mode keeps for the whole run, so the wiring does not change from segment to segment. An empty list leaves the
+    devices unpatched. The cables act on the voices as the devices made them, before the turn gains, so a device drives
+    its cables whether or not it has the floor."""
     if not telemetry:
         raise ValueError("render_chorus needs at least one chip's telemetry")
     if only is not None:
@@ -109,11 +116,20 @@ def render_chorus(
     if only is not None:
         gains = np.ones_like(gains)
     per_chip = [np.zeros(n_samples) for _ in range(n)]
-    for s in range(n_slots(n)):
-        if only is not None and assign_device(s).__name__ not in only:
-            continue
-        chip = slot_chip(s, n)
-        per_chip[chip] += gains[s] * assign_device(s)(telemetry[chip], duration, sample_rate, seed=seed_base + s, patch=patch)
+    slots = range(n_slots(n))
+    voices: List[Optional[np.ndarray]] = [
+        None if only is not None and assign_device(s).__name__ not in only
+        else assign_device(s)(telemetry[slot_chip(s, n)], duration, sample_rate, seed=seed_base + s, patch=patch)
+        for s in slots
+    ]
+    wiring = draw_cables(patch.seed, device_names()) if cables is None else list(cables)
+    voices = apply_cables(
+        voices, [assign_device(s).__name__ for s in slots], wiring,
+        [chip_chaos(telemetry[slot_chip(s, n)]) for s in slots], sample_rate,
+    )
+    for s in slots:
+        if voices[s] is not None:
+            per_chip[slot_chip(s, n)] += gains[s] * voices[s]
     signals = []
     for chip, t in enumerate(telemetry):
         voices = len(chip_devices(chip, n))

@@ -405,3 +405,28 @@ def test_spaces_around_the_commas_are_ignored_and_a_list_of_nothing_is_refused(t
     with pytest.raises(SystemExit):
         run_cli(tmp_path, "empty", "--only", " , ")
     assert "none given" in capsys.readouterr().err
+
+
+# --- patch cables -----------------------------------------------------------------------------------------------
+
+def test_cables_are_logged_and_on_by_default_and_no_cables_turns_them_off(tmp_path):
+    import soundfile as sf
+    import numpy as np
+    _, a = run_cli(tmp_path, "patched", "--patch-seed", "5")
+    _, b = run_cli(tmp_path, "bare", "--patch-seed", "5", "--no-cables")
+    cable_lines = [e for e in read_events(a / "logs") if e["event"] == "cable"]
+    assert 5 <= len(cable_lines) <= 8 and all("->" in e["what"] for e in cable_lines)
+    off = [e for e in read_events(b / "logs") if e["event"] == "cable"]
+    assert len(off) == 1 and "off" in off[0]["what"]
+    x, _ = sf.read(str(a / "o.wav"))
+    y, _ = sf.read(str(b / "o.wav"))
+    assert not np.allclose(x, y)
+
+
+@pytest.mark.parametrize("flag,expected", [([], True), (["--no-cables"], False)])
+def test_live_mode_passes_the_cable_choice_to_the_loop(tmp_path, monkeypatch, flag, expected):
+    import tensixinet.cli as cli
+    seen = {}
+    monkeypatch.setattr(cli, "run_live", lambda *a, **k: seen.update(k) or 0)
+    live(tmp_path, *flag)
+    assert seen["cables"] is expected

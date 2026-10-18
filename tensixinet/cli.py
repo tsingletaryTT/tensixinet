@@ -67,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
                         % ", ".join(device_names()))
     p.add_argument("--no-eq", action="store_true",
                    help="leave the final mix unshaped (by default an EQ lifts the lows and takes down the shimmer)")
+    p.add_argument("--no-cables", action="store_true",
+                   help="leave out the patch cables (by default five to eight cables let one device's sound bend, crunch, "
+                        "swell or fold another's, drawn from the patch seed)")
     p.add_argument("--live", action="store_true",
                    help="read the chips again every turn and play as it goes (the default renders one file from one reading)")
     p.add_argument("--player", choices=("auto", "none") + PLAYERS, metavar="NAME",
@@ -168,12 +171,12 @@ def main(
                           "the chips are read again every turn and each turn is played as soon as it is made")
                 try:
                     run_live(sample, sink, log, a.sample_rate, duration=a.duration or None, source=source, patch=patch,
-                             patch_source=patch_source, normalise=not a.no_normalise, eq=not a.no_eq, only=only)
+                             patch_source=patch_source, normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables)
                 except PlayerError:
                     return 3  # run_live has logged what stopped
             else:
                 run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source,
-                    normalise=not a.no_normalise, eq=not a.no_eq, only=only)
+                    normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables)
         except ValueError:
             return 2
         return 0

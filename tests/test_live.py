@@ -154,9 +154,10 @@ def renders(monkeypatch):
     calls = []
     real = live_module.render_chorus
 
-    def spy(telemetry, duration, sample_rate, patch, segment, soloists, only=None):
-        calls.append({"telemetry": list(telemetry), "duration": duration, "segment": segment, "soloists": list(soloists), "patch": patch})
-        return real(telemetry, duration, sample_rate, patch=patch, segment=segment, soloists=soloists, only=only)
+    def spy(telemetry, duration, sample_rate, patch, segment, soloists, only=None, cables=None):
+        calls.append({"telemetry": list(telemetry), "duration": duration, "segment": segment, "soloists": list(soloists), "patch": patch,
+                      "cables": cables})
+        return real(telemetry, duration, sample_rate, patch=patch, segment=segment, soloists=soloists, only=only, cables=cables)
 
     monkeypatch.setattr(live_module, "render_chorus", spy)
     return calls
@@ -303,7 +304,7 @@ def test_a_player_that_stops_ends_the_run_with_a_player_error_and_a_log_line(tmp
 
 
 def test_the_tail_of_the_last_segment_has_the_same_gain_as_the_audio_before_it(tmp_path, monkeypatch):
-    monkeypatch.setattr(live_module, "render_chorus", lambda chips, seconds, sr, patch, segment, soloists, only=None: np.full(int(seconds * sr), 0.05, dtype=np.float32))
+    monkeypatch.setattr(live_module, "render_chorus", lambda chips, seconds, sr, patch, segment, soloists, only=None, cables=None: np.full(int(seconds * sr), 0.05, dtype=np.float32))
     sink, n = _go(tmp_path, steady(), duration=2.0)
     last_segment, tail = sink.chunks[0], sink.chunks[-1]
     assert last_segment[-1] > 0.1  # the 0.05 render was brought up to the target level
@@ -375,7 +376,7 @@ def test_live_audio_is_eqd_like_an_offline_render(tmp_path, monkeypatch):
     # noise, so there is something in every band for the EQ to act on
     rng = np.random.default_rng(0)
     monkeypatch.setattr(live_module, "render_chorus",
-                        lambda chips, seconds, sr, patch, segment, soloists, only=None: (0.1 * rng.standard_normal(int(seconds * sr))).astype(np.float32))
+                        lambda chips, seconds, sr, patch, segment, soloists, only=None, cables=None: (0.1 * rng.standard_normal(int(seconds * sr))).astype(np.float32))
     flat, _ = _go(tmp_path, steady(), duration=6.0, eq=False, normalise=False, sample_rate=44100)
     rng = np.random.default_rng(0)
     (tmp_path / "eq").mkdir()
@@ -392,7 +393,7 @@ def test_eq_comes_before_the_gain_so_live_audio_still_reaches_the_target_level(t
 
 def test_the_eq_runs_in_chunks_without_a_seam_at_the_join_of_two_turns(tmp_path, monkeypatch):
     monkeypatch.setattr(live_module, "render_chorus",
-                        lambda chips, seconds, sr, patch, segment, soloists, only=None: (0.3 * np.sin(2 * np.pi * 440 * np.arange(int(seconds * sr)) / sr)).astype(np.float32))
+                        lambda chips, seconds, sr, patch, segment, soloists, only=None, cables=None: (0.3 * np.sin(2 * np.pi * 440 * np.arange(int(seconds * sr)) / sr)).astype(np.float32))
     sink, n = _go(tmp_path, steady(), duration=8.0, eq=True, normalise=False)
     audio = sink.audio
     jumps = np.abs(np.diff(audio[SR:]))  # after the filter has settled
@@ -401,7 +402,7 @@ def test_the_eq_runs_in_chunks_without_a_seam_at_the_join_of_two_turns(tmp_path,
 
 def test_without_the_loudness_gain_live_audio_is_kept_inside_full_scale(tmp_path, monkeypatch):
     monkeypatch.setattr(live_module, "render_chorus",
-                        lambda chips, seconds, sr, patch, segment, soloists, only=None: (0.98 * np.sin(2 * np.pi * 100 * np.arange(int(seconds * sr)) / sr)).astype(np.float32))
+                        lambda chips, seconds, sr, patch, segment, soloists, only=None, cables=None: (0.98 * np.sin(2 * np.pi * 100 * np.arange(int(seconds * sr)) / sr)).astype(np.float32))
     sink, _ = _go(tmp_path, steady(), duration=6.0, eq=True, normalise=False)
     assert float(np.max(np.abs(sink.audio))) <= 1.0
 
@@ -451,3 +452,12 @@ def test_only_reaches_every_turns_render(tmp_path, renders):
         live_mod.render_chorus = real
     assert seen and all(o == ["gong"] for o in seen)
     assert any(e["event"] == "only" for e in _events(tmp_path))
+
+
+def test_cables_are_drawn_from_the_patch_by_default_and_left_out_when_off(tmp_path, renders):
+    _go(tmp_path, lambda: [FALLBACK], duration=4.0)
+    assert renders and all(c["cables"] is None for c in renders)
+    renders.clear()
+    (tmp_path / "off").mkdir()
+    _go(tmp_path / "off", lambda: [FALLBACK], duration=4.0, cables=False)
+    assert renders and all(c["cables"] == [] for c in renders)

@@ -157,7 +157,7 @@ def test_the_chorus_is_the_soloist_weighted_sum_of_its_devices_mixed_by_current(
     gains = turn_gains(solo, len(DEVICES), int(dur * SR), SR, turn_s)
     total = sum(gains[s] * assign_device(s)(t, dur, SR, seed=s) for s in range(len(DEVICES)))
     expected = current_mix([total / math.sqrt(len(DEVICES)) * power_to_volume(t.power)], [t.current])
-    assert np.allclose(render_chorus([t], dur, SR), expected.astype(np.float32), atol=1e-6)
+    assert np.allclose(render_chorus([t], dur, SR, cables=[]), expected.astype(np.float32), atol=1e-6)
 
 
 # --- patches ---------------------------------------------------------------------
@@ -347,3 +347,79 @@ def test_an_unknown_or_empty_choice_is_an_error_that_names_the_choices():
 def test_the_device_names_are_listed_for_the_command_line():
     from tensixinet.music.chorus import device_names
     assert device_names() == [d.__name__ for d in DEVICES] and "ttchoir" in device_names()
+
+
+# --- patch cables -----------------------------------------------------------------------------------------------
+
+def spy_on_cables(monkeypatch):
+    import tensixinet.music.chorus as chorus_module
+    calls = []
+    real = chorus_module.apply_cables
+
+    def spy(voices, names, cables, chaos, sample_rate):
+        calls.append({"voices": list(voices), "names": list(names), "cables": list(cables), "chaos": list(chaos)})
+        return real(voices, names, cables, chaos, sample_rate)
+
+    monkeypatch.setattr(chorus_module, "apply_cables", spy)
+    return calls
+
+
+def test_the_cables_come_from_the_patch_seed_and_the_device_names(monkeypatch):
+    from tensixinet.music.cables import draw_cables
+    from tensixinet.music.chorus import device_names
+    calls = spy_on_cables(monkeypatch)
+    patch = dataclasses.replace(DEFAULT_PATCH, seed=12345)
+    render_chorus(chips(4), 0.3, SR, patch=patch)
+    assert calls[0]["cables"] == draw_cables(12345, device_names())
+    assert calls[0]["names"] == [assign_device(s).__name__ for s in range(len(calls[0]["names"]))]
+
+
+def test_live_segments_keep_the_same_wiring(monkeypatch):
+    calls = spy_on_cables(monkeypatch)
+    render_chorus(chips(4), 0.3, SR, segment=0)
+    render_chorus(chips(4), 0.3, SR, segment=3)
+    assert calls[0]["cables"] == calls[1]["cables"]
+
+
+def test_cables_given_by_the_caller_replace_the_drawn_ones(monkeypatch):
+    from tensixinet.music.cables import Cable
+    calls = spy_on_cables(monkeypatch)
+    mine = [Cable("gong", "ttchoir", "fm", 1.0)]
+    render_chorus(chips(4), 0.3, SR, cables=mine)
+    assert calls[0]["cables"] == mine
+
+
+def test_no_cables_is_a_plain_chorus_and_the_default_chorus_is_patched():
+    from tensixinet.music.cables import Cable
+    plain = render_chorus(chips(4), 1.0, SR, cables=[])
+    patched = render_chorus(chips(4), 1.0, SR)
+    assert not np.allclose(plain, patched)
+    one = render_chorus(chips(4), 1.0, SR, cables=[Cable("gong", "ttchoir", "inflate", 1.0)])
+    assert not np.allclose(plain, one)
+
+
+def test_each_cable_is_driven_by_the_chaos_of_the_chip_that_plays_the_slot(monkeypatch):
+    from tensixinet.music.mapping import chip_chaos
+    calls = spy_on_cables(monkeypatch)
+    hot = dataclasses.replace(FALLBACK, asic_temperature=85.0, power=150.0)
+    cold = dataclasses.replace(FALLBACK, asic_temperature=30.0, power=20.0)
+    render_chorus([hot, cold, hot], 0.3, SR)
+    n = len(calls[0]["chaos"])
+    expected = [chip_chaos([hot, cold, hot][s % 3]) for s in range(n)]
+    assert calls[0]["chaos"] == expected and len(set(expected)) > 1
+
+
+def test_a_device_that_is_not_played_is_given_to_the_cables_as_nothing(monkeypatch):
+    calls = spy_on_cables(monkeypatch)
+    render_chorus(chips(2), 0.3, SR, only=["gong", "lead"])
+    voices = calls[0]["voices"]
+    played = [name for name, v in zip(calls[0]["names"], voices) if v is not None]
+    assert sorted(played) == ["gong", "lead"]
+
+
+def test_cables_are_applied_before_the_turn_gains(monkeypatch):
+    """The soloist's turn lowers the others after the cables, so a cable is driven by a source whether or not it has the floor."""
+    calls = spy_on_cables(monkeypatch)
+    render_chorus(chips(4), 0.5, SR, soloists=[0])
+    sources = [v for name, v in zip(calls[0]["names"], calls[0]["voices"]) if name == "gong"]
+    assert sources and np.max(np.abs(sources[0])) > 0.01

@@ -12,6 +12,8 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    antiresonance), liquids and glides (moving formants), coarticulation, a text-to-phoneme layer with morphemes setting stress and
    duration, and having the chips sing the language model's reply. A kernel version (a sum of harmonics, each a `sin` of a multiple of
    one phase; noise and filtering as a convolution, with noise supplied by the host) comes after the numpy voice sounds right.
+2c. **Cables, next steps.** Cables act on finished voices. Open: cables into a device's parameters (the ttsidrax chaos, a clock,
+   the choir's vowel), cables that feed back, cables chosen by the readings as well as the seed, and a kernel version of the four kinds.
 3. **Live mode, the rest.** `--live` works: it reads the chips every turn, draws the soloist from the current
    weights, plays new errors once, moves ttsidrax's chaos with how fast temperature and power change, and
    crossfades the turns. What is open:

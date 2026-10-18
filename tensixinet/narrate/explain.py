@@ -13,6 +13,7 @@ from typing import List, Optional, Sequence
 
 import math
 
+from ..music.cables import Cable, strength
 from ..music.chorus import DEVICES, assign_device, chip_devices, n_slots, plan_turns, slot_chip
 from ..music.devices import (
     DEVICE_INPUTS,
@@ -291,6 +292,33 @@ def explain_turn_weights(telemetry: Sequence[Telemetry]) -> List[Decision]:
             "the weight is the chip's power times its board load against the average board, times 1 plus "
             f"{PRESSURE_WEIGHT:g} per unit of pressure, times 1 plus {BUSY_WEIGHT_PER_PROCESS:g} per process using "
             f"it (up to {BUSY_WEIGHT_MAX_PROCESSES}); a chip that does not list its processes counts none",
+        ))
+    return out
+
+
+CABLE_WORDS = {
+    "fm": "mutates it: the target is read through a delay that follows the source waveform",
+    "crunch": "degrades it: the target is rounded to coarse steps, coarser while the source is loud",
+    "inflate": "inflates it: the target is amplified while the source sounds, with a soft ceiling",
+    "fold": "folds it: the target is driven and reflected back on itself, which adds overtones",
+}
+
+
+def explain_cables(cables: Sequence[Cable], telemetry: Sequence[Telemetry]) -> List[Decision]:
+    """One decision per patch cable: what it connects, and how hard the source's chip pushes it."""
+    n = len(telemetry)
+    names = [assign_device(s).__name__ for s in range(n_slots(n))]
+    out = []
+    for c in cables:
+        slot = names.index(c.source) if c.source in names else None
+        if slot is None:
+            continue
+        chip = slot_chip(slot, n)
+        chaos = chip_chaos(telemetry[chip])
+        out.append(Decision(
+            f"{c.source} -> {c.target} ({c.kind}), depth {c.depth:.2f}, pushed {strength(c, chaos):.2f} by chip {chip}",
+            f"the voice of {c.source} {CABLE_WORDS[c.kind]}. The push is the depth, a quarter of it from a calm chip and all of it "
+            f"from a chaotic one; chip {chip} plays {c.source} and its chaos (pressure plus how fast its readings move) is {chaos:.2f}",
         ))
     return out
 
