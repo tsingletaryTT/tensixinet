@@ -29,7 +29,7 @@ from ..music.devices import (
 from ..music.ttsteam import STEPS, dust_per_second, snare_decay, step_pattern
 from ..music.ttchoir import voice_scale, vowel_sequence
 from ..music.ttquantussy import castle_offset
-from ..music.ttsidrax import FALLBACK_ARCCLK, N_BARRES, barre_bounds
+from ..music.ttrax import FALLBACK_ARCCLK, N_BARRES, barre_bounds
 from ..music.events import MAX_BREATHS, MAX_SWEEPS, MAX_TICKS
 from ..music.lead import BRIGHTNESS, identity_offset, lead_transforms
 from ..music.patch import (
@@ -132,16 +132,16 @@ def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
             "each group of four links drives one more slow roll on a grave barre, as loud as "
             "the share of its group that is up, so a link going down quietens its lane",
         ))
-    if "ttsidrax" in devices:
+    if "ttrax" in devices:
         walls = [barre_bounds(t.gddr_temps, b) for b in range(N_BARRES)]
         out.append(Decision(
             f"GDDR {min(t.gddr_temps):.0f}-{max(t.gddr_temps):.0f} C -> barre walls {min(w[0] for w in walls):.2f} to {max(w[1] for w in walls):.2f}",
-            "each of the seven ttsidrax barres bounces between two walls: its own GDDR channel sets the upper one and the "
+            "each of the seven ttrax barres bounces between two walls: its own GDDR channel sets the upper one and the "
             "next channel the lower, so a hotter channel pushes a wall further out",
         ))
         out.append(Decision(
             f"ARC clock {t.arcclk:.0f} MHz -> bounce x{t.arcclk / FALLBACK_ARCCLK:.2f}",
-            f"ttsidrax bounces at the chip's pitch when the ARC clock is {FALLBACK_ARCCLK:.0f} MHz and scales with it",
+            f"ttrax bounces at the chip's pitch when the ARC clock is {FALLBACK_ARCCLK:.0f} MHz and scales with it",
         ))
         chaos = chip_chaos(t)
         moving = rate_activity(t.temp_rate, t.power_rate)
@@ -150,8 +150,8 @@ def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
             "(the faster of the two, up to 1) to the knob"
         ) if moving else ""
         out.append(Decision(
-            f"pressure {pressure:.2f} -> ttsidrax chaos {chaos:.0%}",
-            f"{pressure_why}{movement}; the ttsidrax chaos knob cross-modulates the barres, and at the top it is noise. "
+            f"pressure {pressure:.2f} -> ttrax chaos {chaos:.0%}",
+            f"{pressure_why}{movement}; the ttrax chaos knob cross-modulates the barres, and at the top it is noise. "
             f"Each barre is pressed every four steps of its own ttrolzer barre, at {aiclk_to_bpm(t.aiclk):.0f} BPM here",
         ))
     if "ttquantus" in devices:

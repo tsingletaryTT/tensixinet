@@ -36,9 +36,9 @@ runs `tt-smi -s`.
 | | `mock.py` | Deterministic synthetic readings for N chips |
 | `music/` | `mapping.py` | The signal-to-sound table as functions, including pressure, chip identity and turn weight |
 | | `synth.py` | Drone voices for any chip count |
-| | `devices.py` | ttrollz, ttquantus, ttdrone, gong, ultrasonic shimmer, the strike times they share, and the current mixer. Re-exports ttsidrax. `DEVICE_INPUTS` says which fields each device reads |
+| | `devices.py` | ttrollz, ttquantus, ttdrone, gong, ultrasonic shimmer, the strike times they share, and the current mixer. Re-exports ttrax. `DEVICE_INPUTS` says which fields each device reads |
 | | `ttrolzer.py` | The ttrolzer's rolls: barre tempos from E6 capacitors, steady even rolls, unstable odd ones |
-| | `ttsidrax.py` | Seven barres bouncing between each other's oscillators, with press and release gestures |
+| | `ttrax.py` | Seven barres bouncing between each other's oscillators, with press and release gestures |
 | | `ttquantussy.py` | The ttquantussy's five petals and castles, and the coco's 8-bit buffer |
 | | `ttsteam.py` | A shift register that steps a noise snare, with the harvested Tensix columns as its pattern |
 | | `ttchoir.py` | A singer: a glottal buzz shaped by formant resonances, sung on vowels that the GDDR channels pick |
@@ -60,7 +60,7 @@ runs `tt-smi -s`.
 ## Dependencies run one way
 
 `telemetry` depends on nothing in the package. `music` depends on `telemetry`. Inside `music`, `devices.py` builds on
-`ttrolzer`, `ttsidrax` and `ttquantussy`, and `ttsteam.py` builds on `devices.py` for the strike helpers. `narrate` depends on
+`ttrolzer`, `ttrax` and `ttquantussy`, and `ttsteam.py` builds on `devices.py` for the strike helpers. `narrate` depends on
 `music` and `telemetry`. `media` depends on nothing. `run.py`, `live.py` and `cli.py` depend on all of them.
 Keep it that way: `music` must never import `narrate`.
 

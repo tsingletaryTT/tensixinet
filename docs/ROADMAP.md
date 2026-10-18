@@ -3,7 +3,7 @@
 Open work in rough order. Each item starts with a failing test (see `CONTRIBUTING.md`).
 
 1. **More of the patch.** Which devices run at all is not in the patch yet. More fields could join it: the
-   motif length, the transform rules (shift and invert thresholds), the number of lanes in ttrollz, the ttsidrax
+   motif length, the transform rules (shift and invert thresholds), the number of lanes in ttrollz, the ttrax
    wall spread, the ttquantussy's ratios and the snare's cutoff. Each new field needs the "only this field changes the chorus" test.
 2. **Let more of the system pick.** Today GDDR spread picks the scale and the memory-to-ASIC ratio picks the gong
    tuning. Power spread across chips could pick the turn length, and aiclk spread could pick ttrollz's asymmetry.
@@ -12,10 +12,10 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    antiresonance), liquids and glides (moving formants), coarticulation, a text-to-phoneme layer with morphemes setting stress and
    duration, and having the chips sing the language model's reply. A kernel version (a sum of harmonics, each a `sin` of a multiple of
    one phase; noise and filtering as a convolution, with noise supplied by the host) comes after the numpy voice sounds right.
-2c. **Cables, next steps.** Cables act on finished voices. Open: cables into a device's parameters (the ttsidrax chaos, a clock,
+2c. **Cables, next steps.** Cables act on finished voices. Open: cables into a device's parameters (the ttrax chaos, a clock,
    the choir's vowel), cables that feed back, cables chosen by the readings as well as the seed, and a kernel version of the four kinds.
 3. **Live mode, the rest.** `--live` works: it reads the chips every turn, draws the soloist from the current
-   weights, plays new errors once, moves ttsidrax's chaos with how fast temperature and power change, and
+   weights, plays new errors once, moves ttrax's chaos with how fast temperature and power change, and
    crossfades the turns. What is open:
    * A start-time offset in every device, so a turn continues the last one. Today each turn restarts its clocks,
      and a ringing gong fades at the end of its turn.
@@ -33,7 +33,7 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    sampled after the reply.
 7. **Run the devices as TT-Lang kernels.** Started: `ttshock` (the drone's ripple), `ttshimmer`, `ttgong` (up to five partials, three overlapping strikes), `ttavdog` and `ttmix` (the
    mixer, up to four chips) match their numpy devices to better than 3e-7 in the TT-Lang simulator (`kernels/README.md` says how to
-   run them). Next, in order: the ttsidrax bounce, ttrollz's blips, the lead, the EQ (a convolution, which is a matmul),
+   run them). Next, in order: the ttrax bounce, ttrollz's blips, the lead, the EQ (a convolution, which is a matmul),
    and a mixer for more than four chips. Every one needs a first run on a chip, a gozer lease and a turn agreed with tt-orchard, and a
    `hardware`-marked test, which `pyproject.toml` declares and nothing uses yet. The old sketches are in
    `legacy/ciat_lonbarde_kernels.py`.

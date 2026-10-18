@@ -81,9 +81,9 @@ def test_explanation_reports_the_numbers_the_mapping_actually_produces():
 
 def test_explanation_only_mentions_inputs_the_chips_device_consumes():
     ttrollz_chip = subjects(explain_chip(0, FALLBACK))  # chip 0 plays ttrollz
-    ttsidrax_chip = subjects(explain_chip(1, FALLBACK))  # chip 1 plays ttsidrax
+    ttrax_chip = subjects(explain_chip(1, FALLBACK))  # chip 1 plays ttrax
     assert "DDR" in ttrollz_chip and "GDDR" not in ttrollz_chip
-    assert "GDDR" in ttsidrax_chip and "DDR status" not in ttsidrax_chip
+    assert "GDDR" in ttrax_chip and "DDR status" not in ttrax_chip
 
 
 def test_explanation_names_the_device_and_why_it_was_chosen():
@@ -114,7 +114,7 @@ def test_a_one_chip_box_says_it_plays_every_device_and_explains_the_inputs_of_al
     first = decisions[0]
     assert all(d.__name__ in first.what for d in DEVICES)
     text = subjects(decisions)
-    assert "DDR status" in text and "GDDR" in text  # ttrollz and ttsidrax both read their fields
+    assert "DDR status" in text and "GDDR" in text  # ttrollz and ttrax both read their fields
 
 
 def test_the_dealing_rule_is_explained_with_the_real_slot_numbers():
@@ -237,7 +237,7 @@ def test_ttrollz_says_how_many_ethernet_links_are_up_and_what_lanes_that_makes()
     assert "12 of 16 ethernet links" in text and "lanes" in text and "GDDR" not in text
 
 
-def test_ttsidrax_and_ttquantus_say_what_the_other_two_clocks_do():
+def test_ttrax_and_ttquantus_say_what_the_other_two_clocks_do():
     assert "ARC clock 1600 MHz" in _chip_text(1) and "x2.00" in _chip_text(1)
     assert "AXI clock 1920 MHz" in _chip_text(2) and "x2.00" in _chip_text(2)
 
@@ -299,7 +299,7 @@ def test_each_wider_decision_appears_only_on_chips_that_play_its_device():
     assert "ethernet" in texts[0] and not any("ethernet" in texts[i] for i in others({0}))
     assert "ARC clock" in texts[1] and not any("ARC clock" in texts[i] for i in others({1}))
     assert "AXI clock" in texts[2] and not any("AXI clock" in texts[i] for i in others({2}))
-    assert all("pressure" in texts[i] for i in (1, 4, 6, 7, 8, 9)) and not any("pressure" in texts[i] for i in others({1, 4, 6, 7, 8, 9}))  # ttsidrax's chaos, the lead, the shimmer, the snare, the ttavdog's wave shape, the ttchoir's glottal slope
+    assert all("pressure" in texts[i] for i in (1, 4, 6, 7, 8, 9)) and not any("pressure" in texts[i] for i in others({1, 4, 6, 7, 8, 9}))  # ttrax's chaos, the lead, the shimmer, the snare, the ttavdog's wave shape, the ttchoir's glottal slope
     assert "vowels" in texts[9] and "voice" in texts[9] and not any("vowels" in texts[i] for i in others({9}))
     assert "wave shape" in texts[8] and not any("wave shape" in texts[i] for i in others({8}))
     assert "snare" in texts[7] and not any("snare" in texts[i] for i in others({7}))
@@ -364,13 +364,13 @@ def test_each_cable_is_explained_with_its_kind_depth_chip_and_push():
     hot = dataclasses.replace(FALLBACK, asic_temperature=85.0, power=150.0)
     cold = dataclasses.replace(FALLBACK, asic_temperature=30.0, power=20.0)
     chips = [hot, cold]
-    cables = [Cable("ttrollz", "ttchoir", "fm", 0.8), Cable("ttsidrax", "ttrollz", "crunch", 0.5)]
+    cables = [Cable("ttrollz", "ttchoir", "fm", 0.8), Cable("ttrax", "ttrollz", "crunch", 0.5)]
     out = explain_cables(cables, chips)
     assert len(out) == 2
     chaos = chip_chaos(chips[slot_chip(0, 2)])  # ttrollz is slot 0
     assert "ttrollz" in out[0].what and "ttchoir" in out[0].what and "fm" in out[0].what and "0.80" in out[0].what
     assert "chip 0" in out[0].what and f"{strength(cables[0], chaos):.2f}" in out[0].what
-    assert "chip 1" in out[1].what  # ttsidrax is slot 1
+    assert "chip 1" in out[1].what  # ttrax is slot 1
     assert "chaos" in out[0].why and "mutates" in out[0].why
     assert "degrades" in out[1].why
 

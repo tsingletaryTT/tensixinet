@@ -98,7 +98,7 @@ def rate_activity(temp_rate: float, power_rate: float) -> float:
 
 
 def chip_chaos(t) -> float:
-    """The ttsidrax chaos knob: the chip's pressure plus how fast its readings are moving, up to 1.
+    """The ttrax chaos knob: the chip's pressure plus how fast its readings are moving, up to 1.
     A snapshot has no rates, so offline this is the pressure."""
     return min(1.0, chip_pressure(t) + rate_activity(t.temp_rate, t.power_rate))
 

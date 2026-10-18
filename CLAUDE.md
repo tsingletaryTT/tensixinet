@@ -34,7 +34,7 @@ programs, every reason kept) and a text file (what you see on screen, each reaso
 ```
 tensixinet/
   telemetry/   snapshot.py (tt-smi JSON to Telemetry), mock.py (synthetic N chips, optional faults)
-  music/       mapping, synth, devices, ttrolzer, ttsidrax, ttquantussy, ttsteam, lead, events, loudness, turns, patch, chorus, live
+  music/       mapping, synth, devices, ttrolzer, ttrax, ttquantussy, ttsteam, lead, events, loudness, turns, patch, chorus, live
   narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
   media/       llm (OpenAI-compatible endpoint), mux (WAV under a video), player (live audio out)
   run.py live.py cli.py __main__.py     wiring (offline and live) and the command line
@@ -285,6 +285,9 @@ legacy/        first prototype scripts, kept for reference
   * Three tests had to change: the one that rebuilds the chorus from raw devices now renders unpatched, and the live tests' stand-in
     for `render_chorus` accepts `cables`.
   * Side research for the owner (is a synth driven by a host's own signals new?) is summarised in the session, not in the repo.
+* **2026-10-18, "ttsidrax => ttrax":** the device and its module are now `ttrax` (`music/ttrax.py`, `tests/music/test_ttrax.py`, the
+  `DEVICE_INPUTS` key and the log lines). The earlier entries in this log keep `ttsidrax`, the name in use when they were written.
+  The guide's own name, Sidrax, is unchanged where the docs describe the original.
 * **2026-10-18, `--only`:** since none of the new sound has been heard, `--only NAME[,NAME]` plays only the named devices at full level with
   no turn-taking (`render_chorus(..., only=[...])`, also in live mode). A log line says what is soloed. Mutation checks found two
   survivors in the command-line parsing (spaces around commas, a list of nothing); both got tests.

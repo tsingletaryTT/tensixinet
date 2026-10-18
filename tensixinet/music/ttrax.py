@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
-"""ttsidrax, after the Sidrax Guide: seven barres, each an oscillator that bounces between two bounds.
+"""ttrax, after the Sidrax Guide: seven barres, each an oscillator that bounces between two bounds.
 
 An oscillator is a ball bouncing between two walls. Its frequency is the bounce divided by the distance
 between the walls, so narrowing the window raises the pitch and a window that closes makes the oscillator
@@ -106,7 +106,7 @@ def gesture_envelopes(bpm: float, barre: int, duration: float, sample_rate: int)
     return press, release
 
 
-def ttsidrax(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+def ttrax(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """Seven barres tuned to the patch's scale. Each plays a tone on its press and a glitch on its release.
 
     The tone bounces between fixed walls set by the memory temperatures. The glitch bounces between two other

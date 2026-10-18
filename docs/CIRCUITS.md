@@ -13,7 +13,7 @@ a recreation of the instruments. Our devices carry a `tt` prefix for that reason
 | Ciat-Lonbarde | tensixinet |
 |---|---|
 | Rolzer (and its rolls) | `ttrollz` (device), `ttrolzer` (module) |
-| Sidrax | `ttsidrax` |
+| Sidrax | `ttrax` |
 | Cocoquantus and its Quantussy | `ttquantus` (device), `ttquantussy` (module) |
 | Man With The Red Steam and Snare | `ttsteam` |
 | Plumbutter drone, AVDog | `ttdrone` |
@@ -64,6 +64,6 @@ a recreation of the instruments. Our devices carry a `tt` prefix for that reason
 
 ## What would come next
 
-* A tthorn, after the Deerhorn, that follows the chips' change over time. Live mode already moves ttsidrax's chaos knob with the rates.
+* A tthorn, after the Deerhorn, that follows the chips' change over time. Live mode already moves ttrax's chaos knob with the rates.
 * The Ultrasound's folding needs a sample rate above 96 kHz to be heard as it is in the guide.
 * Feedback taps on the shift register would let a chip's PCIe or ethernet traffic set the pattern length.

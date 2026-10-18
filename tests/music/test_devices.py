@@ -13,7 +13,7 @@ from tensixinet.music.devices import (
     quantize_to_scale,
     ttrollz,
     ttrollz_pulse_times,
-    ttsidrax,
+    ttrax,
 )
 from tensixinet.telemetry import FALLBACK, Telemetry
 
@@ -216,7 +216,7 @@ from tensixinet.music.patch import DEFAULT_PATCH, SCALES  # noqa: E402
 
 
 def test_every_device_accepts_a_patch_and_the_default_changes_nothing():
-    for dev in (ttrollz, ttsidrax, ttquantus, ttdrone, gong, ultrasonic_shimmer):
+    for dev in (ttrollz, ttrax, ttquantus, ttdrone, gong, ultrasonic_shimmer):
         assert np.array_equal(dev(_FB, 1.0, _SR, 3), dev(_FB, 1.0, _SR, 3, patch=DEFAULT_PATCH)), dev.__name__
 
 

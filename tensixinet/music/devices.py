@@ -26,7 +26,7 @@ from .mapping import (
     voltage_to_cents,
 )
 from .patch import DEFAULT_PATCH, SCALES, Patch
-from .ttsidrax import FALLBACK_ARCCLK, barre_bounds, bounce_wave, ttsidrax  # noqa: F401  (re-exported: the chorus and the log import them from here)
+from .ttrax import FALLBACK_ARCCLK, barre_bounds, bounce_wave, ttrax  # noqa: F401  (re-exported: the chorus and the log import them from here)
 from .ttquantussy import castle_offset, castle_output, crunch, petal_phases, petal_ratios
 from .ttrolzer import DDR_LANE_BARRES, ETH_LANE_BARRES, ETH_LANE_SIDES, barre_bpm, roll_pulse_times
 from .synth import build_voices, render
@@ -44,7 +44,7 @@ PRESSURE_FIELDS = frozenset({"asic_temperature", "power", "thm_limit_throttle", 
 IDENTITY_FIELDS = frozenset({"tensix_mask", "eth_mask"})
 DEVICE_INPUTS = {
     "ttrollz": frozenset({"asic_temperature", "aiclk", "ddr_status", "eth_mask"}),
-    "ttsidrax": frozenset({"asic_temperature", "gddr_temps", "arcclk", "aiclk", "temp_rate", "power_rate"}) | PRESSURE_FIELDS,
+    "ttrax": frozenset({"asic_temperature", "gddr_temps", "arcclk", "aiclk", "temp_rate", "power_rate"}) | PRESSURE_FIELDS,
     "ttquantus": frozenset({"asic_temperature", "aiclk", "axiclk"}) | IDENTITY_FIELDS,
     "ttdrone": frozenset({"asic_temperature", "voltage", "pcie_usage", "aiclk", "heartbeat"}) | IDENTITY_FIELDS,
     "lead": frozenset({"aiclk", "gddr_temps"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
@@ -108,7 +108,7 @@ def ttrollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: P
     return (np.tanh(out)).astype(np.float32)
 
 
-# --- ttsidrax: seven barres bouncing between each other's oscillators (see ttsidrax.py) ---------------
+# --- ttrax: seven barres bouncing between each other's oscillators (see ttrax.py) ---------------
 
 
 # --- ttquantus: the ttquantussy's castles, through an 8-bit buffer ---------------------------------------

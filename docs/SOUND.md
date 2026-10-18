@@ -13,7 +13,7 @@ In short:
   snap and the drone's ripple share one set of strike times.
 * **ttrolzer:** rolls of 3 to 6 stages on barres with E6 capacitor tempos. Even rolls swing and stay steady.
   Odd rolls are unstable. Capacitors are good to 20%, so no step lasts the same as another.
-* **ttsidrax:** seven oscillators that bounce between two bounds. Frequency is bounce over bounds, and the
+* **ttrax:** seven oscillators that bounce between two bounds. Frequency is bounce over bounds, and the
   bounds can be other barres' oscillators.
 * **ttquantus:** a five-petal ttquantussy whose castles sample each other, through an 8-bit buffer.
 * **Gongue, AVDog, Ultrasound, shift register and Snare** from the Plumbutter: a gong with a trigger
@@ -27,16 +27,16 @@ In short:
 | `aiclk` | Tempo | 400-1350 MHz maps to 60-180 BPM |
 | `power` | Chip volume, exponential curve | 0-200 W maps to 0.3-1.0 |
 | `current` | Share of the mix | each chip's fraction of the total |
-| GDDR temperatures | ttsidrax walls, lead shifts and inversions, shimmer beat rate | every channel the board reports |
+| GDDR temperatures | ttrax walls, lead shifts and inversions, shimmer beat rate | every channel the board reports |
 | `ddr_status` | ttrollz rolls of 3, 4, 5 and 6 sides, each on its own barre; status 0 grounds the roll | 4 fields |
 | `voltage` | Drone detune: 0.75 V is in tune, 4 cents per 10 mV, at most 40 cents either way | 0.70-0.90 V |
 | `pcie_usage` | Number of drone voices, and the snare's dust (15 pops a second per step) | 1-6 |
-| `arcclk` | ttsidrax pitch, 1.0 at 800 MHz | any |
+| `arcclk` | ttrax pitch, 1.0 at 800 MHz | any |
 | `axiclk` | ttquantus hold rate (1.0 at 960 MHz, a note is an eighth) and buffer clock (full rate at 1920 MHz, down to a quarter) | any |
 | `eth_mask` | Four more ttrollz rolls on slow barres, one per group of four ethernet links, as loud as the share of the group that is up. Also part of the chip identity | 16 links |
 | `tensix_mask` | Part of the chip identity. The harvested columns (zero bits) are the steps the snare fires on | 14 columns |
 | `heartbeat` | Where in the first blocking window the gong starts: counter mod 16, in sixteenths of half a strike interval | any |
-| Pressure | Lead overtone (up to 60%), shimmer level (up to twice), ttsidrax chaos, snare decay | 0-1, see below |
+| Pressure | Lead overtone (up to 60%), shimmer level (up to twice), ttrax chaos, snare decay | 0-1, see below |
 | `board_power`, `busy` | Turn weight, see "Trading solos" | |
 | `corr_errs`, `uncorr_errs`, `thermal_trips` | Event sounds, see "Events" | counts |
 
@@ -47,7 +47,7 @@ The functions are in `tensixinet/music/mapping.py`. Readings outside a range hol
 | Device | Character | Reads |
 |---|---|---|
 | ttrollz | Lopsided pulse clock plus a roll for each DDR channel and each group of ethernet links | temperature, aiclk, DDR status, ethernet links |
-| ttsidrax | Seven barres. A press plays a tone and a release plays a glitch | temperature, aiclk, GDDR temperatures, arcclk, pressure |
+| ttrax | Seven barres. A press plays a tone and a release plays a glitch | temperature, aiclk, GDDR temperatures, arcclk, pressure |
 | ttquantus | A repeating, drifting melody on the patch's scale, through an 8-bit buffer | temperature, aiclk, axiclk, chip identity |
 | ttdrone | Drone of 1 to 6 C major voices that ripples after each gong strike | temperature, voltage, PCIe usage, aiclk, heartbeat, chip identity |
 | Lead | Eight-note motif, shifted or inverted bar by bar | temperature, aiclk, GDDR temperatures, pressure, chip identity |
@@ -89,7 +89,7 @@ step is jittered by up to 20%. An even roll holds that to half of it and swings.
 2.5 times and spreads its steps unevenly over a cycle. No lane is locked to the bar. A DDR status of 0 grounds
 its roll.
 
-## ttsidrax
+## ttrax
 
 Seven barres tuned to the first seven degrees of the patch's scale, starting at the chip's pitch times
 arcclk / 800 MHz. Each barre has fixed walls, its own GDDR channel for the upper one and the next channel for the
@@ -97,7 +97,7 @@ lower one: `-(0.2 + 0.7 x norm_temp)` and `0.2 + 0.7 x norm_temp`.
 
 * **Press:** the tone bounces between the fixed walls.
 * **Release:** the glitch bounces between two other barres' oscillators, the pair the guide's table gives
-  for switch 3 (`BOUNDS_TABLE` in `music/ttsidrax.py`). Its frequency is the tone's times the fixed window over
+  for switch 3 (`BOUNDS_TABLE` in `music/ttrax.py`). Its frequency is the tone's times the fixed window over
   the current window, between a quarter and eight times. Where the upper wall drops below the lower, it rides the
   lower wall.
 * **Chaos:** pressure, plus (in live mode) how fast the chip's temperature and power are moving. The rates add up to
@@ -291,7 +291,7 @@ dropped so high voices never alias into the audible band.
 `--live` plays the chorus one turn at a time (the patch's bars at the mean tempo, held between 2 and 10 s). Before
 each turn the chips are read again and compared with the last readings:
 
-* temperature and power get a rate in units per second, over at least 2 s, which feeds ttsidrax's chaos;
+* temperature and power get a rate in units per second, over at least 2 s, which feeds ttrax's chaos;
 * the memory error and thermal trip counters become what is new, so an error plays once;
 * the soloist is drawn from the chips' weights as they are now;
 * the turn is rendered with its own seeds and cross-faded for 0.4 s onto the end of the last.

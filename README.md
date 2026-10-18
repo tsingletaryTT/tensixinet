@@ -52,7 +52,7 @@ chips play one each. Anything in between shares them.
 | Device | What you hear | What drives it |
 |---|---|---|
 | **ttrollz** | A lopsided pulse clock, plus a ttrolzer roll for each DDR channel and each group of ethernet links. Every roll runs on its own barre's tempo, so the lanes drift against each other | temperature, clock, DDR status, ethernet links |
-| **ttsidrax** | Seven barres, each an oscillator bouncing between two walls. A press plays a tone. A release lets the walls become other barres' oscillators and the barre glitches | temperature, clock, GDDR temperatures, ARC clock, pressure |
+| **ttrax** | Seven barres, each an oscillator bouncing between two walls. A press plays a tone. A release lets the walls become other barres' oscillators and the barre glitches | temperature, clock, GDDR temperatures, ARC clock, pressure |
 | **ttquantus** | A five-petal ttquantussy plays a melody that repeats and slowly drifts, through an 8-bit buffer | temperature, clock, AXI clock, chip identity |
 | **ttdrone** | A drone of one to six C major voices, a little sharp or flat, that ripples after every gong strike | temperature, voltage, PCIe usage, clock, heartbeat, chip identity |
 | **Lead** | An eight-note motif that gets shifted up or flipped upside down, bar by bar, and brighter near a limit | temperature, clock, GDDR temperatures, pressure, chip identity |
@@ -92,15 +92,15 @@ RMS, so every run lands at the same level and chips keep their level against eac
 Every line of the log says what a reading became and the reason. This is a real run on four chips, trimmed:
 
 ```
-║ [00:00.3] chip 1 plays ttsidrax, gong
+║ [00:00.3] chip 1 plays ttrax, gong
 ║ [00:00.3] GDDR 46-48 C -> barre walls -0.41 to 0.41
-║          why: each of the seven ttsidrax barres bounces between two walls: its
+║          why: each of the seven ttrax barres bounces between two walls: its
 ║               own GDDR channel sets the upper one and the next channel the
 ║               lower, so a hotter channel pushes a wall further out
-║ [00:00.3] pressure 0.14 -> ttsidrax chaos 14%
+║ [00:00.3] pressure 0.14 -> ttrax chaos 14%
 ║          why: how close the chip is to a limit: ASIC temperature from 40 C up
 ║               to the 90 C throttle point, or power from a quarter of the 125
-║               W limit up to it, whichever is closer; the ttsidrax chaos knob
+║               W limit up to it, whichever is closer; the ttrax chaos knob
 ║               cross-modulates the barres, and at the top it is noise. Each
 ║               barre is pressed every four steps of its own ttrolzer barre, at
 ║               111 BPM here
@@ -128,7 +128,7 @@ describe a mapping that is not in the sound.
 ## No two runs alike
 
 Each run draws a **patch**: the scale, the lead's motif, the gong's tuning and beat, the shimmer band, how long
-solos last and how quiet everyone else gets. The scale also sets what the ttsidrax barres and the ttquantus play.
+solos last and how quiet everyone else gets. The scale also sets what the ttrax barres and the ttquantus play.
 
 - **The machine decides two things.** The scale follows how unevenly the memory channels are heated. The gong
   tuning follows the ratio of memory to ASIC temperature.
@@ -145,7 +145,7 @@ The demo replays [`demo/chorus.patch.json`](demo/chorus.patch.json), so rebuildi
 Each turn is rendered from a fresh reading and played while the next one is made, so the sound is about one turn
 behind the chips. A chip that heats up or draws more power changes the music within a turn or two:
 
-* **How fast the readings move** (degrees and watts per second) turns up ttsidrax's chaos knob, on top of
+* **How fast the readings move** (degrees and watts per second) turns up ttrax's chaos knob, on top of
   pressure. A cool chip that heats quickly gets as unsettled as a hot one.
 * **The soloist is drawn again every turn** from the chips' current weights.
 * **New errors play once.** A memory error or thermal trip that appears mid-run ticks, breathes or sweeps in
@@ -166,15 +166,15 @@ each turn restarts the devices' clocks, so a ringing gong fades at the end of it
 | AI clock | Tempo | 400-1350 MHz is 60-180 BPM |
 | Power | Chip volume, exponential curve | 0-200 W is 0.3 to 1.0 |
 | Current | Share of the mix | each chip's fraction of the total |
-| GDDR temperatures | ttsidrax walls, the lead's shifts and flips, the shimmer's beat | every channel the board reports |
+| GDDR temperatures | ttrax walls, the lead's shifts and flips, the shimmer's beat | every channel the board reports |
 | DDR status | ttrollz rolls of 3, 4, 5 and 6 sides; status 0 grounds a roll | 4 fields |
 | Voltage | Drone detune, 4 cents per 10 mV | 0.70-0.90 V is -20 to +60 cents, capped at 40 |
 | PCIe usage | Drone voices, and the snare's dust | 1 to 6 |
-| ARC clock, AXI clock | ttsidrax pitch, ttquantus hold rate and buffer clock | 1.0 at 800 and 960 MHz |
+| ARC clock, AXI clock | ttrax pitch, ttquantus hold rate and buffer clock | 1.0 at 800 and 960 MHz |
 | Ethernet links | Four slow ttrollz rolls, loud in proportion to the links up in each group of four | 16 links |
 | Tensix and ethernet masks | Chip identity: lead transpose, gong detune and trigger response, ttquantus castle. The harvested Tensix columns are the snare's steps | per chip |
 | Heartbeat | Where the gong starts in its first blocking window | counter mod 16 |
-| Pressure | Lead overtone, shimmer level, ttsidrax chaos, snare decay, turn weight | 0-1, from the throttle temperature and the power limit |
+| Pressure | Lead overtone, shimmer level, ttrax chaos, snare decay, turn weight | 0-1, from the throttle temperature and the power limit |
 | Board power, processes using the chip | Turn weight | |
 | Memory errors, thermal trips | Ticks, breaths and sweeps | counts |
 
@@ -259,7 +259,7 @@ The instrument works and is still growing.
 
 tensixinet is inspired by the instruments of [Ciat-Lonbarde](https://www.ciat-lonbarde.net/), Peter Blasser's
 workshop, and owes them its ideas. It is not a recreation of them and does not simulate their circuits. The devices carry
-a `tt` prefix to say so: ttrollz and ttrolzer follow the Plumbutter and Rolzer, ttsidrax the Sidrax, ttquantus and
+a `tt` prefix to say so: ttrollz and ttrolzer follow the Plumbutter and Rolzer, ttrax the Sidrax, ttquantus and
 ttquantussy the Cocoquantus and its Quantussy, ttsteam the Man With The Red Steam, and tthorn (not built yet) would follow the
 Deerhorn. The behaviour comes from three guides by Josh Singer (the Sidrax Guide, the Cocoquantus Tasting Guide and the
 Plumbutter & Rolzer Dance Party Guide). [docs/CIRCUITS.md](docs/CIRCUITS.md) says what each guide describes and which parts
