@@ -54,3 +54,14 @@ def test_the_page_credits_ciat_lonbarde_and_says_it_is_not_a_recreation():
 def test_the_deploy_workflow_publishes_the_site_folder():
     flow = (SITE.parent / ".github" / "workflows" / "pages.yml").read_text()
     assert "path: site/" in flow and "deploy-pages" in flow
+
+
+def test_every_file_the_page_loads_is_tracked_by_git_so_the_deploy_has_it():
+    """A .gitignore rule once swallowed site/assets/audio, so the files existed here and 404ed on the site."""
+    import shutil
+    import subprocess
+    if shutil.which("git") is None or not (SITE.parent / ".git").exists():
+        pytest.skip("not a git checkout")
+    tracked = set(subprocess.run(["git", "ls-files", "site"], cwd=SITE.parent, capture_output=True, text=True, check=True).stdout.split())
+    refs = set(re.findall(r'(?:src|href)="(assets/[^"]+)"', HTML)) | {"index.html"}
+    assert {f"site/{r}" for r in refs} <= tracked, sorted({f"site/{r}" for r in refs} - tracked)

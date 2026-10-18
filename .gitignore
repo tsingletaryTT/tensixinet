@@ -1,5 +1,5 @@
 # Generated output
-audio/
+/audio/
 logs/
 __pycache__/
 .pytest_cache/
