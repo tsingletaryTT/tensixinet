@@ -65,3 +65,45 @@ def test_every_file_the_page_loads_is_tracked_by_git_so_the_deploy_has_it():
     tracked = set(subprocess.run(["git", "ls-files", "site"], cwd=SITE.parent, capture_output=True, text=True, check=True).stdout.split())
     refs = set(re.findall(r'(?:src|href)="(assets/[^"]+)"', HTML)) | {"index.html"}
     assert {f"site/{r}" for r in refs} <= tracked, sorted({f"site/{r}" for r in refs} - tracked)
+
+
+# --- the mapping sandbox: its JS constants must match tensixinet/music/mapping.py and patch.py ----------------------
+
+def js_number(name):
+    m = re.search(rf"\b{name}\s*=\s*([-\d.]+)", HTML)
+    assert m, f"index.html has no {name}"
+    return float(m.group(1))
+
+
+def js_array(name):
+    m = re.search(rf"\b{name}\s*=\s*\[([^\]]*)\]", HTML)
+    assert m, f"index.html has no {name}"
+    return [float(x) for x in m.group(1).split(",")]
+
+
+def test_the_sandboxs_pitch_and_tempo_constants_match_mapping_py():
+    from tensixinet.music.mapping import AICLK_RANGE, BPM_RANGE, C3_HZ, PITCH_SEMITONES, TEMP_RANGE
+    assert js_number("C3_HZ") == C3_HZ
+    assert js_number("PITCH_SEMITONES") == PITCH_SEMITONES
+    assert js_array("TEMP_RANGE") == list(TEMP_RANGE)
+    assert js_array("AICLK_RANGE") == list(AICLK_RANGE)
+    assert js_array("BPM_RANGE") == list(BPM_RANGE)
+
+
+def test_the_sandboxs_pressure_constants_match_mapping_py():
+    from tensixinet.music.mapping import PRESSURE_POWER_FLOOR, PRESSURE_TEMP_FLOOR_C
+    assert js_number("PRESSURE_TEMP_FLOOR_C") == PRESSURE_TEMP_FLOOR_C
+    assert js_number("PRESSURE_POWER_FLOOR") == PRESSURE_POWER_FLOOR
+
+
+def test_the_sandboxs_scale_step_and_order_match_patch_py():
+    from tensixinet.music.patch import DEGREES_PER_SCALE_STEP_C, SCALE_NAMES
+    assert js_number("DEGREES_PER_SCALE_STEP_C") == DEGREES_PER_SCALE_STEP_C
+    m = re.search(r'const SCALE_NAMES = \[(.*?)\];', HTML)
+    shown = [s.strip().strip('"') for s in m.group(1).split(",")]
+    assert shown == [n.replace("_", " ") for n in SCALE_NAMES]
+
+
+def test_the_page_links_to_tenstorrent_hardware_and_the_github_org():
+    assert 'href="https://tenstorrent.com"' in HTML
+    assert 'href="https://github.com/tenstorrent"' in HTML

@@ -316,6 +316,25 @@ legacy/        first prototype scripts, kept for reference
     A lease release was refused once ("device still open") and left the lease STALE; `gozer reconcile` cleared it, after checking with
     `fuser` that nothing of mine still had the device open.
   * Said yes to running load kernels seldom and for effect (roadmap 7b); none built yet, pending a governor design.
+* **2026-10-18, "we should have kernels that are all about STARVATION and DESTRUCTION too ... called into play seldom but with big
+  impacts":** logged as roadmap 7b, not yet built. Asked, and was told: a hard wall-clock cap and a live pressure ceiling that aborts
+  a burst early (not a cooldown, not a separate tt-orchard sign-off beyond the ordinary one-chip turn); musically, no new device, just
+  the burst's real heat and power feeding the existing pressure, chaos and turn-weight signals harder. Built `tensixinet/kernels/governor.py`:
+  `MAX_BURST_S = 2.0` (the chosen 1-3 s), `ABORT_PRESSURE = 0.85` read against `mapping.chip_pressure`, `may_start` (a chip already
+  near the ceiling may not begin) and `should_stop` (the cap or the ceiling, whichever comes first). Pure host-side logic, no device,
+  tested without hardware; a mutation battery found three survivors (both constants unpinned, and `>` for `>=` at the pressure
+  boundary) and each got a test. The load kernel itself (the part that actually burns cycles on a chip) is not built.
+* **2026-10-18, "make the site behave better on mobile ... the interactive UIs are great explainers ... triple down ... we want people to
+  be excited enough that they'd want the hardware":** a third flagship interactive piece, `site/`'s mapping sandbox: four sliders
+  (ASIC temperature, power, aiclk, GDDR spread) run the exact ported formulas from `mapping.py` and `patch.py` (`temp_to_pitch_hz`,
+  `aiclk_to_bpm`, `pressure`, `scale_for`) and show pitch (with a note name), tempo, a pressure meter and the chosen scale, live. A
+  new `#hardware` section makes the case directly: the project only works because real silicon gives up this many live signals for
+  free, with links to tenstorrent.com, the Tenstorrent GitHub org and the repo. Mobile: a `@media(max-width:640px)` pass (smaller
+  section padding and type, full-width stacked buttons, narrower slider labels) on top of layouts that already had no page-level
+  horizontal overflow at 375px (checked with an iframe harness reading `scrollWidth`, not by eye).
+  * `tests/test_site.py` now also checks that the sandbox's JS constants equal the Python ones it claims to port (`C3_HZ`,
+    `PITCH_SEMITONES`, the temperature/aiclk/bpm ranges, the pressure floors, the scale step and the scale name order) and that the
+    page links to tenstorrent.com and github.com/tenstorrent. Changing a constant or the scale order in the page, by hand, turned it red.
 * **2026-10-18, `--only`:** since none of the new sound has been heard, `--only NAME[,NAME]` plays only the named devices at full level with
   no turn-taking (`render_chorus(..., only=[...])`, also in live mode). A log line says what is soloed. Mutation checks found two
   survivors in the command-line parsing (spaces around commas, a list of nothing); both got tests.

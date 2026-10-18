@@ -86,6 +86,34 @@ footer p{max-width:80ch}
 pre{background:#061a19;border:1px solid var(--line);border-radius:8px;padding:14px;overflow-x:auto;font:14px/1.5 var(--mono);color:#cfe3e0;margin:12px 0}
 ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 .src{font-size:14px;color:var(--muted)}
+/* the mapping sandbox */
+.sandbox{display:grid;gap:24px;grid-template-columns:1fr 1fr;align-items:start}
+@media(max-width:760px){.sandbox{grid-template-columns:1fr}}
+.sandbox .sliders label{grid-template-columns:90px 1fr 60px}
+.readout{display:grid;gap:14px}
+.readout .big{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.readout .big .num{font-family:var(--mono);font-size:32px;color:var(--teal);line-height:1.1}
+.readout .big .lab{font-family:var(--mono);font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.meter{height:10px;background:#061a19;border-radius:999px;overflow:hidden;margin-top:8px}
+.meter span{display:block;height:100%;background:var(--accent);transition:width .15s}
+.cta{background:linear-gradient(135deg,rgba(27,142,177,.22),rgba(116,197,223,.06));border:1px solid var(--line);border-radius:14px;padding:28px}
+.cta h2{margin-bottom:10px}
+/* mobile polish */
+@media(max-width:640px){
+  .wrap{padding:0 16px}
+  nav .wrap{gap:14px;height:46px}
+  nav a{font-size:13px}
+  section{padding:48px 0}
+  h1{margin-bottom:14px}
+  .hero{padding:48px 0 36px}
+  .lead{font-size:18px}
+  table{font-size:13px}
+  th,td{padding:7px 6px}
+  pre{font-size:12.5px;padding:12px}
+  .sliders label{grid-template-columns:62px 1fr 42px;font-size:12px}
+  .btn{display:block;text-align:center;margin:8px 0}
+  .readout .big .num{font-size:26px}
+}
 </style>
 </head>
 <body>
@@ -93,7 +121,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 <nav><div class="wrap">
   <b>tensixinet</b>
   <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#band">The band</a>
-  <a href="#listen">Listen</a><a href="#new">Is it new?</a><a href="#kernels">On the chip</a><a href="#credits">Credits</a>
+  <a href="#listen">Listen</a><a href="#new">Is it new?</a><a href="#kernels">On the chip</a><a href="#hardware">Get hardware</a><a href="#credits">Credits</a>
 </div></nav>
 
 <header class="hero"><div class="wrap">
@@ -118,6 +146,14 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3>Ten devices, any number of chips</h3><p>Devices are dealt to chips in turn. One chip plays all ten. Ten or more chips play one device each.</p><span class="tag">slot % chips</span></div>
     <div class="card"><h3>Cables between voices</h3><p>Five to eight cables per patch let one device bend, crunch, swell or fold another. The choir is wired both ways.</p><span class="tag">drawn from the patch seed</span></div>
     <div class="card"><h3>The load is part of the sound</h3><p>The chip that plays a cable's source sets how hard it pushes. Work on one chip changes how other devices sound.</p><span class="tag">chip chaos = pressure + rate of change</span></div>
+  </div>
+  <div class="diagram" style="margin-top:28px">
+    <h3 style="margin-bottom:12px">Try the mapping yourself</h3>
+    <p class="src" style="margin-bottom:16px">These four sliders feed the exact formulas in <code>tensixinet/music/mapping.py</code> — the same arithmetic that runs on a real reading from <code>tt-smi -s</code>. No chip is simulated here; it is the function, ported line for line.</p>
+    <div class="sandbox">
+      <div class="sliders" id="sandbox-sliders"></div>
+      <div class="readout" id="sandbox-readout"></div>
+    </div>
   </div>
 </div></section>
 
@@ -264,6 +300,20 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3>ttavdog, computed on the chip</h3><p>The chip's two voices. This is the kernel with the largest measured difference from numpy, 2.3e-3, and it sounds the same.</p><audio controls preload="none" src="assets/audio/ttavdog_chip.mp3"></audio></div>
   </div>
   <p>The longer idea is a closed loop: the instrument's own load changes the chip's power and temperature, those readings change the sound, and the sound changes the load. That needs a software chip model and a governor first, and both are still ahead of us. So are the remaining devices (<code>ttrollz</code>, <code>ttrax</code>, <code>ttquantus</code>, <code>ttdrone</code>, <code>lead</code>, <code>ttsteam</code>, <code>ttchoir</code>) and the cables between them.</p>
+</div></section>
+
+<section id="hardware"><div class="wrap">
+  <div class="cta">
+    <div class="kicker">Run it on your own chips</div>
+    <h2>This only exists because the hardware is this alive</h2>
+    <p class="lead">Every sound on this page comes from a real board thinking: temperatures climbing while a model answers, memory channels heating unevenly, links flickering, power chasing a prompt. A Tenstorrent chip gives up this much of itself for free, through a read-only <code>tt-smi -s</code>, with no simulation standing in for it. The mapping sandbox above runs the identical formula a real chip's numbers would hit.</p>
+    <p>
+      <a class="btn" href="https://tenstorrent.com">Get Tenstorrent hardware</a>
+      <a class="btn alt" href="https://github.com/tenstorrent">See the open-source stack</a>
+      <a class="btn alt" href="https://github.com/tsingletaryTT/tensixinet">Run tensixinet on yours</a>
+    </p>
+    <p class="src">It runs on Wormhole and Blackhole, on one chip or many. Listening needs no device lease at all. Playing on the Tensix cores themselves needs one, and five kernels now do that (see On the chip, below).</p>
+  </div>
 </div></section>
 
 <section id="credits"><div class="wrap">
@@ -468,6 +518,53 @@ BAND.forEach(([n, d, from, drives], i) => {
   c.innerHTML = `<h3 style="color:${HEX[i % N_CHIPS]}">${n}</h3><p>${d}</p><span class="tag">inspired by ${from}</span><span class="tag">driven by ${drives}</span>`;
   bg.appendChild(c);
 });
+
+/* ---------- the mapping sandbox: tensixinet/music/mapping.py, ported line for line ---------- */
+function unit(x, lo, hi) { if (hi <= lo) return x >= hi ? 1 : 0; return Math.min(1, Math.max(0, (x - lo) / (hi - lo))); }
+const C3_HZ = 130.8128, PITCH_SEMITONES = 24, TEMP_RANGE = [25, 100];
+const tempToPitchHz = t => C3_HZ * Math.pow(2, unit(t, ...TEMP_RANGE) * PITCH_SEMITONES / 12);
+const AICLK_RANGE = [400, 1350], BPM_RANGE = [60, 180];
+const aiclkToBpm = a => BPM_RANGE[0] + (BPM_RANGE[1] - BPM_RANGE[0]) * unit(a, ...AICLK_RANGE);
+const PRESSURE_TEMP_FLOOR_C = 40.0, PRESSURE_POWER_FLOOR = 0.25;
+const pressureOf = (temp, power, throttle, tdp) => Math.max(unit(temp, PRESSURE_TEMP_FLOOR_C, throttle), unit(power, PRESSURE_POWER_FLOOR * tdp, tdp));
+const DEGREES_PER_SCALE_STEP_C = 3.0;
+const SCALE_NAMES = ["major pentatonic", "minor pentatonic", "hirajoshi", "dorian", "whole tone", "phrygian dominant"];
+const scaleFor = spread => SCALE_NAMES[Math.floor(spread / DEGREES_PER_SCALE_STEP_C) % SCALE_NAMES.length];
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+function noteName(hz) {
+  const midi = Math.round(69 + 12 * Math.log2(hz / 440));
+  return NOTE_NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
+}
+const SANDBOX = {temp: 55, power: 90, aiclk: 900, spread: 6};
+const THROTTLE_C = 90, TDP_W = 200; // typical limits, so the sandbox needs no fifth slider
+function sandboxReadout() {
+  const pitch = tempToPitchHz(SANDBOX.temp);
+  const bpm = aiclkToBpm(SANDBOX.aiclk);
+  const pr = pressureOf(SANDBOX.temp, SANDBOX.power, THROTTLE_C, TDP_W);
+  const scale = scaleFor(SANDBOX.spread);
+  const r = document.getElementById("sandbox-readout");
+  r.innerHTML = `
+    <div class="big"><div class="lab">pitch (temp_to_pitch_hz)</div><div class="num">${pitch.toFixed(1)} Hz <span style="color:var(--muted);font-size:20px">${noteName(pitch)}</span></div></div>
+    <div class="big"><div class="lab">tempo (aiclk_to_bpm)</div><div class="num">${bpm.toFixed(0)} BPM</div></div>
+    <div class="big"><div class="lab">pressure (0 cool/idle &rarr; 1 at a limit)</div><div class="num">${pr.toFixed(2)}</div>
+      <div class="meter"><span style="width:${(pr * 100).toFixed(0)}%;background:${pr > 0.7 ? "var(--orange)" : pr > 0.35 ? "var(--yellow)" : "var(--accent)"}"></span></div></div>
+    <div class="big"><div class="lab">scale (scale_for, from GDDR spread)</div><div class="num" style="font-size:20px">${scale}</div></div>`;
+}
+const sliderDefs = [
+  ["temp", "asic °C", 25, 100, 1, v => v.toFixed(0)],
+  ["power", "power W", 0, 200, 1, v => v.toFixed(0)],
+  ["aiclk", "aiclk MHz", 400, 1350, 10, v => v.toFixed(0)],
+  ["spread", "gddr spread", 0, 30, 0.5, v => v.toFixed(1)],
+];
+const sb = document.getElementById("sandbox-sliders");
+sliderDefs.forEach(([key, label, lo, hi, step]) => {
+  const lab = document.createElement("label");
+  lab.innerHTML = `<span>${label}</span><input type="range" min="${lo}" max="${hi}" step="${step}" value="${SANDBOX[key]}" aria-label="${label}"><output>${SANDBOX[key]}</output>`;
+  const inp = lab.querySelector("input"), out = lab.querySelector("output");
+  inp.oninput = () => { SANDBOX[key] = +inp.value; out.textContent = inp.value; sandboxReadout(); };
+  sb.appendChild(lab);
+});
+sandboxReadout();
 </script>
 </body>
 </html>
