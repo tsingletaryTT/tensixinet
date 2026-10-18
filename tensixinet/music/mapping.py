@@ -3,10 +3,11 @@
 """Hardware signal -> musical parameter. The README's table, as code.
 
 Ranges are clamped, so a reading outside the documented band holds the nearest
-end instead of extrapolating.
+end and do not extrapolate.
 """
 from __future__ import annotations
 
+import hashlib
 import math
 from typing import Tuple
 
@@ -19,8 +20,8 @@ VOLUME_CURVE = 2.0  # exponential steepness
 C3_HZ = 130.8128  # equal temperament, A4 = 440 Hz
 PITCH_SEMITONES = 24  # C3 -> C5
 
-# One polyrhythm lane per DDR status field: pulses per bar.
-DDR_LANE_DIVISIONS = (3, 4, 5, 7)
+# One Rolzer roll per DDR status field: a triangle, square, pentagon and hexagon.
+DDR_LANE_SIDES = (3, 4, 5, 6)
 
 
 def _unit(x: float, lo: float, hi: float) -> float:
@@ -51,6 +52,75 @@ def power_to_volume(power_w: float) -> float:
     return lo + (hi - lo) * shaped
 
 
-def ddr_lane_divisions(ddr_status: Tuple[int, ...]) -> Tuple[int, ...]:
-    """Pulses per bar for each DDR lane; a status of 0 mutes the lane."""
-    return tuple(d if s else 0 for d, s in zip(DDR_LANE_DIVISIONS, ddr_status))
+def ddr_lane_sides(ddr_status: Tuple[int, ...]) -> Tuple[int, ...]:
+    """Sides of the roll each DDR lane plays; a status of 0 grounds the roll, which silences the lane."""
+    return tuple(d if s else 0 for d, s in zip(DDR_LANE_SIDES, ddr_status))
+
+
+# --- readings beyond temperature, clock and power ---------------------------------------
+
+PRESSURE_TEMP_FLOOR_C = 40.0  # below this a chip is not under thermal pressure
+PRESSURE_POWER_FLOOR = 0.25  # fraction of the power limit below which a chip is not under power pressure
+VOLTAGE_CENTRE_V = 0.75
+CENTS_PER_VOLT = 400.0
+MAX_DETUNE_CENTS = 40.0
+DRONE_VOICES_RANGE = (1, 6)
+HEARTBEAT_STEPS = 16
+BUSY_WEIGHT_PER_PROCESS = 0.5
+BUSY_WEIGHT_MAX_PROCESSES = 3
+PRESSURE_WEIGHT = 2.0
+
+
+def pressure(temp_c: float, power_w: float, throttle_c: float, tdp_w: float) -> float:
+    """0 (cool and idle) to 1 (at the throttle temperature or the power limit), whichever is closer."""
+    return max(
+        _unit(temp_c, PRESSURE_TEMP_FLOOR_C, throttle_c),
+        _unit(power_w, PRESSURE_POWER_FLOOR * tdp_w, tdp_w),
+    )
+
+
+def chip_pressure(t) -> float:
+    """`pressure` for one chip's telemetry."""
+    return pressure(t.asic_temperature, t.power, t.thm_limit_throttle, t.tdp_limit)
+
+
+def personality(t) -> int:
+    """`chip_identity` for one chip's telemetry."""
+    return chip_identity(t.tensix_mask, t.eth_mask)
+
+
+def eth_lane_levels(eth_mask: int) -> Tuple[float, ...]:
+    """Four lane levels, one per group of four ethernet links: the share of that group that is up."""
+    return tuple(bin((eth_mask >> (4 * i)) & 0xF).count("1") / 4 for i in range(4))
+
+
+def chip_identity(tensix_mask: int, eth_mask: int) -> int:
+    """A stable number for a chip from which Tensix columns and ethernet links it has.
+
+    Harvesting leaves every chip with a different set, so this tells chips apart."""
+    digest = hashlib.sha256(f"{tensix_mask:x}/{eth_mask:x}".encode()).digest()
+    return int.from_bytes(digest[:4], "big")
+
+
+def voltage_to_cents(voltage: float) -> float:
+    """A slow detune: 0.75 V is in tune, 400 cents per volt, limited to 40 cents either way."""
+    return max(-MAX_DETUNE_CENTS, min(MAX_DETUNE_CENTS, (voltage - VOLTAGE_CENTRE_V) * CENTS_PER_VOLT))
+
+
+def drone_voices(pcie_usage: int) -> int:
+    lo, hi = DRONE_VOICES_RANGE
+    return max(lo, min(hi, int(pcie_usage)))
+
+
+def heartbeat_phase(heartbeat: int) -> float:
+    """Where in its cycle a chip's counter is, in sixteenths: 0 to just under 1."""
+    return (int(heartbeat) % HEARTBEAT_STEPS) / HEARTBEAT_STEPS
+
+
+def turn_weight(power: float, board_power: float, mean_board_power: float, pressure: float, busy) -> float:
+    """How often a chip's slots solo: its power, scaled by board load against the average board,
+    by pressure (up to 3x) and by the processes using it (half again for each, up to three).
+    `busy` of None means unknown and adds nothing."""
+    load = board_power / mean_board_power if mean_board_power > 0 else 1.0
+    processes = 0 if busy is None else min(busy, BUSY_WEIGHT_MAX_PROCESSES)
+    return power * load * (1 + PRESSURE_WEIGHT * pressure) * (1 + BUSY_WEIGHT_PER_PROCESS * processes)

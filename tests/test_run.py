@@ -109,3 +109,26 @@ def test_run_logs_turns_with_the_patch_turn_length(tmp_path):
         evs = [json.loads(l) for l in (tmp_path / f"{bars}.jsonl").read_text().splitlines()]
         times[bars] = [e["what"] for e in evs if e["event"] == "turn"]
     assert times[1] != times[4]
+
+
+# --- the wider readings in the log ---------------------------------------------------------
+
+def test_run_logs_every_chips_turn_weight_and_event_status_before_rendering(tmp_path):
+    chips = mock_telemetry(3, seed=2, faults=True)
+    log = _log(tmp_path)
+    run(chips, 2.0, tmp_path / "o.wav", log, 8000)
+    log.close()
+    evs = _events(tmp_path)
+    kinds = [e["event"] for e in evs]
+    weights = [e for e in evs if e["event"] == "weight"]
+    events = [e for e in evs if e["event"] == "events"]
+    assert [e["chip"] for e in weights] == [0, 1, 2] and [e["chip"] for e in events] == [0, 1, 2]
+    assert max(kinds.index("weight"), kinds.index("events")) < kinds.index("turn") < kinds.index("render")
+    assert any("correctable" in e["what"] or "thermal" in e["what"] or "uncorrectable" in e["what"] for e in events)
+
+
+def test_run_with_healthy_chips_logs_that_no_event_sounds_are_added(tmp_path):
+    log = _log(tmp_path)
+    run(mock_telemetry(2, seed=1), 1.0, tmp_path / "o.wav", log, 8000)
+    log.close()
+    assert all("no memory errors" in e["what"] for e in _events(tmp_path) if e["event"] == "events")

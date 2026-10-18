@@ -8,7 +8,8 @@ say what exists and what is left.
 |---|---|
 | `README.md` | What it is and how to run it |
 | `docs/ARCHITECTURE.md` | Data flow and where each piece lives |
-| `docs/SOUND.md` | Signal-to-sound table, the seven devices, turns, the lead, patches |
+| `docs/SOUND.md` | Signal-to-sound table, the eight devices, turns, the lead, patches |
+| `docs/CIRCUITS.md` | What the Ciat-Lonbarde guides say and which parts the code models |
 | `docs/DECISIONS.md` | Why the code is the way it is |
 | `docs/CONTRIBUTING.md` | How to add a device or change a mapping, test first |
 | `docs/ROADMAP.md` | Open work, in order |
@@ -17,7 +18,7 @@ say what exists and what is left.
 ## Run it
 
 ```bash
-make test                                               # about 1 s, no hardware
+make test                                               # about 10 s, no hardware
 python3 -m tensixinet --mock-chips 4 --duration 20      # synthetic chips, no hardware
 python3 -m tensixinet "your prompt" --duration 60       # real chips + the LLM endpoint
 make demo                                               # record the split-pane demo + soundtrack
@@ -30,8 +31,8 @@ programs, every reason kept) and a text file (what you see on screen, each reaso
 
 ```
 tensixinet/
-  telemetry/   snapshot.py (tt-smi JSON to Telemetry), mock.py (synthetic N chips)
-  music/       mapping, synth, devices, lead, turns, patch, chorus
+  telemetry/   snapshot.py (tt-smi JSON to Telemetry), mock.py (synthetic N chips, optional faults)
+  music/       mapping, synth, devices, rolzer, sidrax, quantussy, mwtrs, lead, events, turns, patch, chorus
   narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
   media/       llm (OpenAI-compatible endpoint), mux (WAV under a video)
   run.py cli.py __main__.py     wiring and the command line
@@ -132,3 +133,42 @@ legacy/        first prototype scripts, kept for reference
   `left_pane.sh`, and removing `LICENSE`, each turned it red). README rewritten around the demo
   frame, the band, the real log, patches and credits. The README's log excerpt and the hero frame
   (`docs/media/demo-frame.png`) come from a real run and the final video.
+* **2026-10-18, "there are still many more signals we could be using ... all of these please":**
+  listed what `tt-smi -s` reports that we did not read, checked which fields really differ on the four
+  live chips, and wired in all of them except rate of change (that needs live mode, roadmap item 3).
+  * New `Telemetry` fields (neutral defaults): board power, AXI and ARC clocks, heartbeat, Tensix and
+    ethernet masks, PCIe usage, correctable and uncorrectable memory errors, thermal trips, throttle
+    temperature, TDP limit, and `busy` (processes using the chip, `None` when unknown).
+  * Sound: voltage detunes the drone and PCIe usage sets its voices; ARC and AXI clocks scale Sidrax and
+    Cocoquantus; ethernet links add four Rollz lanes; the heartbeat places the first gong strike; the two
+    masks give each chip an identity (lead transpose, gong detune); pressure (closer of temperature to the
+    throttle point and power to the TDP limit) brightens the lead and swells the shimmer; board power,
+    pressure and processes raise a chip's turn weight; `music/events.py` adds ticks, breaths and sweeps
+    for errors and trips; the host description joins the patch seed. `--mock-faults` injects errors.
+  * Every new field is in `DEVICE_INPUTS` (or `EVENT_INPUTS`) and the one-field-at-a-time test covers
+    them. The old "voltage is unused" test was inverted.
+  * Mutation battery: 4 survivors the first time (per-chip event seeds, `tanh` bound on events, the
+    mock's distinct-mask rule, the guarantee of at least one faulty mock chip) plus one device-mismatch
+    in the explain text. Each got a test. One survivor (`(pid, device)` in the busy set) is equivalent
+    because the list is already filtered by device.
+  * `ETH_LIVE_STATUS` is read as one bit per port, as tt-toplike does. It changed from 12 links to 2 on one
+    chip between two snapshots while another agent used the chips.
+  * `demo/chorus.patch.json` still replays, but the devices now read more fields, so rebuilding the demo
+    gives different audio from the checked-in video. The video was not rebuilt.
+* **2026-10-18, "Did you reference the docs/PDFs on Ciat-Lonbarde instruments we placed in ~/Downloads?"** I had not.
+  The three guides (Sidrax, Cocoquantus, Plumbutter & Rolzer, all by Josh Singer) were read in full, including the
+  patch photographs, and the devices were rebuilt around what the circuits do. "Yes read them first, and then
+  enhance all the current work on the more advanced understandings. These circuits we're imitating are novel."
+  * `docs/CIRCUITS.md` lists each point in the guides, what the code does about it and what it leaves out.
+  * New modules: `rolzer.py` (E6 barre tempos, steady even rolls, unstable odd rolls), `sidrax.py` (seven barres,
+    frequency as bounce over bounds, the figure 1 bounds table, press and release, pressure as chaos),
+    `quantussy.py` (five petals and castles, 8-bit buffer), `mwtrs.py` (shift register and snare, a new eighth device).
+  * Changed: the gong strikes through a trigger-response blocking window over the chip's own clock, and the shimmer
+    snaps and the drone ripples on the same strikes. Cocoquantus lost its random sample-and-hold. The chip identity now
+    also sets the gong's window and the Quantussy's leader. Rollz lanes lost the 3, 4, 5, 7 per bar divisions.
+  * The `DEVICE_INPUTS` test now renders 15 s, because strike times depend on the clock, heartbeat and identity and
+    show up only at the second strike. The snare's base chip needs a harvested column to have anything to play.
+  * Mutation checks found survivors again (speed caps, Nyquist clamp, the "3" bounds pair, leader wiring, tanh, the
+    snare's low-pass and dust constants). Each got a test. The snare was first white noise with a spectral centre near
+    11 kHz, so it got a low-pass.
+  * I have measured the audio (levels, spectra, determinism) and have not listened to it.

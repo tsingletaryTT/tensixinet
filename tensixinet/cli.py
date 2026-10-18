@@ -14,7 +14,7 @@ from .media import llm
 from .music.patch import DEFAULT_PATCH, draw_patch, load_patch, save_patch, seed_from_telemetry
 from .run import run
 from .narrate.runlog import RunLog
-from .telemetry import fetch_snapshot, mock_telemetry, parse_snapshot
+from .telemetry import fetch_snapshot, host_fingerprint, mock_telemetry, parse_snapshot
 
 
 class _Tee:
@@ -52,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log-dir", default="logs", help="where the run log goes (default logs/)")
     p.add_argument("--mock-chips", type=_positive_int, metavar="N", help="play N synthetic chips; reads no hardware")
     p.add_argument("--seed", type=int, default=0, help="seed for --mock-chips")
+    p.add_argument("--mock-faults", action="store_true",
+                   help="with --mock-chips, give some chips memory errors and thermal trips so the event sounds play")
     p.add_argument("--patch", metavar="FILE", help="replay a saved patch (patch_*.json from an earlier run's log dir)")
     p.add_argument("--patch-seed", type=int, metavar="N", help="draw the patch from this seed instead of from the chips and entropy")
     p.add_argument("--endpoint", default="http://127.0.0.1:8011", help="OpenAI-compatible LLM endpoint")
@@ -65,7 +67,10 @@ def main(
     sample: Optional[Callable] = None,
     entropy: Optional[Callable] = None,
 ) -> int:
-    a = build_parser().parse_args(argv)
+    parser = build_parser()
+    a = parser.parse_args(argv)
+    if a.mock_faults and not a.mock_chips:
+        parser.error("--mock-faults needs --mock-chips: real chips report their own errors")
     stamp = time.strftime("%Y%m%d_%H%M%S")
     out = Path(a.out or f"audio/tensixinet_{stamp}.wav")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -80,12 +85,16 @@ def main(
     )
 
     ask = ask or (lambda prompt, endpoint: llm.ask(prompt, endpoint, model=a.model))
+    host = [0]  # fingerprint of the machine tt-smi describes; 0 when the readings are not from tt-smi
     if sample is None:
         if a.mock_chips:
-            sample = lambda: mock_telemetry(a.mock_chips, a.seed)
+            sample = lambda: mock_telemetry(a.mock_chips, a.seed, faults=a.mock_faults)
             source = "--mock-chips (synthetic, no hardware is read)"
         else:
-            sample = lambda: parse_snapshot(fetch_snapshot())
+            def sample():
+                snapshot = fetch_snapshot()
+                host[0] = host_fingerprint(snapshot)
+                return parse_snapshot(snapshot)
             source = "tt-smi -s"
     else:
         source = "the supplied telemetry source"
@@ -116,9 +125,11 @@ def main(
                 patch, patch_source = draw_patch(a.patch_seed, chips), f"seed {a.patch_seed} given with --patch-seed"
             else:
                 noise = (entropy or time.time_ns)()
-                seed = seed_from_telemetry(chips, noise)
+                seed = seed_from_telemetry(chips, noise + host[0])
                 patch = draw_patch(seed, chips)
-                patch_source = f"seed {seed} comes from every chip reading plus entropy {noise}, so no two runs match"
+                host_text = " and the host description" if host[0] else ""
+                patch_source = (f"seed {seed} comes from every chip reading{host_text} plus entropy {noise}, "
+                                "so no two runs match")
             if chips:
                 save_patch(patch, log_dir / f"patch_{stamp}.json")
             run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source)

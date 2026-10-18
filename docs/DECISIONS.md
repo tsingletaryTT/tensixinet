@@ -4,8 +4,8 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 
 * **Chip count is never assumed.** Voices, devices, GDDR channels and log text all come from
   the telemetry. Devices are slots, and there are always at least as many slots as devices
-  (`max(chips, 7)`). Slot `s` goes to chip `s % chips`. A 1-chip box plays all seven devices,
-  and a box with 7 or more chips plays one device per chip.
+  (`max(chips, 8)`). Slot `s` goes to chip `s % chips`. A 1-chip box plays all eight devices,
+  and a box with 8 or more chips plays one device per chip.
 * **Players trade solos.** Each turn lasts two bars at the average tempo. One slot is featured and
   the rest drop to 35% volume, with 0.25 s fades. The soloist is drawn in proportion to the
   power its chip draws, and never repeats back to back (`music/turns.py`). A busy chip solos more.
@@ -14,6 +14,31 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   at most 4). Cooler inverts it around its first note. Within 1 C it repeats. Flat readings loop.
   Only the snapshot varies, so the variety comes from the channels. Live sampling (see the
   roadmap) would let the lead respond to change over time.
+* **The devices follow the instrument guides.** The first versions were impressions from memory. After reading
+  the Sidrax, Cocoquantus and Plumbutter & Rolzer guides they were rebuilt around what the circuits do
+  (`docs/CIRCUITS.md` has the full list). The reasons, one by one, follow.
+* **Rollz lanes are rolls on barres.** The guide says the Rolzer's barres run at about 2:3 of each
+  other, capacitors are good to 20% and the rolls are never locked, so the old lanes of 3, 4, 5 and 7 pulses per bar
+  were the opposite of the circuit. Barre 2 (84 BPM) plays at the chip's tempo so the lanes keep about the old density.
+* **One clock drives the gong, the shimmer and the drone.** On a Plumbutter one trigger can ring the Gongue, the
+  Ultrasound and the AVDog together. `strike_times` gives the strike moments and the three devices read the same
+  ones, so each of them lists `aiclk`, `heartbeat` and the identity masks in `DEVICE_INPUTS`. The test that checks
+  `DEVICE_INPUTS` renders 15 s so it can see a second strike.
+* **The gong's trigger response is a blocking window.** A strike needs a clock pulse after the window. The window
+  is two bars times 1 to 1.375 by chip identity, which makes the strikes sit on the chip's rhythm and makes chips
+  divide their clock differently. This changes the strike times of any chip whose identity picks a longer window.
+* **Sidrax is seven barres.** Frequency is bounce over bounds (clamped to a quarter to eight times, so a closing window
+  cannot alias), and the bounds of a released barre are two other barres from the guide's table. The press and release
+  gestures come from the Rolzer barres, so the seven barres keep different tempos. Pressure is the chaos knob. The
+  output is mono, so the guide's stereo press and release channels sum. `sidrax_bounds` (coolest channel sets the lower
+  bound) is gone because the walls are now per barre.
+* **Cocoquantus notes come from the Quantussy.** The guide says the castle is deterministic,
+  that low prime ratios between petals make a pattern that repeats, and that the buffer is 8-bit with the clock as
+  its sample rate. The seed only nudges the ratios by up to 3%, so patterns drift. `sample_hold` is gone.
+* **The Tensix holes are a rhythm.** The shift register has one step per Tensix column and fires where a column is
+  harvested. A chip with every column enabled is silent, which is correct for it. Every live chip has two holes. The
+  snare noise is rolled off above 4 kHz because raw white noise put the device's spectral centre near 11 kHz.
+* **The Ultrasound's aliasing is not modelled.** It needs ultrasonic signals, and a 44.1 kHz render cannot hold them.
 * **The gong is inharmonic.** Partial ratios are 1, 2.76, 5.40 and 8.45, each doubled and detuned
   0.7 Hz. Its ring is about a third of the strike interval, so a faster clock rings shorter.
 * **The ultrasonic shimmer is two tones in 12 to 20 kHz**, shrunk to fit below 0.45 of the sample
@@ -41,7 +66,26 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 * **Partials above Nyquist are dropped**, so high voices do not alias into the audible band.
 * **The chorus applies power and current; the devices never read them.** Power sets each
   chip's volume. Current sets its share of the mix (Plumbutter 2: sources mix by current).
-* **`voltage` has no musical use.** A test pins that; adding one is a deliberate change.
+* **Every `tt-smi` reading that varies now reaches the sound.** Voltage detunes the drone, PCIe usage sets its voices,
+  ARC and AXI clocks scale Sidrax and Cocoquantus, ethernet links add Rollz lanes, the heartbeat places the first gong
+  strike, and the harvesting and link masks give each chip an identity. New `Telemetry` fields have neutral defaults, so
+  a source that does not report them plays as before.
+* **Ethernet links:** the code reads the low 16 bits of `ETH_LIVE_STATUS` as one bit per port, bit N set when port N
+  has a live link. tt-toplike reads it the same way. On a four-chip box the value changes while an agent is using
+  the chips (one chip went from 12 links to 2 between two snapshots), so it is a live signal.
+* **Pressure is the closer of two ramps** (temperature up to the throttle point, power up to the TDP limit). The clock
+  is left out because chips lower it under pressure, so a high clock does not mean a chip is near a limit.
+* **Chip identity is a hash of two masks, reduced to small numbers.** Three lead offsets and 21 gong detunes mean
+  two chips sometimes match. A wider range would sound more different but less like one ensemble.
+* **Errors are an event layer.** A new device would have changed the slot count and every existing render at the time.
+  Events are added after the turn gains, so they sound whoever has the floor, and all three counters are 0 on a healthy
+  chip, so the layer is silent.
+* **`busy` is None when the snapshot has no process list,** and adds nothing to the turn weight. `tt-smi` lists itself
+  on every chip, so it is not counted. An idle chip is not turned down below its plain power, because a quiet box
+  would otherwise be all drone.
+* **The host description feeds the seed** (hash of host name, kernel, driver and memory) in the real path only, so the
+  same chips on another machine draw another patch. `--patch` replay does not depend on it.
+* **Rate of change is not used yet.** It needs more than one snapshot, which is roadmap item 3.
 * **DDR status:** the code treats the low byte as four 2-bit fields and mutes a lane at 0.
   tt-smi's source says newer firmware puts BIST bits in `[31:16]`. The meaning of values 1 to
   3 is a guess and should be checked against firmware docs.

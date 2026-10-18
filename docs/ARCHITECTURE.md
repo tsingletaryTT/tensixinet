@@ -29,12 +29,17 @@ runs `tt-smi -s`.
 
 | Package | Module | Job |
 |---|---|---|
-| `telemetry/` | `snapshot.py` | `Telemetry` type, `tt-smi -s` JSON parsing (any chip count, any number of GDDR channels), `fetch_snapshot` |
+| `telemetry/` | `snapshot.py` | `Telemetry` type (temperatures, clocks, power, limits, harvesting and link masks, error counters, process count), `tt-smi -s` JSON parsing (any chip count, any number of GDDR channels), `fetch_snapshot`, `host_fingerprint` |
 | | `mock.py` | Deterministic synthetic readings for N chips |
-| `music/` | `mapping.py` | The signal-to-sound table as functions |
+| `music/` | `mapping.py` | The signal-to-sound table as functions, including pressure, chip identity and turn weight |
 | | `synth.py` | Drone voices for any chip count |
-| | `devices.py` | Rollz, Sidrax, Cocoquantus, Plumbutter drone, gong, ultrasonic shimmer, and the current mixer. `DEVICE_INPUTS` says which fields each device reads |
+| | `devices.py` | Rollz, Cocoquantus, Plumbutter drone, gong, ultrasonic shimmer, the strike times they share, and the current mixer. Re-exports Sidrax. `DEVICE_INPUTS` says which fields each device reads |
+| | `rolzer.py` | The Rolzer's rolls: barre tempos from E6 capacitors, steady even rolls, unstable odd ones |
+| | `sidrax.py` | Seven barres bouncing between each other's oscillators, with press and release gestures |
+| | `quantussy.py` | The Quantussy's five petals and castles, and the coco's 8-bit buffer |
+| | `mwtrs.py` | A shift register that steps a noise snare, with the harvested Tensix columns as its pattern |
 | | `lead.py` | The lead voice and its shift/invert transforms |
+| | `events.py` | Tick, breath and sweep sounds for memory errors and thermal trips; silent on a healthy chip |
 | | `turns.py` | Who solos each turn, and the gain curves |
 | | `patch.py` | The `Patch` (every drawn choice of a run), drawing it from a seed and the chips, JSON save and load |
 | | `chorus.py` | Deals device slots to chips, plans turns, mixes |
@@ -45,7 +50,8 @@ runs `tt-smi -s`.
 
 ## Dependencies run one way
 
-`telemetry` depends on nothing in the package. `music` depends on `telemetry`. `narrate` depends on
+`telemetry` depends on nothing in the package. `music` depends on `telemetry`. Inside `music`, `devices.py` builds on
+`rolzer`, `sidrax` and `quantussy`, and `mwtrs.py` builds on `devices.py` for the strike helpers. `narrate` depends on
 `music` and `telemetry`. `media` depends on nothing. `run.py` and `cli.py` depend on all of them.
 Keep it that way: `music` must never import `narrate`.
 

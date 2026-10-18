@@ -15,7 +15,7 @@ from typing import Sequence, Tuple
 
 import numpy as np
 
-from .mapping import aiclk_to_bpm, temp_to_pitch_hz
+from .mapping import aiclk_to_bpm, chip_pressure, personality, temp_to_pitch_hz
 from .patch import DEFAULT_PATCH, SCALES, Patch
 
 PENTATONIC = SCALES["major_pentatonic"]
@@ -59,12 +59,27 @@ def lead_transforms(gddr_temps: Sequence[float], n_phrases: int) -> list:
     return [phrase_transform(gddr_temps[k % len(gddr_temps)] - mean) for k in range(n_phrases)]
 
 
-def _note(freq: float, n: int, sample_rate: int) -> np.ndarray:
-    """One plucked note that has fully ended inside its slot, so bars never bleed into each other."""
+BRIGHTNESS = 0.6  # level of the octave overtone at full pressure
+
+
+def identity_offset(identity: int) -> int:
+    """0, 1 or 2 scale degrees up, from a chip's identity, so chips with different harvesting
+    start their phrases on different notes."""
+    return identity % 3
+
+
+def _note(freq: float, n: int, sample_rate: int, brightness: float = 0.0) -> np.ndarray:
+    """One plucked note that has fully ended inside its slot, so bars never bleed into each other.
+
+    `brightness` (0-1) adds the octave overtone, while it stays under Nyquist, and the sum is scaled
+    so a bright note is never louder than a plain one."""
     k = np.arange(n) / sample_rate
     slot = n / sample_rate
     env = np.exp(-k / (0.35 * slot)) * np.minimum(1.0, (slot - k) / (0.1 * slot))
-    return np.sin(2 * math.pi * freq * k) * env
+    tone = np.sin(2 * math.pi * freq * k)
+    if 2 * freq < 0.45 * sample_rate:
+        tone = tone + BRIGHTNESS * brightness * np.sin(4 * math.pi * freq * k)
+    return tone / (1 + BRIGHTNESS * brightness) * env
 
 
 def lead(t, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
@@ -74,13 +89,15 @@ def lead(t, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT
     bar = eighth * len(patch.motif)
     base = temp_to_pitch_hz(t.asic_temperature)
     transforms = lead_transforms(t.gddr_temps, n_total // bar + 1)
+    offset = identity_offset(personality(t))
+    brightness = chip_pressure(t)
     out = np.zeros(n_total)
     for phrase, tr in enumerate(transforms):
-        for i, degree in enumerate(apply_transform(patch.motif, tr)):
+        for i, degree in enumerate(apply_transform(tuple(d + offset for d in patch.motif), tr)):
             start = phrase * bar + i * eighth
             if start >= n_total:
                 break
             freq = min(base * 2 ** (degree_to_semitones(degree, patch.scale) / 12), 0.45 * sample_rate)
-            seg = _note(freq, eighth, sample_rate)[: n_total - start]
+            seg = _note(freq, eighth, sample_rate, brightness)[: n_total - start]
             out[start:start + len(seg)] += 0.8 * seg
     return out.astype(np.float32)

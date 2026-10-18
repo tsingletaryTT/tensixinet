@@ -8,6 +8,7 @@ from .snapshot import (
     decode_ddr_status,
     decode_gddr_channel_temps,
     fetch_snapshot,
+    host_fingerprint,
     parse_snapshot,
 )
 
@@ -17,6 +18,7 @@ __all__ = [
     "decode_ddr_status",
     "decode_gddr_channel_temps",
     "fetch_snapshot",
+    "host_fingerprint",
     "mock_telemetry",
     "parse_snapshot",
 ]

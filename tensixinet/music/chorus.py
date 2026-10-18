@@ -16,13 +16,15 @@ from typing import Callable, List, Sequence, Tuple
 import numpy as np
 
 from .devices import cocoquantus, current_mix, gong, plumbutter_drone, rollz, sidrax, ultrasonic_shimmer
+from .events import error_events
 from .lead import lead
-from .mapping import aiclk_to_bpm, power_to_volume
+from .mwtrs import mwtrs
+from .mapping import aiclk_to_bpm, chip_pressure, power_to_volume, turn_weight
 from .patch import DEFAULT_PATCH, Patch
 from ..telemetry import Telemetry
 from .turns import soloists, turn_gains
 
-DEVICES = (rollz, sidrax, cocoquantus, plumbutter_drone, lead, gong, ultrasonic_shimmer)
+DEVICES = (rollz, sidrax, cocoquantus, plumbutter_drone, lead, gong, ultrasonic_shimmer, mwtrs)
 
 
 def n_slots(n_chips: int) -> int:
@@ -46,19 +48,22 @@ def plan_turns(telemetry: Sequence[Telemetry], duration: float, patch: Patch = D
     """(soloist slot for each turn, turn length in seconds).
 
     A turn lasts `patch.bars_per_turn` bars at the average chip tempo. A slot's weight is
-    the power its chip draws, so busier chips solo more often.
+    `mapping.turn_weight` for its chip: the power it draws, raised by a heavier board load,
+    by pressure near a limit and by processes using it, so busier chips solo more often.
     """
     n = len(telemetry)
     mean_bpm = sum(aiclk_to_bpm(t.aiclk) for t in telemetry) / n
     turn_s = patch.bars_per_turn * 4 * 60.0 / mean_bpm
-    weights = [telemetry[slot_chip(s, n)].power for s in range(n_slots(n))]
+    mean_board = sum(t.board_power for t in telemetry) / n
+    chip_weight = [turn_weight(t.power, t.board_power, mean_board, chip_pressure(t), t.busy) for t in telemetry]
+    weights = [chip_weight[slot_chip(s, n)] for s in range(n_slots(n))]
     return soloists(weights, max(1, math.ceil(duration / turn_s))), turn_s
 
 
 def render_chorus(
     telemetry: Sequence[Telemetry], duration: float, sample_rate: int = 44100, patch: Patch = DEFAULT_PATCH
 ) -> np.ndarray:
-    """Render every device, give the soloist the floor, scale each chip by power, mix by current."""
+    """Render every device, give the soloist the floor, add each chip's event sounds, scale by power, mix by current."""
     if not telemetry:
         raise ValueError("render_chorus needs at least one chip's telemetry")
     n = len(telemetry)
@@ -72,5 +77,6 @@ def render_chorus(
     signals = []
     for chip, t in enumerate(telemetry):
         voices = len(chip_devices(chip, n))
-        signals.append(per_chip[chip] / math.sqrt(voices) * power_to_volume(t.power))
+        events = error_events(t, duration, sample_rate, seed=1000 + chip)  # not part of the turns
+        signals.append((per_chip[chip] / math.sqrt(voices) + events) * power_to_volume(t.power))
     return current_mix(signals, [t.current for t in telemetry]).astype(np.float32)

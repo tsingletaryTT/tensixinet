@@ -136,3 +136,40 @@ def test_an_unreadable_patch_stops_the_run_with_a_logged_reason(tmp_path):
     code, d = run_cli(tmp_path, "a", "--patch", str(tmp_path / "missing.json"))
     assert code == 2 and not (d / "o.wav").exists()
     assert any(e["event"] == "patch" and "cannot read" in e["what"] for e in read_events(d / "logs"))
+
+
+# --- fault injection and the host in the seed ----------------------------------------------
+
+def test_mock_faults_makes_chips_report_errors_and_the_log_says_so(tmp_path):
+    assert main(args(tmp_path, "--mock-chips", "6", "--mock-faults", "--seed", "1")) == 0
+    ev = [e for e in read_events(tmp_path / "logs") if e["event"] == "events"]
+    assert len(ev) == 6 and any("no memory errors" not in e["what"] for e in ev)
+    assert any("no memory errors" in e["what"] for e in ev)
+
+
+def test_mock_faults_needs_mock_chips(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-faults"))
+    assert e.value.code == 2 and "--mock-chips" in capsys.readouterr().err  # our message, not "unrecognized argument"
+
+
+def _snapshot(hostname):
+    snap = json.loads((Path(__file__).parent / "fixtures" / "tt_smi_snapshot.json").read_text())
+    snap["host_info"]["Hostname"] = hostname
+    return snap
+
+
+def _patch_seed_for(tmp_path, monkeypatch, hostname, name):
+    monkeypatch.setattr("tensixinet.cli.fetch_snapshot", lambda: _snapshot(hostname))
+    out = tmp_path / name
+    assert main(["--duration", "0.3", "--sample-rate", "8000", "--out", str(out / "o.wav"),
+                 "--log-dir", str(out / "logs")], entropy=lambda: 7) == 0
+    (patch,) = (out / "logs").glob("patch_*.json")
+    return json.loads(patch.read_text())["seed"]
+
+
+def test_the_same_chips_on_a_different_host_draw_a_different_patch(tmp_path, monkeypatch):
+    a = _patch_seed_for(tmp_path, monkeypatch, "host-a", "a")
+    b = _patch_seed_for(tmp_path, monkeypatch, "host-b", "b")
+    again = _patch_seed_for(tmp_path, monkeypatch, "host-a", "c")
+    assert a != b and a == again

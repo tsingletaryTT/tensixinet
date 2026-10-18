@@ -11,7 +11,15 @@ import soundfile as sf
 
 from .music.chorus import chip_devices, render_chorus
 from .music.patch import DEFAULT_PATCH, Patch
-from .narrate.explain import explain_chip, explain_lead, explain_mix, explain_patch, explain_turns
+from .narrate.explain import (
+    explain_chip,
+    explain_events,
+    explain_lead,
+    explain_mix,
+    explain_patch,
+    explain_turn_weights,
+    explain_turns,
+)
 from .narrate.runlog import RunLog
 from .telemetry import Telemetry
 
@@ -41,8 +49,13 @@ def run(
         if any(dev.__name__ == "lead" for dev in chip_devices(i, n)):
             d = explain_lead(t, duration)
             log.event("lead", d.what, d.why, chip=i)
+    for i, t in enumerate(telemetry):
+        d = explain_events(i, t)
+        log.event("events", d.what, d.why, chip=i)
     for i, d in enumerate(explain_mix(telemetry)):
         log.event("mix", d.what, d.why, chip=i)
+    for i, d in enumerate(explain_turn_weights(telemetry)):
+        log.event("weight", d.what, d.why, chip=i)
     for k, d in enumerate(explain_turns(telemetry, duration, patch=patch)):
         log.event("turn", d.what, d.why, turn=k)
     log.event("render", f"rendering {duration:g}s at {sample_rate} Hz",

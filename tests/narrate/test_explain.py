@@ -12,11 +12,30 @@ from tensixinet.narrate.explain import explain_chip, explain_mix
 from tensixinet.telemetry import FALLBACK
 
 SR = 8000
+LONG = 15.0
+# The snare plays the holes in the Tensix mask, so its base chip needs one for the other fields to matter.
+BASE_OVERRIDES = {"mwtrs": {"tensix_mask": 0x37F7}}
 CHANGES = {
     "asic_temperature": 90.0,
     "aiclk": 1350.0,
     "gddr_temps": (26.0, 99.0) * 4,
     "ddr_status": (1, 1, 1, 1),
+    "voltage": 0.90,
+    "power": 125.0,
+    "axiclk": 1920.0,
+    "arcclk": 1600.0,
+    "heartbeat": 8,
+    "tensix_mask": 0x1235,  # picked so the lead offset and gong detune both differ from the default chip
+    "eth_mask": 0x0F0C,
+    "pcie_usage": 5,
+    "thm_limit_throttle": 45.0,
+    "tdp_limit": 40.0,
+    # read by the chorus or by events.py, never by a device: every device must stay the same
+    "board_power": 300.0,
+    "busy": 3,
+    "corr_errs": 5,
+    "uncorr_errs": 1,
+    "thermal_trips": 1,
 }
 
 
@@ -25,9 +44,10 @@ CHANGES = {
 @pytest.mark.parametrize("device", DEVICES, ids=lambda d: d.__name__)
 @pytest.mark.parametrize("field", sorted(CHANGES))
 def test_device_inputs_match_what_the_device_actually_reads(device, field):
-    base = dataclasses.replace(FALLBACK, ddr_status=(0, 0, 0, 0))
+    base = dataclasses.replace(FALLBACK, ddr_status=(0, 0, 0, 0), **BASE_OVERRIDES.get(device.__name__, {}))
     changed = dataclasses.replace(base, **{field: CHANGES[field]})
-    differs = not np.allclose(device(base, 1.0, SR, 0), device(changed, 1.0, SR, 0))
+    # long enough for a second gong strike, because the strike times depend on the clock, the heartbeat and the identity
+    differs = not np.allclose(device(base, LONG, SR, 0), device(changed, LONG, SR, 0))
     assert differs == (field in DEVICE_INPUTS[device.__name__]), (
         f"{device.__name__}: DEVICE_INPUTS says {sorted(DEVICE_INPUTS[device.__name__])}, "
         f"but changing {field} {'did' if differs else 'did not'} change the audio"
@@ -122,7 +142,7 @@ def test_turns_are_logged_with_the_soloist_and_the_power_reason():
 
 def test_the_dealing_text_uses_correct_plurals():
     one = explain_chip(0, FALLBACK, n_chips=1)[0].why
-    assert "1 chips" not in one and "1 chip" in one and "slots 0-6" in one
+    assert "1 chips" not in one and "1 chip" in one and f"slots 0-{len(DEVICES) - 1}" in one
     many = explain_chip(2, FALLBACK, n_chips=3)[0].why
     assert "3 chips" in many and "slots 2, 5" in many
     single = explain_chip(2, FALLBACK, n_chips=9)[0].why
@@ -191,3 +211,131 @@ def test_a_long_turn_list_says_how_many_more_turns_follow():
     assert len(ds) == 6 and total > 5
     assert f"{total - 5} more turns" in ds[-1].what and "limit" not in ds[-1].what.lower()
     assert len(explain_turns(chips2, 60.0, limit=total, patch=one_bar)) == total  # nothing left out, no extra line
+
+
+# --- the wider readings are explained, each on the chip whose device uses it ---------------
+
+from tensixinet.music.devices import gong_detune_cents  # noqa: E402
+from tensixinet.music.lead import identity_offset  # noqa: E402
+from tensixinet.music.mapping import chip_identity, chip_pressure, voltage_to_cents  # noqa: E402
+from tensixinet.narrate.explain import explain_events, explain_turn_weights  # noqa: E402
+
+LOADED = dataclasses.replace(
+    FALLBACK, voltage=0.82, pcie_usage=4, arcclk=1600.0, axiclk=1920.0, eth_mask=0x3EDF,
+    tensix_mask=0x37F7, heartbeat=8, asic_temperature=70.0, power=100.0,
+)
+
+
+def _chip_text(index):
+    return subjects(explain_chip(index, LOADED, n_chips=len(DEVICES)))  # with one chip per device, chip i plays DEVICES[i] alone
+
+
+def test_rollz_says_how_many_ethernet_links_are_up_and_what_lanes_that_makes():
+    text = _chip_text(0)
+    assert "12 of 16 ethernet links" in text and "lanes" in text and "GDDR" not in text
+
+
+def test_sidrax_and_cocoquantus_say_what_the_other_two_clocks_do():
+    assert "ARC clock 1600 MHz" in _chip_text(1) and "x2.00" in _chip_text(1)
+    assert "AXI clock 1920 MHz" in _chip_text(2) and "x2.00" in _chip_text(2)
+
+
+def test_the_drone_says_its_detune_and_voice_count():
+    text = _chip_text(3)
+    assert f"voltage 0.82 V -> {voltage_to_cents(0.82):+.0f} cents" in text
+    assert "PCIe usage 4 -> 4 drone voices" in text
+
+
+def test_lead_and_shimmer_say_their_pressure_and_the_limit_it_came_from():
+    p = chip_pressure(LOADED)
+    for index in (4, 6):
+        text = subjects(explain_chip(index, LOADED, n_chips=7))
+        assert f"pressure {p:.2f}" in text
+    why = " ".join(d.why for d in explain_chip(4, LOADED, n_chips=7))
+    assert "90" in why and "125" in why  # the throttle temperature and the power limit
+
+
+def test_lead_and_gong_say_what_the_chips_identity_does():
+    ident = chip_identity(LOADED.tensix_mask, LOADED.eth_mask)
+    assert f"+{identity_offset(ident)} degrees" in _chip_text(4)
+    assert f"{gong_detune_cents(ident):+d} cents" in _chip_text(5)
+    assert "heartbeat 8" in _chip_text(5)
+
+
+def test_a_device_that_does_not_read_a_field_does_not_mention_it():
+    assert "PCIe" not in _chip_text(0) and "voltage" not in _chip_text(0)
+    assert "ethernet" not in _chip_text(3)
+
+
+def test_turn_weights_show_each_factor_and_the_chip_they_belong_to():
+    chips = [FALLBACK, dataclasses.replace(FALLBACK, board_power=240.0, busy=2, asic_temperature=80.0, power=90.0)]
+    ds = explain_turn_weights(chips)
+    assert len(ds) == 2 and "chip 1" in ds[1].what
+    assert "2 processes" in ds[1].what and "board" in ds[1].what and "pressure" in ds[1].what
+    assert "processes" not in ds[0].what  # busy is unknown for the first chip
+
+
+def test_events_say_nothing_is_wrong_when_nothing_is_wrong():
+    assert "no memory errors" in explain_events(0, FALLBACK).what
+
+
+def test_events_name_each_kind_and_its_count_and_sound():
+    d = explain_events(2, dataclasses.replace(FALLBACK, corr_errs=7, uncorr_errs=1, thermal_trips=2))
+    assert "7 correctable" in d.what and "1 uncorrectable" in d.what and "2 thermal trips" in d.what
+    assert "tick" in d.why and "breath" in d.why and "sweep" in d.why
+
+
+def test_turn_reason_mentions_load_not_just_power():
+    why = explain_turns([FALLBACK, FALLBACK], 30.0)[0].why
+    assert "pressure" in why and "process" in why and "board" in why
+
+
+def test_each_wider_decision_appears_only_on_chips_that_play_its_device():
+    texts = {i: _chip_text(i) for i in range(len(DEVICES))}  # chip i plays DEVICES[i] alone
+    others = lambda keep: [i for i in texts if i not in keep]
+    assert "heartbeat" in texts[5] and not any("heartbeat" in texts[i] for i in others({5}))
+    assert "ethernet" in texts[0] and not any("ethernet" in texts[i] for i in others({0}))
+    assert "ARC clock" in texts[1] and not any("ARC clock" in texts[i] for i in others({1}))
+    assert "AXI clock" in texts[2] and not any("AXI clock" in texts[i] for i in others({2}))
+    assert all("pressure" in texts[i] for i in (1, 4, 6, 7)) and not any("pressure" in texts[i] for i in others({1, 4, 6, 7}))  # Sidrax's chaos, the lead, the shimmer, the snare
+    assert "snare" in texts[7] and not any("snare" in texts[i] for i in others({7}))
+    assert "chaos" in texts[1] and "barre walls" in texts[1] and "barre walls" not in texts[4]
+    assert "gong tuned" in texts[5] and "lead starts" in texts[4] and "lead starts" not in texts[5]
+
+
+def test_the_snare_says_which_steps_fire_how_tight_it_is_and_how_much_dust_there_is():
+    text = subjects(explain_chip(7, dataclasses.replace(LOADED, tensix_mask=0x37F7, pcie_usage=4), n_chips=len(DEVICES)))
+    assert "steps 3, 11" in text and "harvested" in " ".join(d.why for d in explain_chip(7, LOADED, n_chips=len(DEVICES)))
+    assert "dust" in text and "60" in text  # four PCIe steps, fifteen pops each
+
+
+def test_a_chip_with_every_column_enabled_says_the_snare_stays_silent():
+    text = subjects(explain_chip(7, dataclasses.replace(LOADED, tensix_mask=0x3FFF), n_chips=len(DEVICES)))
+    assert "no harvested" in text
+
+
+def test_the_cocoquantus_says_which_petal_its_castle_samples_and_why():
+    from tensixinet.music.mapping import personality
+    from tensixinet.music.quantussy import castle_offset
+    decisions = explain_chip(2, LOADED, n_chips=len(DEVICES))
+    text = subjects(decisions)
+    assert f"{castle_offset(personality(LOADED))} places" in text and "castle" in text
+    assert "castle" not in _chip_text(0) and "castle" not in _chip_text(7)
+
+
+def test_the_gong_says_when_its_first_strikes_land_and_how_the_trigger_response_made_them():
+    from tensixinet.music.devices import strike_times
+    text = _chip_text(5)
+    first = ", ".join(f"{s:.1f}" for s in strike_times(LOADED, 60.0)[:4])
+    assert f"strikes at {first} s" in text
+    why = " ".join(d.why for d in explain_chip(5, LOADED, n_chips=len(DEVICES)))
+    assert "blocking window" in why and "clock" in why
+
+
+def test_the_drone_and_the_shimmer_say_they_follow_the_gong_strikes():
+    drone = _chip_text(3)
+    assert "ripples" in drone and "gong strike" in drone
+    why = " ".join(d.why for d in explain_chip(3, LOADED, n_chips=len(DEVICES)))
+    assert "AVDog" in why
+    assert "gong strike" in " ".join(d.why for d in explain_chip(6, LOADED, n_chips=len(DEVICES)))
+    assert "gong strike" not in _chip_text(0) and "ripples" not in _chip_text(5)

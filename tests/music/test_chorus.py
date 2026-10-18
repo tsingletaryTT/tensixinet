@@ -49,6 +49,20 @@ CHANGES = {
     "current": 5.0,
     "gddr_temps": (26.0, 99.0) * 4,
     "ddr_status": (1, 1, 1, 1),
+    "voltage": 0.90,
+    "board_power": 300.0,
+    "axiclk": 1920.0,
+    "arcclk": 1600.0,
+    "heartbeat": 8,
+    "tensix_mask": 0x1235,  # picked so the lead offset and gong detune both differ from the default chip
+    "eth_mask": 0x0F0C,
+    "pcie_usage": 5,
+    "corr_errs": 5,
+    "uncorr_errs": 1,
+    "thermal_trips": 1,
+    "thm_limit_throttle": 45.0,
+    "tdp_limit": 40.0,
+    "busy": 3,
 }
 
 
@@ -64,12 +78,10 @@ def test_every_telemetry_field_reaches_the_audio(field):
     pytest.fail(f"changing {field} on any chip left the audio identical")
 
 
-def test_voltage_is_documented_as_unused():
-    # voltage has no musical mapping in the README; this pins that decision so
-    # adding one later is a deliberate, tested change.
+def test_voltage_detunes_the_drone_so_it_reaches_the_chorus():
     base = [FALLBACK] * 4
     hi = [dataclasses.replace(FALLBACK, voltage=0.99)] * 4
-    assert np.array_equal(render_chorus(base, 0.5, SR), render_chorus(hi, 0.5, SR))
+    assert not np.array_equal(render_chorus(base, 0.5, SR), render_chorus(hi, 0.5, SR))
 
 
 # --- several devices per chip ----------------------------------------------------
@@ -115,7 +127,7 @@ def test_the_chip_working_hardest_solos_most():
     n_slots = max(3, len(DEVICES))
     busy = [s for s in range(n_slots) if s % 3 == 0]
     share = sum(1 for s in slots if s in busy) / len(slots)
-    assert share > 0.6  # chip 0 owns 3 of the 7 slots (43%) but draws 90% of the power
+    assert share > 0.6  # chip 0 owns 3 of the 8 slots (38%) but draws 90% of the power
 
 
 def test_the_soloist_changes_with_system_load():
@@ -184,3 +196,46 @@ def test_each_device_field_of_a_patch_reaches_the_chorus(change):
     base = render_chorus(t, 30.0, 22050, patch=DEFAULT_PATCH)
     changed = render_chorus(t, 30.0, 22050, patch=dataclasses.replace(DEFAULT_PATCH, **change))
     assert not np.allclose(base, changed)
+
+
+# --- the wider readings decide who solos and add event sounds ------------------------------
+
+from tensixinet.music.chorus import slot_chip  # noqa: E402
+
+
+def _share(telemetry, chip, duration=3000.0):
+    slots, _ = plan_turns(telemetry, duration)
+    return sum(slot_chip(s, len(telemetry)) == chip for s in slots) / len(slots)
+
+
+@pytest.mark.parametrize("change", [
+    {"board_power": 300.0},  # a busier board than the others
+    {"busy": 3},  # processes are using it
+    {"asic_temperature": 88.0},  # close to the throttle temperature, same power
+])
+def test_a_chip_under_load_gets_more_turns_than_an_ordinary_one(change):
+    base = [dataclasses.replace(FALLBACK, busy=0 if "busy" in change else None) for _ in range(4)]
+    loaded = list(base)
+    loaded[1] = dataclasses.replace(base[1], **change)
+    assert _share(loaded, 1) > _share(base, 1) + 0.05
+
+
+def test_a_chip_that_reports_no_process_list_is_not_treated_as_idle_or_busy():
+    plain = [FALLBACK] * 3
+    assert plan_turns(plain, 200.0) == plan_turns([dataclasses.replace(FALLBACK, busy=0)] * 3, 200.0)
+
+
+def test_errors_are_added_to_the_chips_signal_whoever_has_the_floor():
+    base = [FALLBACK] * 3
+    sick = [FALLBACK, dataclasses.replace(FALLBACK, corr_errs=30, thermal_trips=1), FALLBACK]
+    diff = render_chorus(sick, 4.0, SR) - render_chorus(base, 4.0, SR)
+    assert np.abs(diff).max() > 0.02 and np.abs(render_chorus(sick, 4.0, SR)).max() < 1.0
+
+
+def test_each_chip_gets_its_own_event_seed_so_two_sick_chips_do_not_tick_in_unison(monkeypatch):
+    from tensixinet.music import chorus as chorus_module
+    seen = []
+    real = chorus_module.error_events
+    monkeypatch.setattr(chorus_module, "error_events", lambda t, d, sr, seed: seen.append(seed) or real(t, d, sr, seed))
+    render_chorus([FALLBACK] * 3, 0.3, SR)
+    assert len(seen) == 3 and len(set(seen)) == 3

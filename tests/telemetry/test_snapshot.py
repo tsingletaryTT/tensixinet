@@ -115,3 +115,64 @@ def test_gddr_registers_are_ordered_by_channel_not_by_dict_order():
     r = parse_snapshot({"device_info": [{"telemetry": {}, "smbus_telem": smbus}]})[0]
     assert r.gddr_temps[:2] == (1.0, 0.0)
     assert r.gddr_temps[2:] == (3.0, 0.0)
+
+
+# --- the wider set of readings: limits, identity, errors, who is using the chip -----------
+
+def test_parse_reads_board_power_clocks_and_heartbeat(snapshot):
+    dev0, dev2 = parse_snapshot(snapshot)[0], parse_snapshot(snapshot)[2]
+    assert dev0.board_power == 117.0
+    assert (dev0.axiclk, dev0.arcclk) == (960.0, 800.0)  # AXICLK 0x3c0, ARCCLK 0x320
+    assert dev0.heartbeat == 50440 and dev2.heartbeat == 417
+
+
+def test_parse_reads_each_chips_own_harvesting_and_link_masks(snapshot):
+    masks = [(d.tensix_mask, d.eth_mask) for d in parse_snapshot(snapshot)]
+    assert masks[0] == (0x37F7, 0x3EDF)  # ENABLED_TENSIX_COL, low 16 bits of ETH_LIVE_STATUS 0xc143edf
+    assert len(set(masks)) == 4  # every chip is different
+
+
+def test_parse_reads_pcie_usage_and_limits(snapshot):
+    dev = parse_snapshot(snapshot)
+    assert [d.pcie_usage for d in dev] == [4, 1, 4, 1]
+    assert dev[0].thm_limit_throttle == 90.0 and dev[0].tdp_limit == 125.0
+
+
+def test_parse_sums_memory_errors_and_reads_thermal_trips(snapshot):
+    smbus = snapshot["device_info"][0]["smbus_telem"]
+    snap = {"device_info": [{"smbus_telem": dict(smbus, GDDR_0_1_CORR_ERRS="0x2", GDDR_6_7_CORR_ERRS="0x3",
+                                                 GDDR_UNCORR_ERRS="0x1", THERM_TRIP_COUNT="0x4")}]}
+    t = parse_snapshot(snap)[0]
+    assert (t.corr_errs, t.uncorr_errs, t.thermal_trips) == (5, 1, 4)
+    assert parse_snapshot(snapshot)[0].corr_errs == 0  # the real, healthy chip
+
+
+def test_missing_new_fields_fall_back_to_the_neutral_values():
+    t = parse_snapshot({"device_info": [{}]})[0]
+    for f in ("board_power", "axiclk", "arcclk", "heartbeat", "tensix_mask", "eth_mask", "pcie_usage",
+              "corr_errs", "uncorr_errs", "thermal_trips", "thm_limit_throttle", "tdp_limit", "busy"):
+        assert getattr(t, f) == getattr(FALLBACK, f), f
+
+
+def _procs(*rows):
+    return {"device_info": [{}, {}, {}], "processes": [
+        {"pid": p, "user": "u", "device": d, "cmdline": c} for p, d, c in rows]}
+
+
+def test_busy_counts_distinct_processes_per_chip_and_ignores_tt_smi_itself():
+    snap = _procs((10, 0, "python serve.py"), (11, 0, "python other.py"), (10, 1, "python serve.py"),
+                  (99, 0, "/venv/bin/python /bin/tt-smi -s"), (99, 1, "/venv/bin/python /bin/tt-smi -s"),
+                  (99, 2, "/venv/bin/python /bin/tt-smi -s"))
+    assert [t.busy for t in parse_snapshot(snap)] == [2, 1, 0]
+
+
+def test_busy_is_unknown_when_the_snapshot_has_no_process_list():
+    assert [t.busy for t in parse_snapshot({"device_info": [{}, {}]})] == [None, None]
+
+
+def test_host_fingerprint_changes_with_the_host_and_ignores_the_clock_fields():
+    from tensixinet.telemetry import host_fingerprint
+    a = {"host_info": {"Hostname": "a", "Kernel": "7.0", "Driver": "TT-KMD 2.11.0", "Memory": "249 GB"}}
+    b = {"host_info": {"Hostname": "b", "Kernel": "7.0", "Driver": "TT-KMD 2.11.0", "Memory": "249 GB"}}
+    assert host_fingerprint(a) == host_fingerprint(dict(a)) != host_fingerprint(b)
+    assert host_fingerprint({}) == 0
