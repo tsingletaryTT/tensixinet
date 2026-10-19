@@ -84,6 +84,10 @@ LINK_PULL_RANGE = (0.05, 0.3)  # the share of its remaining step a target loses 
 MIN_LINKS, MAX_LINKS = 2, 4
 DOWNBEAT_GAIN = 0.6  # ttrollz adds this much of a blip, an octave up, on the first step of a roll's cycle
 LINK_STREAM = 0xB20
+GONG_STREAM = 0x60C
+BARRE_GEOMETRY = (3, 4, 5, 6, 6)  # the rolls on one Rolzer barre: a triangle, a square, a pentagon and two hexagons (35 over 7 barres)
+GONG_ROLL_ODDS = 0.75  # a chip's gong is patched to one of its rolls this often, and otherwise to the chip's own clock
+SEGMENT_SEED_STRIDE = 10_007  # a prime, so no device seed of one segment lands on another segment's (the chorus adds it per segment)
 CAP_STREAM = 0xCA9
 
 
@@ -91,6 +95,7 @@ CAP_STREAM = 0xCA9
 class Roll:
     sides: int
     bpm: float  # the barre's tempo: one step lasts 60 / bpm on average
+    phase: float = 0.0  # share of a first step to wait before the first pulse; the Rolzer's pair of hexagons pulse out of phase
 
 
 @dataclass(frozen=True)
@@ -107,14 +112,34 @@ def roll_drift(asic_temperature: float) -> float:
     return lo + (hi - lo) * min(1.0, max(0.0, (asic_temperature - lo_t) / (hi_t - lo_t)))
 
 
-def draw_links(n_rolls: int, patch_seed: int, identity: int, pressure: float) -> List[Link]:
-    """Which Browns are patched to which: two to four distinct pairs, drawn from the patch and the chip's identity
-    so a chip is wired the same way for a whole run. Pressure strengthens every link and moves none."""
+def draw_gong_trigger(n_rolls: int, patch_seed: int, identity: int) -> Optional[int]:
+    """Which roll a chip's gong is patched to, as an index into its rolls, or None for the chip's own clock. The chip's
+    identity and the patch decide, so the choice stays the same for a whole run."""
+    if n_rolls < 1:
+        return None
+    rng = np.random.default_rng([patch_seed, identity, GONG_STREAM])
+    on_a_roll = rng.random() < GONG_ROLL_ODDS
+    pick = int(rng.integers(n_rolls))
+    return pick if on_a_roll else None
+
+
+def draw_links(n_rolls: int, patch_seed: int, identity: int, pressure: float, heard: Sequence[int] = ()) -> List[Link]:
+    """Which Browns are patched to which: distinct pairs, drawn from the patch and the chip's identity so a chip is wired
+    the same way for a whole run. Pressure strengthens every link and moves none.
+
+    `heard` lists the rolls that are sounded. At least half the links end at one of them, so the silent rolls of a big
+    network shape what is heard instead of only each other; the other end of a link can be any roll."""
     if n_rolls < 2:
         return []
     rng = np.random.default_rng([patch_seed, identity, LINK_STREAM])
-    count = min(int(rng.integers(MIN_LINKS, MAX_LINKS + 1)), n_rolls * (n_rolls - 1))
+    # a bigger network gets more links, so a chip with the Rolzer's worth of rolls is as tangled as a small one
+    count = min(int(rng.integers(MIN_LINKS + n_rolls // 10, MAX_LINKS + n_rolls // 5 + 1)), n_rolls * (n_rolls - 1))
     pairs: List[Tuple[int, int]] = []
+    heard = [h for h in heard if 0 <= h < n_rolls]
+    while heard and len(pairs) < (count + 1) // 2:
+        a, b = int(rng.integers(n_rolls)), heard[int(rng.integers(len(heard)))]
+        if a != b and (a, b) not in pairs:
+            pairs.append((a, b))
     while len(pairs) < count:
         a, b = int(rng.integers(n_rolls)), int(rng.integers(n_rolls))
         if a != b and (a, b) not in pairs:
@@ -185,7 +210,7 @@ def roll_ensemble(
         for i, r in enumerate(rolls)
     ]
     into = [[l for l in links if l.source == i] for i in range(len(rolls))]
-    due = np.zeros(len(rolls))
+    due = np.array([r.phase * states[i].base for i, r in enumerate(rolls)], dtype=float)
     last = np.full(len(rolls), -np.inf)
     out: List[Tuple[List[float], List[bool]]] = [([], []) for _ in rolls]
     while len(rolls):

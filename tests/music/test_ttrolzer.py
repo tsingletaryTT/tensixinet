@@ -239,9 +239,11 @@ def test_a_link_to_a_roll_that_is_not_there_is_refused():
 
 # --- which Browns are patched to which --------------------------------------------------------------------------------
 
-def test_the_links_are_two_to_four_distinct_pairs_that_the_chip_and_patch_decide():
+def test_the_links_are_distinct_pairs_that_the_chip_and_patch_decide_and_grow_with_the_network():
     links = draw_links(8, patch_seed=5, identity=77, pressure=0.0)
-    assert 2 <= len(links) <= 4
+    assert 2 <= len(links) <= 5
+    big = [len(draw_links(40, patch_seed=s, identity=s * 3 + 1, pressure=0.0)) for s in range(40)]
+    assert min(big) >= 6 and max(big) <= 12 and len(set(big)) > 3   # 2 + 40//10 to 4 + 40//5
     assert all(l.source != l.target and 0 <= l.source < 8 and 0 <= l.target < 8 for l in links)
     assert len({(l.source, l.target) for l in links}) == len(links)
     assert links == draw_links(8, patch_seed=5, identity=77, pressure=0.0)
@@ -281,3 +283,60 @@ def test_links_differ_in_strength_and_never_repeat_a_pair_whatever_the_seed():
     for seed in range(60):
         links = draw_links(3, seed, seed * 7 + 1, 0.3)  # three rolls have six ordered pairs and up to four links: repeats would show
         assert len({(l.source, l.target) for l in links}) == len(links) >= 2
+
+
+# --- the Rolzer: a bank of rolls, and a gong patched to one of them ---------------------------------------------------------
+
+def test_a_barre_carries_the_rolzers_set_of_rolls_a_triangle_a_square_a_pentagon_and_two_hexagons():
+    from tensixinet.music.ttrolzer import BARRE_GEOMETRY
+    assert BARRE_GEOMETRY == (3, 4, 5, 6, 6)
+    assert len(BARRE_GEOMETRY) * 7 == 35  # seven barres: the 35 rolls of the real Rolzer
+
+
+def test_a_roll_can_start_part_way_through_its_first_step_so_a_pair_of_hexagons_pulse_out_of_phase():
+    a, b = roll_ensemble([Roll(6, BPM), Roll(6, BPM, phase=0.5)], [], 30.0, 1, drift=0.0, jitter=0.0)
+    assert a[0][0] == 0.0 and b[0][0] == pytest.approx(0.5)
+    assert len(a[0]) > 20 and len(b[0]) > 20
+    assert bool(a[1][0]) and bool(b[1][0])  # the first pulse of each still begins its cycle
+
+
+def test_the_seed_stride_is_a_prime_shared_with_the_chorus():
+    from tensixinet.music.chorus import SEGMENT_SEED_STRIDE as from_chorus
+    from tensixinet.music.ttrolzer import SEGMENT_SEED_STRIDE
+    assert SEGMENT_SEED_STRIDE == from_chorus == 10_007
+
+
+def test_a_gong_is_patched_to_one_roll_or_to_the_clock_and_the_chip_and_patch_decide_which():
+    from tensixinet.music.ttrolzer import GONG_ROLL_ODDS, draw_gong_trigger
+    assert draw_gong_trigger(0, 1, 1) is None                       # nothing to patch it to
+    picks = [draw_gong_trigger(12, s, s * 31 + 7) for s in range(400)]
+    assert draw_gong_trigger(12, 5, 77) == draw_gong_trigger(12, 5, 77)
+    on_clock = sum(p is None for p in picks) / len(picks)
+    assert abs(on_clock - (1 - GONG_ROLL_ODDS)) < 0.08 and GONG_ROLL_ODDS == 0.75
+    rolls = [p for p in picks if p is not None]
+    assert min(rolls) >= 0 and max(rolls) <= 11 and len(set(rolls)) >= 10  # any roll can be the one
+
+
+def test_at_least_half_the_links_reach_a_roll_that_is_heard_so_the_hidden_rolls_shape_the_sound():
+    heard = [3, 7, 11, 15]
+    for seed in range(40):
+        links = draw_links(40, seed, seed * 5 + 2, 0.4, heard)
+        assert sum(l.target in heard for l in links) >= (len(links) + 1) // 2
+        assert len({(l.source, l.target) for l in links}) == len(links) and all(l.source != l.target for l in links)
+    # without a list of heard rolls the draw is the one it always was
+    assert draw_links(40, 3, 9, 0.4) == draw_links(40, 3, 9, 0.4, ())
+    assert [(l.source, l.target) for l in draw_links(40, 3, 9, 0.4, heard)] != [(l.source, l.target) for l in draw_links(40, 3, 9, 0.4)]
+
+
+def test_a_hidden_roll_can_drive_a_heard_one_and_a_heard_one_can_drive_a_hidden_one():
+    heard = [3, 7, 11, 15]
+    links = [l for seed in range(60) for l in draw_links(40, seed, seed + 1, 0.4, heard)]
+    assert any(l.source not in heard and l.target in heard for l in links)
+    assert any(l.source in heard and l.target not in heard for l in links)
+
+
+def test_heard_indexes_outside_the_network_are_ignored():
+    assert draw_links(5, 3, 9, 0.2, [99, -1]) == draw_links(5, 3, 9, 0.2)
+    links = draw_links(5, 3, 9, 0.2, [2, 99, -1])
+    assert all(0 <= l.source < 5 and 0 <= l.target < 5 for l in links)
+    assert sum(l.target == 2 for l in links) >= (len(links) + 1) // 2

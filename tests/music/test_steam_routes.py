@@ -22,8 +22,9 @@ SR = 8000
 def chip(**kw):
     """Fires on steps 5 and 8. Step 8 is on the ttrollz grid (every fourth step), so clock pulses land on it, and with
     heartbeat 9 the first gong window opens where a register hit comes before the next clock pulse. A mask that fires
-    only on odd steps never lines up with the clock, and most masks give a hit-only strike rarely or never."""
-    return dataclasses.replace(FALLBACK, tensix_mask=0x3EDF, heartbeat=9, aiclk=800.0, **kw)
+    only on odd steps never lines up with the clock, and most masks give a hit-only strike rarely or never. No DDR lane
+    or ethernet link is up, so the chip has no rolls and its gong follows the clock."""
+    return dataclasses.replace(FALLBACK, tensix_mask=0x3EDF, heartbeat=9, aiclk=800.0, ddr_status=(0, 0, 0, 0), eth_mask=0x0000, **kw)
 
 
 def routed(*routes, **kw):
@@ -195,3 +196,14 @@ def test_a_hit_exactly_at_the_end_of_the_render_is_left_out():
     duration = 28 * 30.0 / aiclk_to_bpm(t.aiclk)
     hits = step_times(t, duration)
     assert len(hits) == 2 and hits.max() < duration
+
+
+def test_the_strikes_route_joins_the_register_to_the_rolls_the_gong_follows_too():
+    from tensixinet.music.devices import gong_trigger_roll, roll_pulses
+    t = dataclasses.replace(chip(), tensix_mask=0x3002, ddr_status=(1, 1, 1, 1), eth_mask=0xFFFF)
+    which = gong_trigger_roll(t, DEFAULT_PATCH)
+    assert which is not None, "the test needs a chip whose gong follows a roll"
+    allowed = np.concatenate([roll_pulses(t, 60.0, DEFAULT_PATCH)[which][0], step_times(t, 60.0)])
+    joined = strike_times(t, 60.0, routed("strikes"))
+    assert len(joined) >= 2 and all(np.isclose(allowed, s).any() for s in joined)
+    assert not np.array_equal(joined, strike_times(t, 60.0))

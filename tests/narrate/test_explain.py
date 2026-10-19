@@ -14,7 +14,14 @@ from tensixinet.telemetry import FALLBACK
 SR = 8000
 LONG = 15.0
 # The snare plays the holes in the Tensix mask, so its base chip needs one for the other fields to matter.
-BASE_OVERRIDES = {"ttsteam": {"tensix_mask": 0x37F7}}
+# The gong follows one of the chip's rolls or its clock, picked by the chip's identity; the devices that follow the gong's strikes
+# (and ttrollz, whose rolls they follow) read the DDR status, pressure and drift only when it follows a roll, so their base chip
+# has an identity whose gong does. 0x3002 is one where every listed field below moves the strikes.
+ROLL_LINKED = {"tensix_mask": 0x3002}
+BASE_OVERRIDES = {
+    "ttsteam": {"tensix_mask": 0x37F7},
+    "gong": ROLL_LINKED, "ttdrone": ROLL_LINKED, "ultrasonic_shimmer": ROLL_LINKED, "ttavdog": ROLL_LINKED, "ttrollz": ROLL_LINKED,
+}
 CHANGES = {
     "asic_temperature": 90.0,
     "aiclk": 1350.0,
@@ -418,19 +425,39 @@ def test_the_patch_log_says_which_steam_routes_are_on_and_what_each_does():
 
 
 def test_the_log_says_how_the_rolls_are_wired_how_hard_they_pull_and_how_far_they_drift():
-    from tensixinet.music.devices import ttrollz_lanes
+    from tensixinet.music.devices import ttrollz_network
     from tensixinet.music.mapping import chip_pressure, personality
     from tensixinet.music.ttrolzer import draw_links, roll_drift
     t = dataclasses.replace(FALLBACK, ddr_status=(1, 1, 1, 1), eth_mask=0x00FF, asic_temperature=70.0)
     patch = dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, seed=21)
-    lanes = ttrollz_lanes(t)
-    links = draw_links(len(lanes), 21, personality(t), chip_pressure(t))
+    net = ttrollz_network(t)
+    links = draw_links(len(net.rolls), 21, personality(t), chip_pressure(t), [lane.index for lane in net.lanes])
     ds = explain_chip(0, t, patch=patch)  # chip 0 plays ttrollz
     wiring = [d for d in ds if "Browns patched" in d.what]
     assert len(wiring) == 1
     text = wiring[0].what + " || " + wiring[0].why
-    assert f"{len(links)} Browns patched" in text
-    for l in links:
-        assert f"{lanes[l.source].roll.sides}-roll to {lanes[l.target].roll.sides}-roll" in text  # who is patched into whom
+    assert f"{len(links)} Browns patched between its {len(net.rolls)} rolls" in text and f"{len(net.lanes)} of them heard" in text
+    for l in links[:6]:
+        src, dst = net.rolls[l.source], net.rolls[l.target]
+        assert f"{src.sides}-roll ({src.bpm:.0f} BPM) to {dst.sides}-roll ({dst.bpm:.0f} BPM)" in text  # who is patched into whom
+    if len(links) > 6:
+        assert f"and {len(links) - 6} more" in text
     assert f"{roll_drift(70.0):.1%}" in text and f"{max(l.pull for l in links):.0%}" in text
     assert "Sandrode" in text and "cycle" in text and "accent" in text
+
+
+def test_the_log_says_what_the_gong_is_patched_to():
+    from tensixinet.music.devices import gong_trigger_roll, ttrollz_network
+    from tensixinet.music.mapping import personality
+    for mask in range(0x3000, 0x3100):
+        t = dataclasses.replace(FALLBACK, ddr_status=(1, 1, 1, 1), eth_mask=0xFFFF, tensix_mask=mask)
+        which = gong_trigger_roll(t, DEFAULT_PATCH_FOR_ROUTES)
+        text = " | ".join(d.what + " || " + d.why for d in explain_chip(5, t))  # slot 5 is the gong
+        if which is None:
+            assert "gong is patched to the chip's own ttrollz clock" in text
+        else:
+            roll = ttrollz_network(t).rolls[which]
+            assert f"gong is patched to roll {which} of 40, a {roll.sides}-roll ({roll.bpm:.0f} BPM)" in text
+            assert "the roll's own pulses" in text
+    chipless = dataclasses.replace(FALLBACK, ddr_status=(0, 0, 0, 0), eth_mask=0x0000)
+    assert "gong is patched to the chip's own ttrollz clock" in " | ".join(d.what for d in explain_chip(5, chipless))

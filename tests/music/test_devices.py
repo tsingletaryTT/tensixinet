@@ -303,10 +303,19 @@ def _dominant_hz(x, sr, lo=40.0, hi=400.0):
     return float(freqs[band][np.argmax(spec[band])])
 
 
+def _band_centroid_hz(x, sr, lo=40.0, hi=400.0):
+    spec = np.abs(np.fft.rfft(x))
+    freqs = np.fft.rfftfreq(len(x), 1 / sr)
+    band = (freqs >= lo) & (freqs <= hi)
+    return float((freqs[band] * spec[band]).sum() / spec[band].sum())
+
+
 def test_a_higher_core_voltage_detunes_the_drone_upward():
+    """Measured as the centre of the drone's spectrum, not its single tallest peak: the ripple after each strike makes the
+    chord's voices swap places as the tallest, so the tallest peak can jump a whole voice either way."""
     low = ttdrone(tel(voltage=0.71), 8.0, SR, 0)
     high = ttdrone(tel(voltage=0.90), 8.0, SR, 0)
-    assert _dominant_hz(high, SR) > _dominant_hz(low, SR)
+    assert _band_centroid_hz(high, SR) > _band_centroid_hz(low, SR)
 
 
 def test_the_drone_asks_for_as_many_voices_as_the_pcie_usage_gives(monkeypatch):
@@ -354,15 +363,23 @@ def _first_sound(x, sr):
 
 
 def test_the_heartbeat_sets_when_the_first_gong_strike_lands():
-    on_the_beat = _first_sound(gong_dev(tel(heartbeat=0), 20.0, SR, 0), SR)
-    late = _first_sound(gong_dev(tel(heartbeat=8), 20.0, SR, 0), SR)
-    interval = 2 * 4 * 60.0 / aiclk_to_bpm(tel().aiclk)  # two bars at the chip's tempo
+    on_the_beat = _first_sound(gong_dev(_chip_whose_gong_is_on("clock", heartbeat=0), 20.0, SR, 0), SR)
+    late = _first_sound(gong_dev(_chip_whose_gong_is_on("clock", heartbeat=8), 20.0, SR, 0), SR)
+    interval = 2 * 4 * 60.0 / aiclk_to_bpm(800.0)  # two bars at the chip's tempo
     assert on_the_beat < 0.05 and late == pytest.approx(interval / 4, rel=0.1)
+
+
+def test_a_gong_on_a_roll_first_strikes_on_the_first_pulse_of_that_roll_after_the_heartbeats_start():
+    from tensixinet.music.mapping import heartbeat_phase
+    t = _chip_whose_gong_is_on("roll", heartbeat=8)
+    mine = roll_pulses(t, 30.0, DEFAULT_PATCH)[gong_trigger_roll(t, DEFAULT_PATCH)][0]
+    start = heartbeat_phase(8) * (2 * 4 * 60.0 / aiclk_to_bpm(800.0)) / 2
+    assert strike_times(t, 30.0)[0] == pytest.approx(mine[mine >= start][0])
 
 
 # --- the Gongue's trigger response: a blocking window over a clock (Plumbutter guide, Gongues [2]) ----------
 
-from tensixinet.music.devices import gate_triggers, strike_times  # noqa: E402
+from tensixinet.music.devices import gate_triggers, gong_trigger_roll, roll_pulses, strike_times  # noqa: E402
 from tensixinet.music.mapping import personality  # noqa: E402
 
 
@@ -386,11 +403,53 @@ def test_no_pulse_after_the_start_means_no_strike():
     assert len(gate_triggers(np.arange(0, 3.0, 1.0), window=0.5, start=10.0)) == 0
 
 
-def test_strikes_sit_on_the_chips_own_clock():
-    t = tel(aiclk=800.0, heartbeat=0)
+def _chip_whose_gong_is_on(kind, **kw):
+    """A fully wired chip whose gong is patched to the clock ('clock') or to one of its rolls ('roll'). `kw` overrides the
+    chip's fields; the choice depends only on the identity and the patch, so a heartbeat or tempo does not change it."""
+    for mask in range(0x3000, 0x3400):
+        fields = dict(tensix_mask=mask, ddr_status=(1, 1, 1, 1), eth_mask=0xFFFF, heartbeat=0, aiclk=800.0)
+        fields.update(kw)
+        t = tel(**fields)
+        if (gong_trigger_roll(t, DEFAULT_PATCH) is None) == (kind == "clock"):
+            return t
+    raise AssertionError(f"no chip found whose gong is on a {kind}")
+
+
+def test_a_gong_patched_to_the_clock_strikes_on_the_chips_own_clock():
+    t = _chip_whose_gong_is_on("clock")
     clock = ttrollz_pulse_times(aiclk_to_bpm(800.0), 30.0)
     strikes = strike_times(t, 30.0)
     assert len(strikes) >= 2 and all(np.isclose(clock, s).any() for s in strikes)
+
+
+def test_a_gong_patched_to_a_roll_strikes_on_that_rolls_pulses_and_not_on_the_clock():
+    t = _chip_whose_gong_is_on("roll")
+    which = gong_trigger_roll(t, DEFAULT_PATCH)
+    mine = roll_pulses(t, 30.0, DEFAULT_PATCH)[which][0]
+    clock = ttrollz_pulse_times(aiclk_to_bpm(800.0), 30.0)
+    strikes = strike_times(t, 30.0)
+    assert len(strikes) >= 2 and all(np.isclose(mine, s).any() for s in strikes)
+    assert not all(np.isclose(clock, s).any() for s in strikes)     # the roll wanders off the clock's grid
+    assert np.diff(strikes).min() >= 2 * 4 * 60.0 / aiclk_to_bpm(800.0) - 1e-9  # the blocking window still holds
+
+
+def test_a_chip_with_no_rolls_up_has_its_gong_on_the_clock():
+    t = tel(ddr_status=(0, 0, 0, 0), eth_mask=0x0000, aiclk=800.0)
+    assert gong_trigger_roll(t, DEFAULT_PATCH) is None
+    clock = ttrollz_pulse_times(aiclk_to_bpm(800.0), 30.0)
+    assert all(np.isclose(clock, s).any() for s in strike_times(t, 30.0))
+
+
+def test_the_roll_a_gong_follows_is_the_roll_the_next_segment_follows_with_new_drift():
+    """Every device reads its segment out of its seed, so a chip's gong, shimmer, drone and AVDog and its ttrollz agree."""
+    from tensixinet.music.ttrolzer import SEGMENT_SEED_STRIDE
+    t = _chip_whose_gong_is_on("roll")
+    seg0, seg1 = strike_times(t, 30.0, DEFAULT_PATCH, segment=0), strike_times(t, 30.0, DEFAULT_PATCH, segment=1)
+    assert not np.array_equal(seg0, seg1)                           # new segment, new wander
+    assert np.array_equal(seg0, strike_times(t, 30.0, DEFAULT_PATCH))
+    assert not np.array_equal(gong(t, 12.0, SR, 3, DEFAULT_PATCH), gong(t, 12.0, SR, 3 + SEGMENT_SEED_STRIDE, DEFAULT_PATCH))
+    # a seed within one segment (the slot added to the segment's base) does not change the strikes
+    assert np.array_equal(gong(t, 12.0, SR, 3, DEFAULT_PATCH), gong(t, 12.0, SR, 5, DEFAULT_PATCH))
 
 
 def test_a_chips_identity_sets_its_trigger_response():
@@ -490,7 +549,7 @@ def test_the_drone_ripples_at_one_and_a_half_undulations_a_beat_and_rings_for_tw
 from tensixinet.music.ttrolzer import (  # noqa: E402
     DDR_LANE_BARRES, DOWNBEAT_GAIN, ETH_LANE_BARRES, ETH_LANE_SIDES, barre_bpm, draw_links, roll_drift, roll_ensemble,
 )
-from tensixinet.music.devices import ttrollz_lanes, ttrollz_pulse_times  # noqa: E402
+from tensixinet.music.devices import ttrollz_lanes, ttrollz_network, ttrollz_pulse_times  # noqa: E402
 from tensixinet.music.mapping import chip_pressure, personality, temp_to_pitch_hz  # noqa: E402
 from tensixinet.music.patch import DEFAULT_PATCH  # noqa: E402
 
@@ -526,20 +585,51 @@ def test_a_chip_with_everything_up_plays_eight_lanes_ddr_first_and_their_levels_
     assert half[0].level == pytest.approx(0.35 * 0.5)
 
 
+def test_each_lane_is_a_barre_of_the_rolzers_rolls_and_a_chip_with_everything_up_has_forty():
+    from tensixinet.music.ttrolzer import BARRE_GEOMETRY
+    net = ttrollz_network(tel(ddr_status=(1, 1, 1, 1), eth_mask=0xFFFF, aiclk=800.0))
+    assert len(net.rolls) == 40 and len(net.lanes) == 8
+    assert [r.sides for r in net.rolls[:5]] == list(BARRE_GEOMETRY)
+    for lane in net.lanes:   # a lane's own roll is the member of its barre with its sides, and it is the one that is heard
+        assert net.rolls[lane.index].sides == lane.roll.sides and net.rolls[lane.index].bpm == pytest.approx(lane.roll.bpm)
+    # a barre's rolls all run at the barre's tempo, and its second hexagon pulses out of phase with the first
+    first_barre = net.rolls[:5]
+    assert {round(r.bpm, 6) for r in first_barre} == {round(first_barre[0].bpm, 6)}
+    assert [r.phase for r in first_barre] == [0.0, 0.0, 0.0, 0.0, 0.5]
+
+
+def test_an_ethernet_lane_brings_as_many_of_its_barres_rolls_as_its_links_but_always_its_own():
+    net = ttrollz_network(tel(ddr_status=(0, 0, 0, 0), eth_mask=0x0001, aiclk=800.0))   # one link of group 0: a quarter
+    assert len(net.lanes) == 1 and net.lanes[0].roll.sides == ETH_LANE_SIDES[0]
+    assert len(net.rolls) == 4 and net.lanes[0].index == 3          # the 6-roll is the fourth of 3, 4, 5, 6, 6
+    full = ttrollz_network(tel(ddr_status=(0, 0, 0, 0), eth_mask=0x000F, aiclk=800.0))
+    assert len(full.rolls) == 5
+    last = ttrollz_network(tel(ddr_status=(0, 0, 0, 0), eth_mask=0x1000, aiclk=800.0))  # group 3's own roll is the 3-roll
+    assert len(last.rolls) == 2 and last.lanes[0].index == 0 and last.lanes[0].roll.sides == 3
+
+
+def test_grounded_ddr_lanes_leave_no_rolls_and_no_network():
+    net = ttrollz_network(tel(ddr_status=(0, 0, 0, 0), eth_mask=0x0000))
+    assert net.rolls == [] and net.lanes == []
+
+
 def test_ttrollz_is_its_lanes_blips_with_the_first_step_of_each_cycle_accented_an_octave_up():
     """Rebuilds the output from the public pieces, so a wrong link, drift, pitch, level or accent changes it."""
     t = tel(ddr_status=(1, 1, 0, 1), eth_mask=0x00F3, aiclk=800.0, asic_temperature=55.0, heartbeat=0)
     patch = dataclasses.replace(DEFAULT_PATCH, seed=9)
     n = int(6.0 * SR)
-    lanes = ttrollz_lanes(t)
-    links = draw_links(len(lanes), 9, personality(t), chip_pressure(t))
-    pulses = roll_ensemble([l.roll for l in lanes], links, 6.0, 4, drift=roll_drift(55.0), cap_seed=9 * 1_000_003 + personality(t))
+    net = ttrollz_network(t)
+    links = draw_links(len(net.rolls), 9, personality(t), chip_pressure(t), [lane.index for lane in net.lanes])
+    pulses = roll_ensemble(net.rolls, links, 6.0, 9 * 7919 + 4, drift=roll_drift(55.0), cap_seed=9 * 1_000_003 + personality(t))
     pitch = temp_to_pitch_hz(55.0)
     expected = devices_module._blips(ttrollz_pulse_times(aiclk_to_bpm(800.0), 6.0), pitch, n, SR)
-    for lane, (times, downbeats) in zip(lanes, pulses):
+    for lane in net.lanes:
+        times, downbeats = pulses[lane.index]
         expected += lane.level * devices_module._blips(times, pitch * lane.pitch, n, SR, lane.decay_s)
         expected += DOWNBEAT_GAIN * lane.level * devices_module._blips(times[downbeats], pitch * lane.pitch * 2, n, SR, lane.decay_s)
-    assert np.allclose(ttrollz(t, 6.0, SR, 4, patch), np.tanh(expected), atol=1e-6)
+    assert np.allclose(ttrollz(t, 6.0, SR, 4 * 10_007, patch), np.tanh(expected), atol=1e-6)
+    # the roll_pulses the gong reads are those very pulses
+    assert all(np.array_equal(a[0], b[0]) for a, b in zip(roll_pulses(t, 6.0, patch, 4), pulses))
 
 
 def test_a_chips_capacitors_are_its_own_and_do_not_change_from_one_segment_to_the_next():
@@ -673,3 +763,16 @@ def test_quantussy_tone_is_the_plain_sine_before_the_cocos_crunch(monkeypatch):
     assert np.abs(tone).max() <= 0.8 + 1e-9
     expected = devices_module.crunch(tone, 1.0)
     assert np.array_equal(ttquantus(t, 1.0, SR, 0), expected.astype(np.float32))
+
+
+def test_every_device_that_follows_the_gongs_strikes_moves_with_the_segment_and_not_with_its_slot():
+    """The gong, the shimmer's snap, the drone's ripple and the AVDog all read the segment out of their seed, so they follow
+    the same rolls the gong does; each slot of a segment adds a small number to that seed, which must change nothing."""
+    from tensixinet.music.ttrolzer import SEGMENT_SEED_STRIDE
+    from tensixinet.music.devices import ttdrone, ultrasonic_shimmer
+    from tensixinet.music.ttavdog import ttavdog
+    t = _chip_whose_gong_is_on("roll")
+    for device in (gong_dev, ultrasonic_shimmer, ttdrone, ttavdog):
+        a = device(t, 20.0, SR, 0, DEFAULT_PATCH)
+        assert np.array_equal(a, device(t, 20.0, SR, 7, DEFAULT_PATCH)), device.__name__
+        assert not np.array_equal(a, device(t, 20.0, SR, SEGMENT_SEED_STRIDE, DEFAULT_PATCH)), device.__name__

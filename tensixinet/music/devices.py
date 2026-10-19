@@ -9,7 +9,8 @@ by the chorus, not here.
 from __future__ import annotations
 
 import math
-from typing import List, NamedTuple, Sequence, Tuple
+import functools
+from typing import List, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -30,7 +31,8 @@ from .register import step_times
 from .ttrax import FALLBACK_ARCCLK, barre_bounds, bounce_wave, ttrax  # noqa: F401  (re-exported: the chorus and the log import them from here)
 from .ttquantussy import castle_offset, castle_output, crunch, petal_phases, petal_ratios
 from .ttrolzer import (
-    DDR_LANE_BARRES, DOWNBEAT_GAIN, ETH_LANE_BARRES, ETH_LANE_SIDES, Roll, barre_bpm, draw_links, roll_drift, roll_ensemble,
+    BARRE_GEOMETRY, DDR_LANE_BARRES, DOWNBEAT_GAIN, ETH_LANE_BARRES, ETH_LANE_SIDES, SEGMENT_SEED_STRIDE, Link, Roll,
+    barre_bpm, draw_gong_trigger, draw_links, roll_drift, roll_ensemble,
 )
 from .synth import build_voices, render
 from ..telemetry import Telemetry
@@ -49,13 +51,13 @@ DEVICE_INPUTS = {
     "ttrollz": frozenset({"asic_temperature", "aiclk", "ddr_status", "eth_mask"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ttrax": frozenset({"asic_temperature", "gddr_temps", "arcclk", "aiclk", "temp_rate", "power_rate"}) | PRESSURE_FIELDS,
     "ttquantus": frozenset({"asic_temperature", "aiclk", "axiclk"}) | IDENTITY_FIELDS,
-    "ttdrone": frozenset({"asic_temperature", "voltage", "pcie_usage", "aiclk", "heartbeat"}) | IDENTITY_FIELDS,
+    "ttdrone": frozenset({"asic_temperature", "voltage", "pcie_usage", "aiclk", "heartbeat", "ddr_status"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "lead": frozenset({"aiclk", "gddr_temps"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
-    "gong": frozenset({"asic_temperature", "aiclk", "heartbeat"}) | IDENTITY_FIELDS,
+    "gong": frozenset({"asic_temperature", "aiclk", "heartbeat", "ddr_status"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ttsteam": frozenset({"aiclk", "tensix_mask", "pcie_usage"}) | PRESSURE_FIELDS,
-    "ttavdog": frozenset({"asic_temperature", "aiclk", "heartbeat"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
+    "ttavdog": frozenset({"asic_temperature", "aiclk", "heartbeat", "ddr_status"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ttchoir": frozenset({"asic_temperature", "gddr_temps", "aiclk"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
-    "ultrasonic_shimmer": frozenset({"gddr_temps", "aiclk", "heartbeat"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
+    "ultrasonic_shimmer": frozenset({"gddr_temps", "aiclk", "heartbeat", "ddr_status"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ttcoco": frozenset({"aiclk", "axiclk", "gddr_temps"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
 }
 
@@ -121,30 +123,84 @@ class Lane(NamedTuple):
     pitch: float  # multiple of the chip's pitch
     level: float
     decay_s: float
+    index: int  # which roll of the chip's network this is
+
+
+class Network(NamedTuple):
+    """Every roll a chip runs, and which of them are heard."""
+
+    rolls: List[Roll]
+    lanes: List[Lane]
+
+
+def ttrollz_network(t: Telemetry) -> Network:
+    """The chip's bank of rolls, like the Rolzer's. A lane that is up (a DDR channel with a non-zero status, which a
+    zero status would ground, or a group of four ethernet links with any link up) brings the rolls of one barre: a
+    triangle, a square, a pentagon and two hexagons, the second hexagon pulsing out of phase with the first. A chip with
+    everything up runs 40 rolls (the real Rolzer has 35). Only each lane's own roll is heard; the others are not
+    sounded, but they are linked into the network and a gong can be patched to any of them.
+
+    A DDR lane brings all five. An ethernet lane brings as many as its share of links up (rounded up), and always
+    its own roll, as its barre's rolls come in order of their geometry."""
+    bpm = aiclk_to_bpm(t.aiclk)
+    rolls: List[Roll] = []
+    lanes: List[Lane] = []
+
+    def add_barre(barre: int, own_sides: int, count: int, pitch: float, level: float, decay_s: float) -> None:
+        own = BARRE_GEOMETRY.index(own_sides)
+        for g in range(max(count, own + 1)):
+            rolls.append(Roll(BARRE_GEOMETRY[g], barre_bpm(bpm, barre), phase=0.5 if g == 4 else 0.0))
+        start = len(rolls) - max(count, own + 1)
+        lanes.append(Lane(rolls[start + own], pitch, level, decay_s, start + own))
+
+    for lane, sides in enumerate(ddr_lane_sides(t.ddr_status)):
+        if sides:
+            add_barre(DDR_LANE_BARRES[lane], sides, len(BARRE_GEOMETRY), 1.5 + 0.5 * lane, 0.5, 0.05)
+    for lane, level in enumerate(eth_lane_levels(t.eth_mask)):
+        if level:
+            add_barre(ETH_LANE_BARRES[lane], ETH_LANE_SIDES[lane], math.ceil(level * len(BARRE_GEOMETRY)),
+                      1.25 + 0.25 * lane, 0.35 * level, 0.04)
+    return Network(rolls, lanes)
 
 
 def ttrollz_lanes(t: Telemetry) -> List[Lane]:
-    """The rolls this chip plays: one per DDR channel that is up (a status of 0 grounds the Brown, which kills the roll),
-    then one per group of four ethernet links with any link up, as loud as the share of the group that is up."""
-    bpm = aiclk_to_bpm(t.aiclk)
-    lanes = [
-        Lane(Roll(sides, barre_bpm(bpm, DDR_LANE_BARRES[lane])), 1.5 + 0.5 * lane, 0.5, 0.05)
-        for lane, sides in enumerate(ddr_lane_sides(t.ddr_status)) if sides
-    ]
-    lanes += [
-        Lane(Roll(ETH_LANE_SIDES[lane], barre_bpm(bpm, ETH_LANE_BARRES[lane])), 1.25 + 0.25 * lane, 0.35 * level, 0.04)
-        for lane, level in enumerate(eth_lane_levels(t.eth_mask)) if level
-    ]
-    return lanes
+    """The rolls this chip plays aloud, one per lane that is up (see `ttrollz_network`)."""
+    return ttrollz_network(t).lanes
+
+
+@functools.lru_cache(maxsize=32)
+def _run_network(rolls: Tuple[Roll, ...], links: Tuple[Link, ...], duration: float, seed: int, drift: float, cap_seed: int):
+    return roll_ensemble(list(rolls), list(links), duration, seed, drift=drift, cap_seed=cap_seed)
+
+
+def roll_pulses(t: Telemetry, duration: float, patch: Patch = DEFAULT_PATCH, segment: int = 0):
+    """For each roll of the chip's network, (the times of its pulses, which of them begin a cycle). Every device that
+    reads the rolls (ttrollz, and the gong with everything that follows its strikes) calls this with the same chip, patch
+    and segment, so they all hear the same pulses; live mode moves `segment` on so the drift and slide differ from one
+    segment to the next. The result is cached for the render and must not be changed."""
+    net = ttrollz_network(t)
+    identity = personality(t)
+    links = draw_links(len(net.rolls), patch.seed, identity, chip_pressure(t), [lane.index for lane in net.lanes])
+    return _run_network(
+        tuple(net.rolls), tuple(links), float(duration), patch.seed * 7919 + segment,
+        roll_drift(t.asic_temperature), patch.seed * 1_000_003 + identity,
+    )
+
+
+def gong_trigger_roll(t: Telemetry, patch: Patch = DEFAULT_PATCH) -> Optional[int]:
+    """The roll of the chip's network that its gong is patched to, or None when the gong follows the chip's own clock."""
+    return draw_gong_trigger(len(ttrollz_network(t).rolls), patch.seed, personality(t))
 
 
 def ttrollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """The chip's clock, plus one roll per DDR channel and per group of ethernet links.
 
-    The lanes run together as coupled circuits (`ttrolzer.roll_ensemble`). The patch and the chip's identity decide which
-    Browns are patched to which, so a chip is wired the same way for a whole run; the chip's pressure sets how hard the
-    links pull; its temperature sets how fast the capacitors drift; the same two decide the capacitors' mismatch, which
-    stays with the chip. The first step of each lane's cycle is accented an octave up, so an odd roll's 3 or 5 can be heard.
+    The rolls run together as coupled circuits (`ttrolzer.roll_ensemble`): each lane that is up brings a whole barre of
+    them (`ttrollz_network`), and only each lane's own roll is heard. The patch and the chip's identity decide which Browns
+    are patched to which, so a chip is wired the same way for a whole run; the chip's pressure sets how hard the links
+    pull; its temperature sets how fast the capacitors drift; the same two decide the capacitors' mismatch, which stays
+    with the chip. The first step of each lane's cycle is accented an octave up, so an odd roll's 3 or 5 can be heard.
+    The segment (read out of `seed`, as the gong reads it) sets the drift, so the gong follows the rolls that are heard.
 
     With the patch's `accent` route on, the clock pulses that land on a hit of the ttsteam register sound louder.
 
@@ -157,14 +213,9 @@ def ttrollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: P
     out = _blips(clock, pitch, n, sample_rate)
     if "accent" in patch.steam_routes:
         out += ACCENT_GAIN * _blips(accented_pulses(clock, step_times(t, duration)), pitch, n, sample_rate)
-    lanes = ttrollz_lanes(t)
-    identity = personality(t)
-    links = draw_links(len(lanes), patch.seed, identity, chip_pressure(t))
-    pulses = roll_ensemble(
-        [lane.roll for lane in lanes], links, duration, seed,
-        drift=roll_drift(t.asic_temperature), cap_seed=patch.seed * 1_000_003 + identity,
-    )
-    for lane, (times, downbeats) in zip(lanes, pulses):
+    pulses = roll_pulses(t, duration, patch, seed // SEGMENT_SEED_STRIDE)
+    for lane in ttrollz_lanes(t):
+        times, downbeats = pulses[lane.index]
         out += lane.level * _blips(times, pitch * lane.pitch, n, sample_rate, lane.decay_s)
         out += DOWNBEAT_GAIN * lane.level * _blips(times[downbeats], pitch * lane.pitch * 2, n, sample_rate, lane.decay_s)
     return (np.tanh(out)).astype(np.float32)
@@ -226,7 +277,7 @@ def ttdrone(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: P
     f_low = temp_to_pitch_hz(t.asic_temperature) / 2 * 2 ** (voltage_to_cents(t.voltage) / 1200)
     voices = build_voices(1, voices_per_chip=drone_voices(t.pcie_usage), f_low=f_low)
     beat = 60.0 / aiclk_to_bpm(t.aiclk)
-    since = seconds_since(strike_times(t, duration, patch), int(duration * sample_rate), sample_rate)
+    since = seconds_since(strike_times(t, duration, patch, seed // SEGMENT_SEED_STRIDE), int(duration * sample_rate), sample_rate)
     ripple = shock_wave(since, SHOCK_RATE_BEATS / beat, SHOCK_DECAY_BEATS * beat)
     return (render(voices, [t], duration, sample_rate) * (DRONE_SETTLED + (1 - DRONE_SETTLED) * ripple)).astype(np.float32)
 
@@ -264,11 +315,12 @@ def gate_triggers(pulses: np.ndarray, window: float, start: float) -> np.ndarray
     return np.array(strikes)
 
 
-def strike_times(t: Telemetry, duration: float, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+def strike_times(t: Telemetry, duration: float, patch: Patch = DEFAULT_PATCH, segment: int = 0) -> np.ndarray:
     """When this chip's gong is struck. The same moments set off the shimmer's snap and the drone's shock wave,
     as a Plumbutter patch sends one clock to the Ultrasound, the Gongue and the AVDog together.
 
-    The clock is the chip's ttrollz pulse train. Two bars is the shortest gap, and the chip's identity
+    The trigger is one of the chip's rolls (the Gongue is patched to a roll's orange), or the chip's own ttrollz clock;
+    `gong_trigger_roll` says which, and `segment` says which stretch of the rolls' wander (see `roll_pulses`). Two bars is the shortest gap, and the chip's identity
     lengthens the blocking window by up to six sixteenths of that, so chips divide the clock differently.
     The heartbeat sets how far into the first window the chip starts.
 
@@ -278,7 +330,8 @@ def strike_times(t: Telemetry, duration: float, patch: Patch = DEFAULT_PATCH) ->
     interval = 2 * 4 * 60.0 / bpm
     window = interval * (1 + TRIGGER_RESPONSE_SPREAD * (personality(t) % TRIGGER_RESPONSE_STEPS))
     first = heartbeat_phase(t.heartbeat) * interval / 2
-    pulses = ttrollz_pulse_times(bpm, duration)
+    which = gong_trigger_roll(t, patch)
+    pulses = ttrollz_pulse_times(bpm, duration) if which is None else roll_pulses(t, duration, patch, segment)[which][0]
     if "strikes" in patch.steam_routes:
         pulses = np.sort(np.concatenate([pulses, step_times(t, duration)]))
     return gate_triggers(pulses, window, first)
@@ -351,7 +404,7 @@ def gong(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patc
             phase = 2 * math.pi * np.cumsum((base + detune) * sag) / sample_rate
             strike += amp * 0.5 * np.sin(phase) * np.exp(-k / decay)
     strike *= np.minimum(1.0, k / GONG_ATTACK_S)  # a 5 ms attack avoids a click
-    for onset in strike_times(t, duration, patch):
+    for onset in strike_times(t, duration, patch, seed // SEGMENT_SEED_STRIDE):
         s = int(onset * sample_rate)
         seg = strike[: n - s]
         out[s : s + len(seg)] += seg
@@ -386,7 +439,7 @@ def ultrasonic_shimmer(t: Telemetry, duration: float, sample_rate: int, seed: in
     f1, f2, level = shimmer_parameters(t, sample_rate, patch)
     k = np.arange(n) / sample_rate
     out = 0.5 * (np.sin(2 * math.pi * f1 * k) + np.sin(2 * math.pi * f2 * k))
-    snap = np.exp(-seconds_since(strike_times(t, duration, patch), n, sample_rate) / SNAP_DECAY_S)  # 1 on a strike, 0 long after it
+    snap = np.exp(-seconds_since(strike_times(t, duration, patch, seed // SEGMENT_SEED_STRIDE), n, sample_rate) / SNAP_DECAY_S)  # 1 on a strike, 0 long after it
     out *= 1 - SNAP_DEPTH + SNAP_DEPTH * snap
     return (level * out).astype(np.float32)
 

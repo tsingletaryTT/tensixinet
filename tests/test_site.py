@@ -127,3 +127,6 @@ def test_the_rhythm_section_states_the_roll_model_with_the_codes_ranges():
     assert f"{LINK_PULL_RANGE[0]:.0%} to {LINK_PULL_RANGE[1]:.0%}" in section
     assert f"{DRIFT_RANGE[0]:.1%} to {DRIFT_RANGE[1]:.0%}" in section
     assert f"{SLIP:.0%} of a cycle" in section and f"{DOWNBEAT_GAIN:g} of the lane's level" in section
+    from tensixinet.music.ttrolzer import BARRE_GEOMETRY, GONG_ROLL_ODDS
+    assert "a 40-roll chip gets 6 to 12" in section and f"the real Rolzer has {len(BARRE_GEOMETRY) * 7}" in section
+    assert GONG_ROLL_ODDS == 0.75 and "three chips in four" in section.lower()  # the gong is patched to a roll this often

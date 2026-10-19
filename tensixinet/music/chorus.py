@@ -25,6 +25,7 @@ from .ttcoco import ttcoco
 from .ttsteam import ttsteam
 from .mapping import aiclk_to_bpm, chip_chaos, chip_pressure, power_to_volume, turn_weight
 from .patch import DEFAULT_PATCH, Patch
+from .ttrolzer import SEGMENT_SEED_STRIDE  # noqa: F401  (the chorus uses it; devices read the segment back out of their seed)
 from ..telemetry import Telemetry
 from .turns import soloists as plan_soloists, turn_gains
 
@@ -74,7 +75,6 @@ def plan_turns(telemetry: Sequence[Telemetry], duration: float, patch: Patch = D
     return plan_soloists(slot_weights(telemetry), max(1, math.ceil(duration / turn_s))), turn_s
 
 
-SEGMENT_SEED_STRIDE = 10_007  # a prime, so no device seed of one segment lands on another segment's
 
 
 def render_chorus(

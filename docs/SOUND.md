@@ -62,28 +62,39 @@ The functions are in `tensixinet/music/mapping.py`. Readings outside a range hol
 `DEVICE_INPUTS` in `music/devices.py` is the exact list, and a test checks it field by field. The lead and
 the shimmer read power and the throttle limits only to work out pressure.
 
-## Strikes: one clock for the gong, the shimmer and the drone
+## Strikes: one trigger for the gong, the shimmer, the drone and the AVDog
 
-A chip's clock is the lopsided pulse train that ttrollz plays: long and short steps around the aiclk tempo. The
-gong does not strike on a fixed grid. Its trigger response is a blocking window of two bars, times 1 to 1.375
-by the chip's identity (one of seven steps of one sixteenth). A strike lands on the first clock pulse
-after the window, so the strikes sit on the chip's own rhythm and different chips divide their clock
-differently. The heartbeat sets how far into the first window the chip starts.
+The gong does not strike on a fixed grid. Its trigger response is a blocking window of two bars, times 1 to 1.375
+by the chip's identity (one of seven steps of one sixteenth). A strike lands on the first pulse of its trigger
+after the window, so different chips divide their trigger differently. The heartbeat sets how far into the first
+window the chip starts.
 
-The same strike times drive two more devices, as a Plumbutter patch sends one clock to several modules:
+The trigger is one of two things, picked by the chip's identity and the patch and kept for the whole run. Three times in
+four the gong is patched to one of the chip's rolls, as a Gongue is patched to a roll's orange in the guide, and
+strikes on that roll's own pulses, which wander off any grid. The other times, and for a chip with no rolls up, it
+follows the chip's clock: the lopsided pulse train that ttrollz plays, long and short steps around the aiclk tempo.
+The roll can be any of the chip's rolls, heard or not (see ttrollz below), and the pulses it follows are the ones
+ttrollz plays, because both read the same drift for the same segment of a live run.
+
+The same strike times drive three more devices, as a Plumbutter patch sends one trigger to several modules:
 
 * the shimmer snaps: its level goes from 70% to 100% and falls back with a 12 ms time constant
 * the drone ripples: its level follows a damped swing, rectified, at 1.5 swings a beat and fading over two
   beats, then settles to 60%
+* the AVDog pings its filter (see ttavdog)
 
 ## ttrollz
 
-The chip's own clock alternates long and short steps (25% swing) at the aiclk tempo. Each lane adds a roll with its own geometry and tempo:
+The chip's own clock alternates long and short steps (25% swing) at the aiclk tempo. Each lane that is up brings a
+barre of rolls, as the Rolzer has: a triangle, a square, a pentagon and two hexagons (3, 4, 5, 6 and 6 sides), the
+second hexagon pulsing out of phase with the first. A chip with everything up runs 40 rolls (the real Rolzer has 35,
+five on each of seven barres). Only one roll of each barre is heard, with the geometry and tempo below; the rest are
+silent, but they are linked into the network and a gong can be patched to any of them.
 
-| Lane | Roll | Barre | Tempo against the chip's own |
-|---|---|---|---|
-| DDR 0 to 3 | 3, 4, 5, 6 sides | 1, 2, 3, 4 | 1.45, 1.00, 0.67, 0.46 |
-| Ethernet group 0 to 3 | 6, 5, 4, 3 sides | 3, 4, 5, 6 | 0.67, 0.46, 0.32, 0.21 |
+| Lane | The roll that is heard | Barre | Tempo against the chip's own | Rolls the lane brings |
+|---|---|---|---|---|
+| DDR 0 to 3 | 3, 4, 5, 6 sides | 1, 2, 3, 4 | 1.45, 1.00, 0.67, 0.46 | all five |
+| Ethernet group 0 to 3 | 6, 5, 4, 3 sides | 3, 4, 5, 6 | 0.67, 0.46, 0.32, 0.21 | as many as its share of links up (rounded up), and always its own |
 
 Barre tempos are 192, 122, 84, 56, 39, 27 and 18 BPM, and barre 2 (84 BPM) plays at the chip's tempo. The lanes
 run together as coupled circuits (`ttrolzer.roll_ensemble`), not as independent pulse trains:
@@ -98,14 +109,15 @@ run together as coupled circuits (`ttrolzer.roll_ensemble`), not as independent 
   cycle by a random walk of 12% of a cycle per cycle, so it never comes back round in the same phase.
 * **Marked cycle.** The first step of each roll's cycle also plays an octave-up blip at 0.6 of the lane's level, so a
   3 or a 5 can be heard.
-* **Browns as Sandrodes.** Two to four links join pairs of the chip's rolls, drawn from the patch seed and the chip's
-  identity so a chip is wired the same way for the whole run. Every pulse of the source pulls the target's next step
+* **Browns as Sandrodes.** Links join pairs of the chip's rolls: two to four, plus one for every ten rolls and one for
+  every five (a 40-roll chip gets 6 to 12). They are drawn from the patch seed and the chip's identity so a chip is wired
+  the same way for the whole run. At least half of them end at a roll that is heard, so the silent rolls shape what you hear. Every pulse of the source pulls the target's next step
   earlier by 5% to 30% of what is left of it (never below 15% of the barre's step after the target's last pulse). The
   pull grows with the chip's pressure, and the wiring does not change. A faster source syncs an even target mostly,
   and a slower one does not. An odd source keeps an even target from settling.
 
-No lane is locked to the bar. A DDR status of 0 grounds its roll, so the roll and its links are gone. The chip's own
-clock, the one the gong waits on, is still a plain long-short pulse train and is not one of these rolls.
+No lane is locked to the bar. A DDR status of 0 grounds the lane, so its rolls and their links are gone. The chip's
+own clock is still a plain long-short pulse train and is not one of these rolls; a gong that is not patched to a roll follows it.
 
 ## ttrax
 

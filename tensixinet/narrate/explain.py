@@ -24,8 +24,9 @@ from ..music.devices import (
     TRIGGER_RESPONSE_SPREAD,
     TRIGGER_RESPONSE_STEPS,
     gong_detune_cents,
+    gong_trigger_roll,
     strike_times,
-    ttrollz_lanes,
+    ttrollz_network,
 )
 from ..music.ttrolzer import draw_links, roll_drift
 from ..music.ttsteam import STEPS, dust_per_second, snare_decay, step_pattern
@@ -129,13 +130,19 @@ def _explain_wider_readings(t: Telemetry, devices: List[str], patch: Patch = DEF
         f"point, or power from a quarter of the {t.tdp_limit:.0f} W limit up to it, whichever is closer"
     )
     if "ttrollz" in devices:
-        lanes = ttrollz_lanes(t)
-        browns = draw_links(len(lanes), patch.seed, personality(t), chip_pressure(t))
+        net = ttrollz_network(t)
+        browns = draw_links(len(net.rolls), patch.seed, personality(t), chip_pressure(t), [lane.index for lane in net.lanes])
         if browns:
-            wires = ", ".join(f"{lanes[l.source].roll.sides}-roll to {lanes[l.target].roll.sides}-roll" for l in browns)
+            def name(i: int) -> str:
+                return f"{net.rolls[i].sides}-roll ({net.rolls[i].bpm:.0f} BPM)"
+            wires = ", ".join(f"{name(l.source)} to {name(l.target)}" for l in browns[:6])
+            if len(browns) > 6:
+                wires += f", and {len(browns) - 6} more"
             out.append(Decision(
-                f"{len(browns)} Browns patched between its {len(lanes)} rolls: {wires}",
-                "a Brown is a Sandrode, input and output at once, so each patch weaves two rolls together: every pulse of the "
+                f"{len(browns)} Browns patched between its {len(net.rolls)} rolls, {len(net.lanes)} of them heard: {wires}",
+                "each lane that is up brings a barre of the Rolzer's rolls (a triangle, square, pentagon and two hexagons) and only one "
+                "roll of each barre is sounded; at least half the links end at a heard roll, so the silent rolls shape what you hear. "
+                "A Brown is a Sandrode, input and output at once, so each patch weaves two rolls together: every pulse of the "
                 "first pulls the next step of the second earlier, which syncs an even roll to a faster one and knocks it off its "
                 f"pattern when the source is odd. The chip's identity and the patch pick the wiring; pressure {chip_pressure(t):.2f} "
                 f"sets the pull (up to {max(l.pull for l in browns):.0%} of a step); ASIC temperature {t.asic_temperature:.0f} C sets how far "
@@ -257,12 +264,28 @@ def _explain_wider_readings(t: Telemetry, devices: List[str], patch: Patch = DEF
             f"chip identity {ident:08x} -> gong tuned {gong_detune_cents(ident):+d} cents",
             "the same chip fingerprint detunes the gong by up to 10 cents either way, so gongs on different chips beat against each other",
         ))
-        strikes = strike_times(t, 60.0)[:4]
+        net = ttrollz_network(t)
+        which = gong_trigger_roll(t, patch)
+        if which is None:
+            out.append(Decision(
+                "gong is patched to the chip's own ttrollz clock",
+                "the chip has no rolls to patch it to, or its identity and the patch picked the clock; the strike lands on the next "
+                "clock pulse after the blocking window",
+            ))
+        else:
+            roll = net.rolls[which]
+            out.append(Decision(
+                f"gong is patched to roll {which} of {len(net.rolls)}, a {roll.sides}-roll ({roll.bpm:.0f} BPM)"
+                + (", one of the rolls that is heard" if which in [lane.index for lane in net.lanes] else ", a roll that is not heard"),
+                "the Gongue takes its trigger from a roll's orange output, so the strike lands on the roll's own pulses, which wander "
+                "off any grid. The chip's identity and the patch pick the roll, and the same pulses are the ones ttrollz plays",
+            ))
+        strikes = strike_times(t, 60.0, patch)[:4]
         out.append(Decision(
             f"trigger response: gong strikes at {', '.join(f'{x:.1f}' for x in strikes)} s",
             f"the gong ignores its trigger for a blocking window after each strike, as a Gongue does with its trigger response: two bars, times "
             f"{1 + TRIGGER_RESPONSE_SPREAD * (ident % TRIGGER_RESPONSE_STEPS):.2f} for this chip's identity. "
-            "The strike lands on the next pulse of the chip's own ttrollz clock after the window, so a chip divides its clock its own way",
+            "The strike lands on the next pulse of its trigger after the window, so a chip divides its trigger its own way",
         ))
         out.append(Decision(
             f"heartbeat {t.heartbeat} -> first gong strike {heartbeat_phase(t.heartbeat) * interval / 2:.1f} s in",

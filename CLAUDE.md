@@ -442,4 +442,19 @@ legacy/        first prototype scripts, kept for reference
   roll model's ranges on the page equal the code's. Not in this commit: the idea of linking the gongs to the rolls and growing the roll network toward
   the Rolzer's 35, which is designed (the gong would take its trigger from one of the chip's rolls, and the gong and `ttrollz` would share one seed so the
   linked pulses are the ones heard) and not started.
+* **2026-10-19, "gongs should probably link to the rollz too. it's ok if we have a lot more rolls. like the dedicated rollzer module" (then "yes"):**
+  `ttrollz_network` gives each lane that is up a barre of the Rolzer's rolls (3, 4, 5, 6 and 6 sides, the second hexagon half a step out of
+  phase): up to 40 rolls per chip, only each lane's own roll heard. `roll_pulses` runs them (cached, one call per render shared by every
+  reader). A chip's gong is patched to one of its rolls three times in four (`draw_gong_trigger`, from the chip's identity and the patch) and
+  otherwise to its clock; the shimmer's snap, the drone's ripple and the AVDog follow the same strikes. Every reader takes its segment from its
+  seed (`seed // SEGMENT_SEED_STRIDE`, now in `ttrolzer.py`), so in live mode the gong and `ttrollz` use the same drift and the linked pulses are
+  the ones heard.
+  * First version put the links among all 40 rolls and 14 of them never reached a heard roll, so pressure stopped changing what `ttrollz` played
+    on a chip. `draw_links` now takes the heard rolls and sends at least half of its links to one. The links also grow with the network (2 + n/10 to
+    4 + n/5).
+  * The roll-linked gong makes the gong, shimmer, drone and AVDog read the DDR status and pressure, so `DEVICE_INPUTS` gained those and the inputs
+    test uses a base chip (`0x3002`) whose gong is on a roll and where every listed field moves its strikes. One drone test compared the tallest
+    spectral peak, which jumps between the chord's voices when the ripple changes; it now compares the centre of the spectrum.
+  * Mutation run: 31 mutants, 5 survivors (the heard-index filter and the segment in the shimmer, drone and AVDog). Each got a test.
+  * Measured only: a 60 s render takes 4.4 s and a live segment 0.4 s. Not listened to.
 
