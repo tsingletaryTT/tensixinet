@@ -5,8 +5,11 @@
 Two things decide a patch. The system decides the scale (from how unevenly the memory
 channels are heated) and the gong tuning (from the memory-to-ASIC temperature ratio), so
 the sound follows the machine. A seed decides the rest: the lead motif, the gong's beat,
-the shimmer band, the turn length and how far non-soloists drop. The seed comes from the
-chips' readings plus some entropy, so no two runs match unless you replay a saved patch.
+the shimmer band, the turn length and how far non-soloists drop. The seed also picks a mode
+of the system's scale (the same notes started from another degree), a small stretch of the gong's
+partials and a jitter of their levels, so a quiet box that always lands on the same scale and
+tuning still plays a different patch each run. The seed comes from the chips' readings plus some
+entropy, so no two runs match unless you replay a saved patch.
 
 `DEFAULT_PATCH` holds the constants the devices used before patches existed.
 """
@@ -31,8 +34,24 @@ SCALES = {
     "dorian": (0, 2, 3, 5, 7, 9, 10),
     "whole_tone": (0, 2, 4, 6, 8, 10),
     "phrygian_dominant": (0, 1, 4, 5, 7, 8, 10),
+    # Added after the first six, in this order, so the system still reaches the first six in the same places.
+    "blues": (0, 3, 5, 6, 7, 10),
+    "harmonic_minor": (0, 2, 3, 5, 7, 8, 11),
+    "lydian": (0, 2, 4, 6, 7, 9, 11),
+    "mixolydian": (0, 2, 4, 5, 7, 9, 10),
+    "phrygian": (0, 1, 3, 5, 7, 8, 10),
+    "in_sen": (0, 1, 5, 7, 10),
+    "iwato": (0, 1, 5, 6, 10),
+    "egyptian": (0, 2, 5, 7, 10),
+    "double_harmonic": (0, 1, 4, 5, 7, 8, 11),
+    "hungarian_minor": (0, 2, 3, 6, 7, 8, 11),
+    "prometheus": (0, 2, 4, 6, 9, 10),
+    "augmented": (0, 3, 4, 7, 8, 11),
+    "octatonic": (0, 2, 3, 5, 6, 8, 9, 11),
 }
 SCALE_NAMES = tuple(SCALES)
+# A scale of n notes has n modes; the seed picks one.
+MODE_COUNT_MAX = max(len(s) for s in SCALES.values())
 DEGREES_PER_SCALE_STEP_C = 3.0  # each 3 C of GDDR spread moves one scale along
 
 # name -> (partial ratios, amplitudes). No partial after the first is a whole multiple.
@@ -40,6 +59,13 @@ GONG_TUNINGS = {
     "bell": ((1.0, 2.76, 5.40, 8.45), (1.0, 0.6, 0.35, 0.2)),
     "tamtam": ((1.0, 1.47, 2.31, 3.64, 5.57), (1.0, 0.7, 0.5, 0.35, 0.2)),
     "singing_bowl": ((1.0, 2.71, 5.18), (1.0, 0.5, 0.25)),
+    # Added after the first three (same reason as the scales). Hand-picked inharmonic sets in the
+    # manner of each object, not measurements. At most five partials, the gong kernel's slot count.
+    "plate": ((1.0, 1.59, 2.27, 2.65, 3.38), (1.0, 0.8, 0.55, 0.4, 0.25)),
+    "gamelan": ((1.0, 2.33, 3.61, 5.47), (1.0, 0.65, 0.4, 0.22)),
+    "glass": ((1.0, 2.62, 4.55, 6.72), (1.0, 0.45, 0.3, 0.12)),
+    "cymbal": ((1.0, 1.35, 1.83, 2.57, 3.41), (1.0, 0.85, 0.65, 0.45, 0.3)),
+    "tubular": ((1.0, 2.32, 4.25, 6.63), (1.0, 0.55, 0.3, 0.15)),
 }
 GONG_TUNING_NAMES = tuple(GONG_TUNINGS)
 
@@ -48,8 +74,22 @@ GONG_TUNING_NAMES = tuple(GONG_TUNINGS)
 # so an old saved patch with no rax_bars defaults to it.
 RAX_BAR_COUNTS = (4, 7, 14)
 
-MOTIF_LENGTH = 8
-MOTIF_RANGE = (-3, 6)  # scale degrees
+# What the shift register of ttsteam (Man With The Red Steam) and its noise are patched into. Each is a route
+# from ttsteam's register to another device; a patch lists the ones that are on. The default patch has none.
+#   strikes  the register's hits join the clock pulses the gong's trigger response waits on, so the gong, the
+#            shimmer's snap, the drone's ripple and the AVDog all follow them
+#   avdog    the register's hits also ping the AVDog's filter directly, a snappy call and response on the snare
+#   accent   the register accents the ttrollz clock pulses it lands on
+#   pitch    the register holds one note of the patch's scale per step, drawn from the seed, and steers the
+#            AVDog's dogtone with them
+STEAM_ROUTES = ("strikes", "avdog", "accent", "pitch")
+STEAM_ROUTE_ODDS = 0.6  # each route is on in a drawn patch with this chance, and a patch always has at least one
+
+MOTIF_LENGTHS = (6, 7, 8, 9, 10, 12)  # eighth notes; the lead's bar is as long as its motif
+MOTIF_LOW_RANGE = (-5, -2)  # the lowest degree a motif may reach is drawn from here ...
+MOTIF_HIGH_RANGE = (4, 8)   # ... and the highest from here (scale degrees)
+GONG_STRETCH = 0.015  # partials after the first move by up to this fraction ...
+GONG_AMP_JITTER = 0.15  # ... and their levels by up to this fraction
 
 
 @dataclass(frozen=True)
@@ -66,6 +106,8 @@ class Patch:
     bars_per_turn: int
     floor: float  # volume of everyone who is not soloing
     rax_bars: int  # ttrax's bar count: 4 (Tetrax), 7 (Sidrax) or 14 (Quatrax)
+    steam_routes: Tuple[str, ...] = ()  # which of STEAM_ROUTES are on
+    mode: int = 0  # `scale` is the named scale started from this one of its notes (0 = as listed)
 
 
 DEFAULT_PATCH = Patch(
@@ -112,13 +154,22 @@ def gong_tuning_for(telemetry: Sequence[Telemetry]) -> str:
     return GONG_TUNING_NAMES[int(round(memory_to_asic_ratio(telemetry) * 10)) % len(GONG_TUNING_NAMES)]
 
 
+def rotate_mode(scale: Sequence[int], mode: int) -> Tuple[int, ...]:
+    """`scale` started from its `mode`-th note, as semitones above that note (mode 0 is the scale itself)."""
+    n = len(scale)
+    notes = [scale[(mode + i) % n] + 12 * ((mode + i) // n) for i in range(n)]
+    return tuple(x - notes[0] for x in notes)
+
+
 def _draw_motif(rng: np.random.Generator) -> Tuple[int, ...]:
-    """Eight scale degrees from 0 in steps of at most 2, staying inside MOTIF_RANGE, with at least 3 different notes."""
-    lo, hi = MOTIF_RANGE
+    """A motif of 6 to 12 scale degrees from 0, steps of at most 3 (mostly 1 or 2), inside a drawn range, with at least 3 different notes."""
+    lo = int(rng.integers(MOTIF_LOW_RANGE[0], MOTIF_LOW_RANGE[1] + 1))
+    hi = int(rng.integers(MOTIF_HIGH_RANGE[0], MOTIF_HIGH_RANGE[1] + 1))
+    length = int(rng.choice(MOTIF_LENGTHS))
     while True:
         motif = [0]
-        for _ in range(MOTIF_LENGTH - 1):
-            step = int(rng.choice([-2, -1, 0, 1, 2], p=[1 / 7, 2 / 7, 1 / 7, 2 / 7, 1 / 7]))
+        for _ in range(length - 1):
+            step = int(rng.choice([-3, -2, -1, 0, 1, 2, 3], p=[1 / 20, 3 / 20, 5 / 20, 2 / 20, 5 / 20, 3 / 20, 1 / 20]))
             if not lo <= motif[-1] + step <= hi:
                 step = -step
             motif.append(motif[-1] + step)
@@ -126,26 +177,50 @@ def _draw_motif(rng: np.random.Generator) -> Tuple[int, ...]:
             return tuple(motif)
 
 
+def _draw_steam_routes(seed: int) -> Tuple[str, ...]:
+    """A non-empty subset of STEAM_ROUTES, in their listed order. It has its own random stream, so adding routes
+    did not move any other drawn field for an existing seed."""
+    rng = np.random.default_rng([seed, 0x57EA])
+    on = [bool(x) for x in rng.random(len(STEAM_ROUTES)) < STEAM_ROUTE_ODDS]
+    if not any(on):
+        on[int(rng.integers(len(STEAM_ROUTES)))] = True
+    return tuple(r for r, o in zip(STEAM_ROUTES, on) if o)
+
+
+def _draw_gong(rng: np.random.Generator, tuning: str) -> Tuple[Tuple[float, ...], Tuple[float, ...]]:
+    """The tuning's partials stretched or squeezed a little, and each level nudged, so no two draws ring alike."""
+    partials, amps = GONG_TUNINGS[tuning]
+    stretch = 1.0 + float(rng.uniform(-GONG_STRETCH, GONG_STRETCH))
+    jitter = rng.uniform(1.0 - GONG_AMP_JITTER, 1.0 + GONG_AMP_JITTER, size=len(amps))
+    new_partials = (1.0,) + tuple(round(r * stretch, 3) for r in partials[1:])
+    new_amps = (1.0,) + tuple(round(float(a * j), 3) for a, j in zip(amps[1:], jitter[1:]))
+    return new_partials, new_amps
+
+
 def draw_patch(seed: int, telemetry: Sequence[Telemetry]) -> Patch:
     rng = np.random.default_rng(seed)
     scale_name = scale_for(telemetry)
     tuning = gong_tuning_for(telemetry)
     motif = _draw_motif(rng)
-    lo = float(rng.uniform(10000, 14000))
-    width = float(rng.uniform(4000, 7000))
+    mode = int(rng.integers(0, len(SCALES[scale_name])))
+    partials, amps = _draw_gong(rng, tuning)
+    lo = float(rng.uniform(8000, 15000))
+    width = float(rng.uniform(3000, 9000))
     return Patch(
         seed=seed,
         scale_name=scale_name,
-        scale=SCALES[scale_name],
+        scale=rotate_mode(SCALES[scale_name], mode),
         motif=motif,
         gong_tuning=tuning,
-        gong_partials=GONG_TUNINGS[tuning][0],
-        gong_amps=GONG_TUNINGS[tuning][1],
-        gong_beat_hz=round(float(rng.uniform(0.4, 1.2)), 3),
+        gong_partials=partials,
+        gong_amps=amps,
+        gong_beat_hz=round(float(rng.uniform(0.25, 2.0)), 3),
         shimmer_band=(round(lo, 1), round(min(lo + width, 20500.0), 1)),
-        bars_per_turn=int(rng.integers(1, 5)),
-        floor=round(float(rng.uniform(0.25, 0.45)), 3),
+        bars_per_turn=int(rng.integers(1, 7)),
+        floor=round(float(rng.uniform(0.2, 0.5)), 3),
         rax_bars=int(rng.choice(RAX_BAR_COUNTS)),
+        mode=mode,
+        steam_routes=_draw_steam_routes(seed),
     )
 
 
@@ -164,6 +239,11 @@ def _validate(p: Patch) -> Patch:
         raise ValueError("floor must be above 0 and at most 1")
     if p.gong_beat_hz < 0:
         raise ValueError("gong_beat_hz cannot be negative")
+    if not 0 <= p.mode < len(p.scale):
+        raise ValueError(f"mode must be between 0 and {len(p.scale) - 1} for a scale of {len(p.scale)} notes")
+    unknown = [r for r in p.steam_routes if r not in STEAM_ROUTES]
+    if unknown:
+        raise ValueError(f"unknown steam route {', '.join(unknown)}; the routes are {', '.join(STEAM_ROUTES)}")
     if p.rax_bars not in RAX_BAR_COUNTS:
         raise ValueError(f"rax_bars must be one of {RAX_BAR_COUNTS}")
     return p
@@ -185,6 +265,10 @@ def patch_from_dict(d: dict) -> Patch:
             floor=float(d["floor"]),
             # a patch saved before this field existed has no rax_bars; it played as the Sidrax (7 bars)
             rax_bars=int(d.get("rax_bars", 7)),
+            # a patch saved before modes existed played its scale as listed
+            mode=int(d.get("mode", 0)),
+            # a patch saved before routes existed has none
+            steam_routes=tuple(str(x) for x in d.get("steam_routes", ())),
         ))
     except (KeyError, TypeError) as e:
         raise ValueError(f"patch is missing or has a malformed field: {e}") from e

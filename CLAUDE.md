@@ -402,3 +402,44 @@ legacy/        first prototype scripts, kept for reference
   * `.gitignore` gained `!demo/assets/features.final.mp4` / `!demo/assets/features.sheet.png`, matching the chorus demo's
     allow-list entries. `site/assets/` is not under the restrictive `demo/assets/*` rule, so the video and poster there needed
     no gitignore change, only `git add -n` to confirm nothing else came along with them.
+* **2026-10-19, "diversify our patch library a bit so there's a lot more variety on possible in every new run":** `music/patch.py`
+  now has 19 scales (was 6) and 8 gong tunings (was 3), appended after the originals so the system reaches the first six in the same
+  places. The seed also draws a `mode` (the system's scale started from another of its notes, so a quiet box that always lands on one
+  scale still gets different shapes), a 1.5% stretch of the gong's partials and a 15% nudge to their levels, a motif of 6 to 12 notes
+  in a drawn range, and wider ranges for beat, shimmer band, turn length and floor. A saved patch with no `mode` replays as listed.
+  * First mutation run left four survivors, all range bounds: the tests checked values stayed inside the range and never that the draw
+    reached past the old one. One tuning (`singing_bowl`) put a partial 0.02 from a whole number at a 3% stretch, so the stretch is 1.5%.
+* **2026-10-19, "after running it for awhile, i'm hearing the sound stop and start a bit":** live mode ran 6 minutes, and eight reads of
+  `tt-smi -s` in a row (270 to 309 s) hung to their 5 s timeout, each longer than the 4.3 s of music it fed. Rendering (0.26 s) and a
+  healthy read (0.23 s) were fine. `SNAPSHOT_TIMEOUT_S` is now 1.5 s. I do not know why `tt-smi` hung; another agent's board reset is a guess.
+* **2026-10-19, "the man with the red steam shift register can be used for more than just the noise/snare ... and the noise/snare can be
+  used for more than just the sound" (then "used with rollz and gongs and avdogs a pretty good snappy rhythm section can be made"):**
+  the register moved to `music/register.py` and four patch-drawn steam routes (`strikes`, `avdog`, `accent`, `pitch`) patch it into the
+  gong's clock, the AVDog, ttrollz and the AVDog's pitch. Off in the default patch, so the earlier sound does not move.
+  * Needed a chip config where the routes bite: a mask that fires only on odd steps never lines up with the ttrollz clock (its long and
+    short steps put pulses on every fourth step and half-way between steps), and most masks give a hit-only gong strike rarely or never.
+  * Mutation run: 5 survivors the first time (the hit just before a pulse, the avdog route replacing the strikes instead of adding to
+    them, the avdog not following the shared clock, the end-of-render boundary and one equivalent clamp). The four real ones each got a test.
+  * Measured only: the routes render finite audio and the log names them. A rhythm-section-only clip is at
+    `--only ttrollz,gong,ttavdog,ttsteam`. Not listened to. The kernels do not follow routes.
+* **2026-10-19, "are the rollz browns behaving as sandrodes ... are our rollz giving us the kind of odd time signatures associated with the circuit, with a little wander?" then "yeah" to a rebuild:**
+  read the guide's text for Sandrodes, Brown Theory, Evens and Geometry (`pdftotext` on the Plumbutter guide works; the first attempt read only the cover
+  because it was run on page 1's output) and measured `ttrollz`: lanes were independent, the repeating step pattern was fixed, the wander was
+  independent jitter, and the 4-roll and 6-roll had identical step patterns. `roll_ensemble` in `music/ttrolzer.py` now runs the lanes as coupled
+  circuits (persistent capacitors, drift that grows with temperature, an odd roll's pattern sliding round its cycle, an accented cycle start, a
+  distinct hexagon, and Brown links that pull a target's next step earlier). `ttrollz` uses it; `roll_pulse_times` stays for ttrax.
+  * My first sync test had the direction backwards. The guide says a faster pulse syncs an even roll, and the numbers agree (a faster source locks
+    the target to 0.08 of its free offset; a slower one barely moves it). The hexagon's triplet feel was swamped by its own swing: I had squared the
+    swing amplitude wrongly, so it needed less swing and a stronger triplet.
+  * Several first tests passed only on one lucky draw of the capacitors (sync strength, hexagon feel). They now look at 15 seeds and assert a typical
+    case, not every case. One test measured step spread, which the square's fixed swing dominates; it now measures the length of a whole cycle.
+  * Mutation run: 35 mutants, 7 survivors. Five got tests (the minimum-gap floor, which needs three rolls pulling each other hard; link strengths
+    differing; distinct pairs over many seeds; the Ethernet blips' decay). Two are equivalent: the clamp on a step's length (no shape and capacitor
+    reach it) and `remaining > 0` against `>= 0` (only differs when two rolls are due at exactly the same instant).
+  * Still plain: the chip's own clock that the gong waits on. Measured only; not listened to.
+* **2026-10-19, "commit and push this and update the site too":** the site has a new `#rhythm` section (the coupled rolls, the four steam routes and
+  the bigger patch library) and a nav link. `tests/test_site.py` checks that every route name, the library sizes (19 scales, 8 gong tunings) and the
+  roll model's ranges on the page equal the code's. Not in this commit: the idea of linking the gongs to the rolls and growing the roll network toward
+  the Rolzer's 35, which is designed (the gong would take its trigger from one of the chip's rolls, and the gong and `ttrollz` would share one seed so the
+  linked pulses are the ones heard) and not started.
+

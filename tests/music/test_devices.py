@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Ciat-Lonbarde-style devices. Each is a pure function of one chip's telemetry."""
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -485,49 +487,89 @@ def test_the_drone_ripples_at_one_and_a_half_undulations_a_beat_and_rings_for_tw
 
 # --- ttrollz lanes are rolls on the ttrolzer's barres --------------------------------------------------------------
 
-from tensixinet.music.ttrolzer import barre_bpm, DDR_LANE_BARRES, ETH_LANE_BARRES, ETH_LANE_SIDES  # noqa: E402
+from tensixinet.music.ttrolzer import (  # noqa: E402
+    DDR_LANE_BARRES, DOWNBEAT_GAIN, ETH_LANE_BARRES, ETH_LANE_SIDES, barre_bpm, draw_links, roll_drift, roll_ensemble,
+)
+from tensixinet.music.devices import ttrollz_lanes, ttrollz_pulse_times  # noqa: E402
+from tensixinet.music.mapping import chip_pressure, personality, temp_to_pitch_hz  # noqa: E402
+from tensixinet.music.patch import DEFAULT_PATCH  # noqa: E402
 
 
-def _lane_calls(monkeypatch, t, seed=3):
-    seen = []
-    real = devices_module.roll_pulse_times
-    monkeypatch.setattr(devices_module, "roll_pulse_times", lambda sides, bpm, duration, s: seen.append((sides, bpm, s)) or real(sides, bpm, duration, s))
-    ttrollz(t, 2.0, SR, seed)
-    return seen
+def _lanes(**kw):
+    return [(l.roll.sides, l.roll.bpm) for l in ttrollz_lanes(tel(**kw))]
 
 
-def test_each_ddr_lane_is_a_roll_on_its_own_barre_at_that_barres_tempo(monkeypatch):
-    seen = _lane_calls(monkeypatch, tel(ddr_status=(1, 0, 1, 1), eth_mask=0x0000, aiclk=800.0))
+def test_each_ddr_lane_is_a_roll_on_its_own_barre_at_that_barres_tempo():
     bpm = aiclk_to_bpm(800.0)
-    assert [(s, b) for s, b, _ in seen] == [
+    assert _lanes(ddr_status=(1, 0, 1, 1), eth_mask=0x0000, aiclk=800.0) == [
         (3, pytest.approx(barre_bpm(bpm, DDR_LANE_BARRES[0]))),
         (5, pytest.approx(barre_bpm(bpm, DDR_LANE_BARRES[2]))),
         (6, pytest.approx(barre_bpm(bpm, DDR_LANE_BARRES[3]))),
     ]
 
 
-def test_each_ethernet_lane_with_a_link_up_is_a_slow_roll_on_a_grave_barre(monkeypatch):
-    seen = _lane_calls(monkeypatch, tel(ddr_status=(0, 0, 0, 0), eth_mask=0x00F1, aiclk=800.0))  # groups 0 and 1 have links up
+def test_each_ethernet_lane_with_a_link_up_is_a_slow_roll_on_a_grave_barre():
     bpm = aiclk_to_bpm(800.0)
-    assert [(s, b) for s, b, _ in seen] == [
+    assert _lanes(ddr_status=(0, 0, 0, 0), eth_mask=0x00F1, aiclk=800.0) == [  # groups 0 and 1 have links up
         (ETH_LANE_SIDES[0], pytest.approx(barre_bpm(bpm, ETH_LANE_BARRES[0]))),
         (ETH_LANE_SIDES[1], pytest.approx(barre_bpm(bpm, ETH_LANE_BARRES[1]))),
     ]
     assert min(ETH_LANE_BARRES) > max(DDR_LANE_BARRES) - 2  # the grave end of the ttrolzer
 
 
-def test_no_two_lanes_share_a_seed_so_their_tolerances_differ(monkeypatch):
-    seen = _lane_calls(monkeypatch, tel(ddr_status=(1, 1, 1, 1), eth_mask=0xFFFF))
-    assert len(seen) == 8 and len({s for _, _, s in seen}) == 8
+def test_a_chip_with_everything_up_plays_eight_lanes_ddr_first_and_their_levels_follow_the_links():
+    lanes = ttrollz_lanes(tel(ddr_status=(1, 1, 1, 1), eth_mask=0xFFFF))
+    assert len(lanes) == 8 and [l.roll.sides for l in lanes[:4]] == [3, 4, 5, 6]
+    assert {l.level for l in lanes[:4]} == {0.5} and {l.level for l in lanes[4:]} == {0.35}
+    assert {l.decay_s for l in lanes[:4]} == {0.05} and {l.decay_s for l in lanes[4:]} == {0.04}  # DDR blips ring a little longer
+    half = ttrollz_lanes(tel(ddr_status=(0, 0, 0, 0), eth_mask=0x0003))  # two of four links in the first group
+    assert half[0].level == pytest.approx(0.35 * 0.5)
+
+
+def test_ttrollz_is_its_lanes_blips_with_the_first_step_of_each_cycle_accented_an_octave_up():
+    """Rebuilds the output from the public pieces, so a wrong link, drift, pitch, level or accent changes it."""
+    t = tel(ddr_status=(1, 1, 0, 1), eth_mask=0x00F3, aiclk=800.0, asic_temperature=55.0, heartbeat=0)
+    patch = dataclasses.replace(DEFAULT_PATCH, seed=9)
+    n = int(6.0 * SR)
+    lanes = ttrollz_lanes(t)
+    links = draw_links(len(lanes), 9, personality(t), chip_pressure(t))
+    pulses = roll_ensemble([l.roll for l in lanes], links, 6.0, 4, drift=roll_drift(55.0), cap_seed=9 * 1_000_003 + personality(t))
+    pitch = temp_to_pitch_hz(55.0)
+    expected = devices_module._blips(ttrollz_pulse_times(aiclk_to_bpm(800.0), 6.0), pitch, n, SR)
+    for lane, (times, downbeats) in zip(lanes, pulses):
+        expected += lane.level * devices_module._blips(times, pitch * lane.pitch, n, SR, lane.decay_s)
+        expected += DOWNBEAT_GAIN * lane.level * devices_module._blips(times[downbeats], pitch * lane.pitch * 2, n, SR, lane.decay_s)
+    assert np.allclose(ttrollz(t, 6.0, SR, 4, patch), np.tanh(expected), atol=1e-6)
+
+
+def test_a_chips_capacitors_are_its_own_and_do_not_change_from_one_segment_to_the_next():
+    """Live mode re-renders with a new seed each segment; the capacitor mismatch comes from the patch and the chip, so
+    the roll keeps its trot, while the drift is free to wander differently."""
+    t = tel(ddr_status=(0, 1, 0, 0), eth_mask=0x0000, aiclk=800.0)
+    steps = []
+    for seed in (1, 2, 3):
+        lane = ttrollz_lanes(t)[0].roll
+        times, _ = roll_ensemble([lane], [], 40.0, seed, drift=0.0, jitter=0.0, cap_seed=5)[0]
+        steps.append(np.diff(times)[:8])
+    assert np.allclose(steps[0], steps[1]) and np.allclose(steps[1], steps[2])
 
 
 def test_ttrollz_lanes_are_not_locked_to_the_bar():
     # the old lanes fired a whole number of times per bar; a roll on a barre drifts against the bar
     t = tel(ddr_status=(0, 1, 0, 0), eth_mask=0x0000, aiclk=800.0)
     bar = 4 * 60.0 / aiclk_to_bpm(800.0)
-    onsets = devices_module.roll_pulse_times(4, barre_bpm(aiclk_to_bpm(800.0), DDR_LANE_BARRES[1]), 60.0, 0)
-    assert len(set(np.round((onsets % bar) / bar, 2))) > len(onsets) / 2
+    onsets = roll_ensemble([ttrollz_lanes(t)[0].roll], [], 60.0, 0)[0][0]
+    assert len(set(np.round((onsets % bar) / bar, 2))) > 20  # a lane locked to the bar would land on a handful of positions
     assert ttrollz(t, 4.0, SR, 0).dtype == np.float32
+
+
+def test_the_chips_pressure_and_wiring_reach_the_rolls():
+    base = tel(ddr_status=(1, 1, 1, 1), eth_mask=0xFFFF, aiclk=800.0)
+    assert not np.allclose(ttrollz(base, 8.0, SR, 0), ttrollz(dataclasses.replace(base, power=125.0), 8.0, SR, 0))      # pressure: link strength
+    assert not np.allclose(ttrollz(base, 8.0, SR, 0), ttrollz(dataclasses.replace(base, asic_temperature=90.0), 8.0, SR, 0))  # temperature: drift
+    assert not np.allclose(ttrollz(base, 8.0, SR, 0), ttrollz(dataclasses.replace(base, tensix_mask=0x1235), 8.0, SR, 0))     # identity: wiring
+    other = dataclasses.replace(DEFAULT_PATCH, seed=77)
+    assert not np.allclose(ttrollz(base, 8.0, SR, 0), ttrollz(base, 8.0, SR, 0, other))                                      # patch: wiring
 
 
 # --- ttquantus: the ttquantussy chain and the 8-bit buffer ---------------------------------------------------------------

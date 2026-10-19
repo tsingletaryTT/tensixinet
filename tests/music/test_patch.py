@@ -9,9 +9,12 @@ import pytest
 from tensixinet.music.lead import MOTIF
 from tensixinet.music.patch import (
     DEFAULT_PATCH,
+    GONG_STRETCH,
     GONG_TUNINGS,
+    MODE_COUNT_MAX,
     RAX_BAR_COUNTS,
     SCALES,
+    rotate_mode,
     draw_patch,
     load_patch,
     save_patch,
@@ -54,23 +57,27 @@ def test_different_seeds_give_different_patches():
 def test_every_drawn_patch_is_valid_and_playable(seed):
     p = draw_patch(seed, UNEVEN)
     steps = [b - a for a, b in zip(p.motif, p.motif[1:])]
-    assert len(p.motif) == 8 and p.motif[0] == 0
-    assert all(abs(s) <= 2 for s in steps) and -3 <= min(p.motif) and max(p.motif) <= 6
+    assert 6 <= len(p.motif) <= 12 and p.motif[0] == 0
+    assert all(abs(s) <= 3 for s in steps) and -5 <= min(p.motif) and max(p.motif) <= 8
     assert len(set(p.motif)) >= 3
     assert p.gong_partials[0] == 1.0 and list(p.gong_partials) == sorted(p.gong_partials)
     assert all(abs(r - round(r)) > 0.1 for r in p.gong_partials[1:])
+    assert len(p.gong_partials) <= 5  # the gong kernel has five partial slots
     assert len(p.gong_amps) == len(p.gong_partials)
     lo, hi = p.shimmer_band
-    assert 10000 <= lo < hi <= 20500 and hi - lo >= 3000
-    assert p.bars_per_turn in (1, 2, 3, 4) and 0.25 <= p.floor <= 0.45
-    assert 0.4 <= p.gong_beat_hz <= 1.2
+    assert 8000 <= lo < hi <= 20500 and hi - lo >= 3000
+    assert p.bars_per_turn in (1, 2, 3, 4, 5, 6) and 0.2 <= p.floor <= 0.5
+    assert 0.25 <= p.gong_beat_hz <= 2.0
+    assert 0 <= p.mode < len(SCALES[p.scale_name])
+    assert p.scale == rotate_mode(SCALES[p.scale_name], p.mode)
     assert p.rax_bars in RAX_BAR_COUNTS
     assert p.seed == seed
 
 
 def test_the_seed_moves_every_drawn_field_somewhere():
     ps = [draw_patch(s, UNEVEN) for s in range(80)]
-    for field in ("motif", "gong_beat_hz", "shimmer_band", "bars_per_turn", "floor", "rax_bars"):
+    for field in ("motif", "gong_beat_hz", "shimmer_band", "bars_per_turn", "floor", "rax_bars",
+                  "mode", "gong_partials", "gong_amps"):
         assert len({getattr(p, field) for p in ps}) > 1, field
 
 
@@ -82,7 +89,8 @@ def test_even_memory_temperatures_play_the_major_pentatonic():
 
 def test_uneven_memory_temperatures_move_the_scale():
     assert draw_patch(1, UNEVEN).scale_name != "major_pentatonic"
-    assert draw_patch(1, UNEVEN).scale == SCALES[draw_patch(1, UNEVEN).scale_name]
+    q = draw_patch(1, UNEVEN)
+    assert q.scale == rotate_mode(SCALES[q.scale_name], q.mode)
 
 
 def test_the_scale_follows_the_system_not_the_seed():
@@ -96,7 +104,9 @@ def test_the_gong_tuning_follows_the_memory_to_asic_temperature_ratio():
     hot_asic = chips(gddr=(40.0,) * 8, asic=44.0)     # ratio 0.91
     a, b = draw_patch(3, cool_asic), draw_patch(3, hot_asic)
     assert a.gong_tuning != b.gong_tuning
-    assert a.gong_partials == GONG_TUNINGS[a.gong_tuning][0]
+    base = GONG_TUNINGS[a.gong_tuning][0]
+    assert a.gong_partials[0] == 1.0 and len(a.gong_partials) == len(base)
+    assert all(abs(x / y - 1) <= GONG_STRETCH + 1e-3 for x, y in zip(a.gong_partials[1:], base[1:]))
     assert len({draw_patch(s, cool_asic).gong_tuning for s in range(30)}) == 1
 
 
@@ -197,3 +207,121 @@ def test_the_saved_file_is_one_readable_line_per_field(tmp_path):
     assert lines[0] == "{" and lines[-1] == "}"
     assert len(lines) == len(dataclasses.fields(DEFAULT_PATCH)) + 2
     assert '"motif": [0, 2, 1, 3, 2, 4, 3, 1]' in lines[4]
+
+
+# --- a bigger library, so a run has a lot to choose from ------------------------
+
+def test_the_library_is_bigger_and_keeps_its_first_entries_in_place():
+    assert len(SCALES) >= 18 and len(GONG_TUNINGS) >= 8
+    assert tuple(SCALES)[:6] == ("major_pentatonic", "minor_pentatonic", "hirajoshi", "dorian",
+                                 "whole_tone", "phrygian_dominant")
+    assert tuple(GONG_TUNINGS)[:3] == ("bell", "tamtam", "singing_bowl")
+
+
+def test_every_scale_starts_at_zero_rises_and_stays_inside_the_octave():
+    for name, sc in SCALES.items():
+        assert sc[0] == 0 and list(sc) == sorted(set(sc)) and sc[-1] < 12, name
+        assert len(sc) >= 5, name
+    assert len({tuple(sc) for sc in SCALES.values()}) == len(SCALES)  # no duplicates under two names
+
+
+def test_every_gong_tuning_is_inharmonic_even_stretched_to_the_edge_of_the_draw():
+    for name, (partials, amps) in GONG_TUNINGS.items():
+        assert partials[0] == 1.0 and len(partials) == len(amps) <= 5, name
+        assert list(partials) == sorted(partials) and amps[0] == 1.0, name
+        for stretch in (1 - GONG_STRETCH, 1 + GONG_STRETCH):
+            assert all(abs(r * stretch - round(r * stretch)) > 0.1 for r in partials[1:]), (name, stretch)
+
+
+def test_a_mode_is_the_scale_started_from_another_of_its_notes():
+    assert rotate_mode((0, 2, 4, 7, 9), 0) == (0, 2, 4, 7, 9)
+    assert rotate_mode((0, 2, 4, 7, 9), 1) == (0, 2, 5, 7, 10)   # minor-pentatonic-like shape: 2 4 7 9 12 minus 2
+    assert rotate_mode((0, 2, 3, 5, 7, 8, 11), 5) == (0, 3, 4, 6, 7, 9, 11)
+    assert MODE_COUNT_MAX >= 8
+
+
+def test_every_mode_of_every_scale_is_drawn_somewhere_and_the_mode_comes_from_the_seed():
+    drawn = {draw_patch(s, UNEVEN).mode for s in range(200)}
+    assert drawn == set(range(len(SCALES[draw_patch(1, UNEVEN).scale_name])))
+    assert len({draw_patch(s, UNEVEN).scale for s in range(200)}) > 1  # same scale name, different shapes
+
+
+def test_the_motif_length_varies_and_every_length_is_drawn():
+    assert {len(draw_patch(s, UNEVEN).motif) for s in range(300)} >= {6, 8, 10, 12}
+
+
+def test_a_hundred_runs_on_one_quiet_box_still_differ_in_most_of_their_fields():
+    ps = [draw_patch(s, UNEVEN) for s in range(100)]
+    for field in ("motif", "gong_partials", "gong_amps", "gong_beat_hz", "shimmer_band", "floor"):
+        assert len({getattr(p, field) for p in ps}) >= 50, field
+    assert len({p.scale for p in ps}) >= 5  # at most one per mode of the one scale the box lands on
+
+
+def test_a_patch_saved_before_modes_existed_replays_unrotated(tmp_path):
+    d = json.loads(json.dumps(dataclasses.asdict(DEFAULT_PATCH)))
+    del d["mode"]
+    path = tmp_path / "old.json"
+    path.write_text(json.dumps(d))
+    assert load_patch(path).mode == 0 and load_patch(path).scale == DEFAULT_PATCH.scale
+
+
+@pytest.mark.parametrize("change", [{"mode": -1}, {"mode": 5}])  # the default scale has five notes
+def test_a_mode_outside_the_scale_is_refused(tmp_path, change):
+    d = json.loads(json.dumps(dataclasses.asdict(DEFAULT_PATCH)))
+    d.update(change)
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps(d))
+    with pytest.raises(ValueError):
+        load_patch(path)
+
+
+def test_the_widened_ranges_are_reached_past_the_old_ones():
+    """Each range used to be narrower (beat 0.4-1.2, band edge 10-14 kHz, 1-4 bars, floor 25-45%); the draw must go beyond it."""
+    ps = [draw_patch(s, UNEVEN) for s in range(600)]
+    assert {p.bars_per_turn for p in ps} == {1, 2, 3, 4, 5, 6}
+    assert min(p.gong_beat_hz for p in ps) < 0.4 and max(p.gong_beat_hz for p in ps) > 1.2
+    assert min(p.shimmer_band[0] for p in ps) < 10000 and max(p.shimmer_band[0] for p in ps) > 14000
+    assert min(p.floor for p in ps) < 0.25 and max(p.floor for p in ps) > 0.45
+
+
+# --- steam routes: what the shift register and its noise are patched into -----------------------
+
+def test_the_four_routes_and_the_default_patch_having_none():
+    from tensixinet.music.patch import STEAM_ROUTES
+    assert STEAM_ROUTES == ("strikes", "avdog", "accent", "pitch")
+    assert DEFAULT_PATCH.steam_routes == ()  # the sound from before routes existed
+
+
+def test_every_route_is_drawn_somewhere_every_patch_has_one_and_they_come_in_order():
+    from tensixinet.music.patch import STEAM_ROUTES
+    ps = [draw_patch(s, UNEVEN) for s in range(200)]
+    assert {r for p in ps for r in p.steam_routes} == set(STEAM_ROUTES)
+    assert all(len(p.steam_routes) >= 1 for p in ps)
+    assert all(list(p.steam_routes) == [r for r in STEAM_ROUTES if r in p.steam_routes] for p in ps)
+    assert len({p.steam_routes for p in ps}) >= 8
+
+
+def test_drawing_routes_leaves_every_other_drawn_field_where_it_was():
+    """The routes use their own random stream, so adding them moved nothing else for a given seed."""
+    a = draw_patch(11, UNEVEN)
+    assert dataclasses.replace(a, steam_routes=()) == dataclasses.replace(draw_patch(11, UNEVEN), steam_routes=())
+    assert a.steam_routes == draw_patch(11, UNEVEN).steam_routes
+
+
+def test_a_patch_saved_before_routes_existed_has_none(tmp_path):
+    d = json.loads(json.dumps(dataclasses.asdict(DEFAULT_PATCH)))
+    del d["steam_routes"]
+    path = tmp_path / "old.json"
+    path.write_text(json.dumps(d))
+    assert load_patch(path).steam_routes == ()
+
+
+def test_routes_round_trip_and_an_unknown_one_is_refused(tmp_path):
+    p = dataclasses.replace(DEFAULT_PATCH, steam_routes=("avdog", "pitch"))
+    save_patch(p, tmp_path / "r.json")
+    assert load_patch(tmp_path / "r.json") == p
+    d = json.loads(json.dumps(dataclasses.asdict(DEFAULT_PATCH)))
+    d["steam_routes"] = ["strikes", "bogus"]
+    (tmp_path / "bad.json").write_text(json.dumps(d))
+    with pytest.raises(ValueError):
+        load_patch(tmp_path / "bad.json")

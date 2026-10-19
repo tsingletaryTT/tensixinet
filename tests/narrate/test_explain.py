@@ -156,6 +156,7 @@ def test_the_dealing_text_uses_correct_plurals():
 from tensixinet.music.chorus import plan_turns  # noqa: E402
 from tensixinet.music.patch import DEFAULT_PATCH, draw_patch, memory_to_asic_ratio  # noqa: E402
 from tensixinet.narrate.explain import explain_patch  # noqa: E402
+from tensixinet.music.patch import DEFAULT_PATCH as DEFAULT_PATCH_FOR_ROUTES  # noqa: E402
 
 UNEVEN = [dataclasses.replace(FALLBACK, gddr_temps=(30.0, 54.0) * 4)] * 2
 
@@ -402,3 +403,34 @@ def test_ttcoco_says_its_tap_spread_and_its_feedback():
     why = " ".join(d.why for d in explain_chip(10, LOADED, n_chips=len(DEVICES)))
     assert "delay taps" in text and "bits" in text
     assert "two such chips" in why and "tap feeds back" in why
+
+
+def test_the_patch_log_says_which_steam_routes_are_on_and_what_each_does():
+    off = joined(explain_patch(dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, steam_routes=()), UNEVEN, "s"))
+    assert "steam routes: none" in off
+    on = explain_patch(dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, steam_routes=("strikes", "pitch")), UNEVEN, "s")
+    route_lines = [d for d in on if d.what.startswith("steam routes")]
+    assert len(route_lines) == 1
+    line = route_lines[0]
+    assert "strikes, pitch" in line.what
+    assert "gong" in line.why and "dogtone" in line.why          # what the two routes do
+    assert "ttrollz clock" not in line.why and "pings the AVDog's filter" not in line.why  # and nothing about the routes that are off
+
+
+def test_the_log_says_how_the_rolls_are_wired_how_hard_they_pull_and_how_far_they_drift():
+    from tensixinet.music.devices import ttrollz_lanes
+    from tensixinet.music.mapping import chip_pressure, personality
+    from tensixinet.music.ttrolzer import draw_links, roll_drift
+    t = dataclasses.replace(FALLBACK, ddr_status=(1, 1, 1, 1), eth_mask=0x00FF, asic_temperature=70.0)
+    patch = dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, seed=21)
+    lanes = ttrollz_lanes(t)
+    links = draw_links(len(lanes), 21, personality(t), chip_pressure(t))
+    ds = explain_chip(0, t, patch=patch)  # chip 0 plays ttrollz
+    wiring = [d for d in ds if "Browns patched" in d.what]
+    assert len(wiring) == 1
+    text = wiring[0].what + " || " + wiring[0].why
+    assert f"{len(links)} Browns patched" in text
+    for l in links:
+        assert f"{lanes[l.source].roll.sides}-roll to {lanes[l.target].roll.sides}-roll" in text  # who is patched into whom
+    assert f"{roll_drift(70.0):.1%}" in text and f"{max(l.pull for l in links):.0%}" in text
+    assert "Sandrode" in text and "cycle" in text and "accent" in text

@@ -23,6 +23,7 @@ import numpy as np
 from .devices import SHOCK_DECAY_BEATS, SHOCK_RATE_BEATS, seconds_since, strike_times
 from .mapping import aiclk_to_bpm, chip_pressure, temp_to_pitch_hz
 from .patch import DEFAULT_PATCH, Patch
+from .register import held_semitones, step_times
 from ..telemetry import Telemetry
 
 AVDOG_LEVEL = 0.5
@@ -54,18 +55,28 @@ def avdog_parameters(t: Telemetry) -> Tuple[float, float, float, float]:
     return temp_to_pitch_hz(t.asic_temperature), chip_pressure(t), SHOCK_RATE_BEATS / beat, SHOCK_DECAY_BEATS * beat
 
 
-def avdog_voices(t: Telemetry, duration: float, sample_rate: int) -> Tuple[np.ndarray, np.ndarray]:
+def avdog_voices(t: Telemetry, duration: float, sample_rate: int, patch: Patch = DEFAULT_PATCH) -> Tuple[np.ndarray, np.ndarray]:
     """(the white voice, the red voice). Each is the dogtone under the envelope of one half of the undulation, so they
-    never sound together. The red voice has the inverse wave shape."""
+    never sound together. The red voice has the inverse wave shape.
+
+    Two of the patch's steam routes reach in here. `avdog`: every hit of the chip's ttsteam register pings the filter, as
+    well as every gong strike. `pitch`: the dogtone runs at the chip's pitch moved by the note the register holds."""
     n = int(duration * sample_rate)
     pitch, shape, rate_hz, decay_s = avdog_parameters(t)
-    u = undulation(seconds_since(strike_times(t, duration), n, sample_rate), rate_hz, decay_s)
-    phase = pitch * np.arange(n) / sample_rate
+    pings = strike_times(t, duration, patch)
+    if "avdog" in patch.steam_routes:
+        pings = np.sort(np.concatenate([pings, step_times(t, duration)]))
+    u = undulation(seconds_since(pings, n, sample_rate), rate_hz, decay_s)
+    if "pitch" in patch.steam_routes:
+        freq = pitch * 2.0 ** (held_semitones(t, n, sample_rate, patch) / 12.0)
+        phase = (np.cumsum(freq) - freq) / sample_rate  # a sample's phase is the sum of the frequencies before it
+    else:
+        phase = pitch * np.arange(n) / sample_rate
     white = skewed_triangle(phase, shape) * np.maximum(u, 0.0)
     red = skewed_triangle(phase, -shape) * np.maximum(-u, 0.0)
     return white, red
 
 
 def ttavdog(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
-    white, red = avdog_voices(t, duration, sample_rate)
+    white, red = avdog_voices(t, duration, sample_rate, patch)
     return (AVDOG_LEVEL * (white + RED_GAIN * red)).astype(np.float32)

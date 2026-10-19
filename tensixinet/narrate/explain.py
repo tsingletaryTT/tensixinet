@@ -25,7 +25,9 @@ from ..music.devices import (
     TRIGGER_RESPONSE_STEPS,
     gong_detune_cents,
     strike_times,
+    ttrollz_lanes,
 )
+from ..music.ttrolzer import draw_links, roll_drift
 from ..music.ttsteam import STEPS, dust_per_second, snare_decay, step_pattern
 from ..music.ttchoir import voice_scale, vowel_sequence
 from ..music.ttquantussy import castle_offset
@@ -127,6 +129,19 @@ def _explain_wider_readings(t: Telemetry, devices: List[str], patch: Patch = DEF
         f"point, or power from a quarter of the {t.tdp_limit:.0f} W limit up to it, whichever is closer"
     )
     if "ttrollz" in devices:
+        lanes = ttrollz_lanes(t)
+        browns = draw_links(len(lanes), patch.seed, personality(t), chip_pressure(t))
+        if browns:
+            wires = ", ".join(f"{lanes[l.source].roll.sides}-roll to {lanes[l.target].roll.sides}-roll" for l in browns)
+            out.append(Decision(
+                f"{len(browns)} Browns patched between its {len(lanes)} rolls: {wires}",
+                "a Brown is a Sandrode, input and output at once, so each patch weaves two rolls together: every pulse of the "
+                "first pulls the next step of the second earlier, which syncs an even roll to a faster one and knocks it off its "
+                f"pattern when the source is odd. The chip's identity and the patch pick the wiring; pressure {chip_pressure(t):.2f} "
+                f"sets the pull (up to {max(l.pull for l in browns):.0%} of a step); ASIC temperature {t.asic_temperature:.0f} C sets how far "
+                f"each capacitor drifts a step ({roll_drift(t.asic_temperature):.1%}). The first step of every roll's cycle gets an "
+                "octave-up accent, so an odd roll's 3 or 5 can be heard",
+            ))
         links = bin(t.eth_mask).count("1")
         out.append(Decision(
             f"{links} of 16 ethernet links up -> lanes at {_percent_list(eth_lane_levels(t.eth_mask))}",
@@ -411,6 +426,25 @@ def explain_turns(
     return out
 
 
+STEAM_ROUTE_WHY = {
+    "strikes": "the register's hits join the clock the gong waits on, so the gong, the shimmer's snap, the drone's ripple and the AVDog follow the snare",
+    "avdog": "every snare hit pings the AVDog's filter as well, a call and response on the snare rhythm",
+    "accent": "ttrollz clock pulses that land on a snare hit sound louder",
+    "pitch": "the register holds one note of the scale per step, from the seed, and steers the AVDog's dogtone with them",
+}
+
+
+def _steam_routes_decision(patch: Patch) -> Decision:
+    """Which of ttsteam's register routes are on: the snare's hits and held notes used as triggers, accents and pitch."""
+    if not patch.steam_routes:
+        return Decision("steam routes: none", "this patch does not patch ttsteam's register into any other device, so the snare is only a sound")
+    return Decision(
+        f"steam routes: {', '.join(patch.steam_routes)}",
+        "drawn from the seed (each route is on 60% of the time, and at least one always is); "
+        + "; ".join(f"{r}: {STEAM_ROUTE_WHY[r]}" for r in patch.steam_routes),
+    )
+
+
 def explain_patch(patch: Patch, telemetry: Sequence[Telemetry], source: str) -> List[Decision]:
     """Every choice a patch makes, with the reading or the seed that decided it."""
     bars = f"{patch.bars_per_turn} bar{'' if patch.bars_per_turn == 1 else 's'}"
@@ -420,27 +454,30 @@ def explain_patch(patch: Patch, telemetry: Sequence[Telemetry], source: str) -> 
             f"{source}; the seed fixes every drawn choice below, so the same seed replays the same sound",
         ),
         Decision(
-            f"scale {patch.scale_name} (GDDR spread {gddr_spread(telemetry):.0f} C)",
+            f"scale {patch.scale_name}, mode {patch.mode} (GDDR spread {gddr_spread(telemetry):.0f} C)",
             f"each {DEGREES_PER_SCALE_STEP_C:g} C between the hottest and coolest GDDR channel moves one scale along "
-            f"({', '.join(SCALE_NAMES)}), so even memory plays the first and uneven memory wanders the list",
+            f"({', '.join(SCALE_NAMES)}), so even memory plays the first and uneven memory wanders the list; "
+            f"the seed starts the scale from its note number {patch.mode} (0 plays it as listed)",
         ),
         Decision(
             f"lead motif {patch.motif}",
-            "eight scale degrees drawn from the seed, starting at 0 and moving at most 2 degrees a step",
+            f"{len(patch.motif)} scale degrees drawn from the seed, starting at 0 and moving at most 3 degrees a step",
         ),
         Decision(
             f"gong tuning {patch.gong_tuning} (memory/ASIC temperature {memory_to_asic_ratio(telemetry):.2f}), "
             f"beat {patch.gong_beat_hz:g} Hz",
             f"the average GDDR temperature divided by the average ASIC temperature, times 10 and rounded, "
-            f"picks one of {len(GONG_TUNING_NAMES)} tunings ({', '.join(GONG_TUNING_NAMES)}); the seed picks the beat",
+            f"picks one of {len(GONG_TUNING_NAMES)} tunings ({', '.join(GONG_TUNING_NAMES)}); the seed picks the beat, "
+            f"stretches the partials by up to 1.5% and nudges their levels",
         ),
         Decision(
             f"shimmer band {patch.shimmer_band[0]:.0f}-{patch.shimmer_band[1]:.0f} Hz",
-            "drawn from the seed: a low edge of 10 to 14 kHz and a width of 4 to 7 kHz, "
+            "drawn from the seed: a low edge of 8 to 15 kHz and a width of 3 to 9 kHz, "
             "squeezed under 0.45 of the sample rate when needed",
         ),
         Decision(
             f"turns last {bars}; everyone else drops to {patch.floor:.0%}",
-            "drawn from the seed: 1 to 4 bars per turn, and a floor between 25% and 45%",
+            "drawn from the seed: 1 to 6 bars per turn, and a floor between 20% and 50%",
         ),
+        _steam_routes_decision(patch),
     ]

@@ -85,10 +85,27 @@ The chip's own clock alternates long and short steps (25% swing) at the aiclk te
 | DDR 0 to 3 | 3, 4, 5, 6 sides | 1, 2, 3, 4 | 1.45, 1.00, 0.67, 0.46 |
 | Ethernet group 0 to 3 | 6, 5, 4, 3 sides | 3, 4, 5, 6 | 0.67, 0.46, 0.32, 0.21 |
 
-Barre tempos are 192, 122, 84, 56, 39, 27 and 18 BPM, and barre 2 (84 BPM) plays at the chip's tempo. Every
-step is jittered by up to 20%. An even roll holds that to half of it and swings. An odd roll magnifies it
-2.5 times and spreads its steps unevenly over a cycle. No lane is locked to the bar. A DDR status of 0 grounds
-its roll.
+Barre tempos are 192, 122, 84, 56, 39, 27 and 18 BPM, and barre 2 (84 BPM) plays at the chip's tempo. The lanes
+run together as coupled circuits (`ttrolzer.roll_ensemble`), not as independent pulse trains:
+
+* **Capacitors that stay.** Each roll's capacitors differ by up to 20% (10% for an even roll) and keep that mismatch,
+  so a 4-roll trots the same way every cycle. The mismatch comes from the patch and the chip's identity, so it does
+  not change when live mode renders the next segment. It is rescaled so it never moves the barre's mean tempo.
+* **Geometry.** A 4-roll alternates long and short (25% swing). A 6-roll swings only 5% and carries two threes
+  interleaved (26%), so it feels in triplets. A 3-roll and a 5-roll spread their steps unevenly over a cycle of 3 or 5.
+* **Wander.** Every step has 1% loose timing. Each capacitor drifts, with a memory, by 0.5% a step on a cool chip up
+  to 5% at 90 C and above (a random walk pulled back by 10% a step). An odd roll's pattern also slides round its
+  cycle by a random walk of 12% of a cycle per cycle, so it never comes back round in the same phase.
+* **Marked cycle.** The first step of each roll's cycle also plays an octave-up blip at 0.6 of the lane's level, so a
+  3 or a 5 can be heard.
+* **Browns as Sandrodes.** Two to four links join pairs of the chip's rolls, drawn from the patch seed and the chip's
+  identity so a chip is wired the same way for the whole run. Every pulse of the source pulls the target's next step
+  earlier by 5% to 30% of what is left of it (never below 15% of the barre's step after the target's last pulse). The
+  pull grows with the chip's pressure, and the wiring does not change. A faster source syncs an even target mostly,
+  and a slower one does not. An odd source keeps an even target from settling.
+
+No lane is locked to the bar. A DDR status of 0 grounds its roll, so the roll and its links are gone. The chip's own
+clock, the one the gong waits on, is still a plain long-short pulse train and is not one of these rolls.
 
 ## ttrax
 
@@ -197,6 +214,20 @@ fourteen and a chip with every column enabled is silent. A hit is white noise ro
 envelope that falls to a third in 0.75 s at no pressure and 75 ms at full pressure. Under it, dust pops 15 times
 a second for each step of PCIe usage.
 
+The register is in `music/register.py`, apart from the snare, because other devices read it too. Four **steam routes**
+patch it into them. A patch lists the routes that are on. The default patch has none, and a drawn patch turns each on with
+a 60% chance and always has at least one. Together with ttrollz, the gong and the AVDog they make a rhythm section:
+
+| Route | What it does |
+|---|---|
+| `strikes` | The register's hits join the ttrollz clock pulses that the gong's trigger response waits on. A strike can then land on a snare hit, and the shimmer's snap, the drone's ripple and the AVDog follow, because they share that clock. The blocking window still spaces the strikes |
+| `avdog` | Every hit also pings the AVDog's filter, in addition to the gong strikes, so the white and red voices answer each snare hit |
+| `accent` | A ttrollz clock pulse that lands on a register hit (within 5 ms) gets 0.7 of a blip added on top. The clock's long and short steps mean only the pulses on every fourth step can land, so a register that fires on odd steps accents nothing |
+| `pitch` | Each step holds one note of the patch's scale, picked from the seed, and the AVDog's dogtone runs at the chip's pitch moved by the note the register holds. The register clocks every step, fired or not, and loops every 14 steps, so it plays a repeating 14-note line |
+
+The routes read only the chip's tempo and Tensix mask on top of what each device already read (`devices.ROUTE_INPUTS`).
+The TT-Lang kernels do not follow routes: their host side uses the default patch.
+
 ## Pressure
 
 How close a chip is to a limit, from 0 to 1, whichever of two ramps is higher:
@@ -235,12 +266,15 @@ A patch holds the choices that used to be fixed constants. Two sources decide it
 
 | Choice | Decided by | Rule |
 |---|---|---|
-| Scale | GDDR spread (hottest minus coolest channel, all chips) | Each 3 C moves one scale along: major pentatonic, minor pentatonic, hirajoshi, dorian, whole tone, phrygian dominant. Even memory plays the first |
-| Gong tuning | Average GDDR temperature divided by average ASIC temperature | Ratio times 10, rounded, picks bell, tam-tam or singing bowl |
+| Scale | GDDR spread (hottest minus coolest channel, all chips) | Each 3 C moves one scale along a list of 19: major pentatonic, minor pentatonic, hirajoshi, dorian, whole tone, phrygian dominant, blues, harmonic minor, lydian, mixolydian, phrygian, in sen, iwato, egyptian, double harmonic, hungarian minor, prometheus, augmented, octatonic. Even memory plays the first |
+| Gong tuning | Average GDDR temperature divided by average ASIC temperature | Ratio times 10, rounded, picks one of eight: bell, tam-tam, singing bowl, plate, gamelan, glass, cymbal, tubular (hand-picked inharmonic sets, at most five partials) |
 
-**A seed decides the rest:** the lead motif (eight scale degrees from 0, steps of at most 2), the gong's
-beat (0.4 to 1.2 Hz), the shimmer band (low edge 10 to 14 kHz, 4 to 7 kHz wide), the turn length (1 to 4
-bars) and how far non-soloists drop (25% to 45%).
+**A seed decides the rest:** the lead motif (6 to 12 scale degrees from 0, steps of at most 3, inside a drawn
+range), the scale's mode (the same notes started from another degree, so a quiet box that always lands on one
+scale still plays a different shape), the gong's beat (0.25 to 2 Hz), a stretch of up to 1.5% on the gong's
+partials and a 15% nudge to their levels, the shimmer band (low edge 8 to 15 kHz, 3 to 9 kHz wide), the turn
+length (1 to 6 bars), how far non-soloists drop (20% to 50%) and ttrax's bar count. A patch saved before modes
+existed has no `mode` and replays as listed.
 
 The seed is a hash of every reading on every chip plus entropy (the clock), so no two runs match. Each run
 writes its patch to `patch_<time>.json` beside its log and prints every choice with its reason.

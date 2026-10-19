@@ -120,7 +120,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 
 <nav><div class="wrap">
   <b>tensixinet</b>
-  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#band">The band</a>
+  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#rhythm">Rhythm</a><a href="#band">The band</a>
   <a href="#listen">Listen</a><a href="#new">Is it new?</a><a href="#kernels">On the chip</a><a href="#hardware">Get hardware</a><a href="#credits">Credits</a>
 </div></nav>
 
@@ -231,6 +231,32 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     </tbody>
   </table>
   <p class="src" style="margin-top:10px">A silent source, or a depth of zero, leaves the target exactly as it was. Cables act on finished voices. Reaching into a device's own parameters (a clock, a chaos knob, the choir's vowel) is the next step.</p>
+</div></section>
+
+<section id="rhythm"><div class="wrap">
+  <div class="kicker">The rhythm section</div>
+  <h2>Rolls that pull each other, and a snare that sets off the band</h2>
+  <p>The Rolzer in the Plumbutter and Rolzer guide is a bank of rolls: rings of transistors that each pulse at a tempo set by their capacitors. Each chip here runs one roll for every DDR channel that is up and for every group of Ethernet links with a link up. The rolls run together as one circuit, so they wander and affect each other.</p>
+  <div class="grid">
+    <div class="card"><h3>Capacitors that stay and drift</h3><p>Each roll keeps its own capacitor mismatch, so a 4-roll trots the same way every cycle. Each capacitor also drifts by 0.5% to 5% a step, more on a hotter chip, and has some memory of where it was.</p><span class="tag">mismatch fixed by the chip and the patch</span></div>
+    <div class="card"><h3>Odd time, audibly</h3><p>A 3-roll and a 5-roll spread their steps unevenly over a cycle of 3 or 5, and the cycle slides round by 12% of a cycle each time, so it never returns in the same phase. The first step of every cycle plays an octave-up blip at 0.6 of the lane's level, so a 3 or a 5 can be heard.</p><span class="tag">odd rolls wander, even rolls hold</span></div>
+    <div class="card"><h3>Browns are Sandrodes</h3><p>A Brown is a Sandrode: a jack that is input and output at once. The chip's identity and the patch join pairs of rolls with 2 to 4 links. Each pulse of the source pulls the target's next step earlier by 5% to 30% of what is left of it. Pressure on the chip strengthens the pull.</p><span class="tag">a faster source syncs an even roll, mostly</span></div>
+    <div class="card"><h3>Hexagon and square differ</h3><p>The square swings long and short. The hexagon swings far less and carries two threes interleaved, so it feels in triplets. These are the guide's geometries, not one pattern with a different count.</p><span class="tag">3, 4, 5 and 6 sides</span></div>
+  </div>
+  <h3 style="margin-top:30px">A snare that does more than sound</h3>
+  <p>ttsteam, after Man With The Red Steam, is a shift register with one step per Tensix column. A step fires where its column is harvested, so every chip has its own pattern. Four routes patch that register into other devices. A patch turns each on with a 60% chance and always has at least one.</p>
+  <table>
+    <thead><tr><th>route</th><th>what the register does</th></tr></thead>
+    <tbody>
+      <tr><td><code>strikes</code></td><td>Its hits join the clock that the gong waits on, so the gong, the shimmer's snap, the drone's ripple and the AVDog follow the snare.</td></tr>
+      <tr><td><code>avdog</code></td><td>Every hit also pings the AVDog's filter, so the white and red voices answer each snare hit.</td></tr>
+      <tr><td><code>accent</code></td><td>A ttrollz clock pulse that lands on a hit sounds louder.</td></tr>
+      <tr><td><code>pitch</code></td><td>Each step holds one note of the patch's scale, and those notes steer the AVDog's dogtone round a repeating 14-note line.</td></tr>
+    </tbody>
+  </table>
+  <h3 style="margin-top:30px">More to choose from in every run</h3>
+  <p>The patch library has 19 scales and 8 gong tunings. The system still picks the scale from the memory temperatures and the tuning from the memory-to-ASIC ratio. The seed now also picks a mode of that scale, so a quiet box that always lands on one scale still gets a different shape each run. It stretches the gong's partials, draws a motif of 6 to 12 notes, and widens the beat, shimmer band, turn length and floor.</p>
+  <p class="src" style="margin-top:10px">Measured, not yet judged by ear. The chip's own clock, which the gong waits on, is still a plain long-short pulse train and not one of the rolls. The guide's positive-voltage case, which slows a roll, is not modelled.</p>
 </div></section>
 
 <section id="band"><div class="wrap">
@@ -535,7 +561,7 @@ const aiclkToBpm = a => BPM_RANGE[0] + (BPM_RANGE[1] - BPM_RANGE[0]) * unit(a, .
 const PRESSURE_TEMP_FLOOR_C = 40.0, PRESSURE_POWER_FLOOR = 0.25;
 const pressureOf = (temp, power, throttle, tdp) => Math.max(unit(temp, PRESSURE_TEMP_FLOOR_C, throttle), unit(power, PRESSURE_POWER_FLOOR * tdp, tdp));
 const DEGREES_PER_SCALE_STEP_C = 3.0;
-const SCALE_NAMES = ["major pentatonic", "minor pentatonic", "hirajoshi", "dorian", "whole tone", "phrygian dominant"];
+const SCALE_NAMES = ["major pentatonic", "minor pentatonic", "hirajoshi", "dorian", "whole tone", "phrygian dominant", "blues", "harmonic minor", "lydian", "mixolydian", "phrygian", "in sen", "iwato", "egyptian", "double harmonic", "hungarian minor", "prometheus", "augmented", "octatonic"];
 const scaleFor = spread => SCALE_NAMES[Math.floor(spread / DEGREES_PER_SCALE_STEP_C) % SCALE_NAMES.length];
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 function noteName(hz) {

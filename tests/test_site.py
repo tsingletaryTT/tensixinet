@@ -107,3 +107,23 @@ def test_the_sandboxs_scale_step_and_order_match_patch_py():
 def test_the_page_links_to_tenstorrent_hardware_and_the_github_org():
     assert 'href="https://tenstorrent.com"' in HTML
     assert 'href="https://github.com/tenstorrent"' in HTML
+
+
+# --- the rhythm section: its numbers must be the code's -----------------------------------------------------------
+
+def test_the_rhythm_section_names_every_steam_route_and_the_library_sizes_the_code_has():
+    from tensixinet.music.patch import GONG_TUNINGS, SCALES, STEAM_ROUTES
+    assert 'id="rhythm"' in HTML and 'href="#rhythm"' in HTML
+    for route in STEAM_ROUTES:
+        assert f"<code>{route}</code>" in HTML, route
+    assert f"{len(SCALES)} scales" in HTML and f"{len(GONG_TUNINGS)} gong tunings" in HTML
+
+
+def test_the_rhythm_section_states_the_roll_model_with_the_codes_ranges():
+    from tensixinet.music.ttrolzer import DOWNBEAT_GAIN, DRIFT_RANGE, LINK_PULL_RANGE, MAX_LINKS, MIN_LINKS, SLIP
+    section = HTML[HTML.index('id="rhythm"'): HTML.index('id="band"')]
+    assert "Sandrode" in section and "Brown" in section
+    assert f"{MIN_LINKS} to {MAX_LINKS} links" in section
+    assert f"{LINK_PULL_RANGE[0]:.0%} to {LINK_PULL_RANGE[1]:.0%}" in section
+    assert f"{DRIFT_RANGE[0]:.1%} to {DRIFT_RANGE[1]:.0%}" in section
+    assert f"{SLIP:.0%} of a cycle" in section and f"{DOWNBEAT_GAIN:g} of the lane's level" in section

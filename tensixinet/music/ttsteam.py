@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """ttsteam, after Man With The Red Steam in the Plumbutter guide: a shift register that steps the Snare.
 
+The register itself is in `register.py`, because other devices read it too (see `patch.STEAM_ROUTES`).
+
 The register passes a pulse up its stack on every clock, and each step can fire a module. Here the
 clock is the chip's eighth notes and the stack is as long as the chip has Tensix columns, 14. A step
 fires where a column is harvested, so a chip with every column enabled is silent and each real chip has
@@ -10,16 +12,14 @@ envelope whose decay runs from 0.75 s down to 75 ms, plus dust: a continuous cra
 """
 from __future__ import annotations
 
-from typing import Tuple
-
 import numpy as np
 
 from .devices import seconds_since
-from .mapping import aiclk_to_bpm, chip_pressure
+from .mapping import chip_pressure
 from .patch import DEFAULT_PATCH, Patch
+from .register import STEPS, step_pattern, step_times  # noqa: F401  (STEPS and step_pattern are re-exported for callers)
 from ..telemetry import Telemetry
 
-STEPS = 14  # Tensix columns
 SNARE_DECAY_S = (0.75, 0.075)  # the guide's decay range: open at no pressure, fully tight at full pressure
 SNARE_LEVEL = 0.6
 ATTACK_S = 0.002
@@ -27,11 +27,6 @@ DUST_PER_PCIE_STEP = 15.0  # crackle pops a second for each step of PCIe usage
 DUST_LEVEL = 0.25
 SNARE_CUTOFF_HZ = 4000.0  # white noise is rolled off here so the snare does not hiss
 MAX_PCIE_USAGE = 6
-
-
-def step_pattern(tensix_mask: int) -> Tuple[bool, ...]:
-    """Which of the 14 steps fire: those whose Tensix column is harvested (its mask bit is 0)."""
-    return tuple(not (tensix_mask >> i) & 1 for i in range(STEPS))
 
 
 def snare_decay(pressure: float) -> float:
@@ -58,9 +53,7 @@ def ttsteam(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: P
     """A noise snare on the steps the Tensix holes pick, with a bed of dust."""
     n = int(duration * sample_rate)
     rng = np.random.default_rng(seed)
-    step_s = 30.0 / aiclk_to_bpm(t.aiclk)
-    pattern = step_pattern(t.tensix_mask)
-    hits = np.array([k * step_s for k in range(int(duration / step_s) + 1) if pattern[k % STEPS] and k * step_s < duration])
+    hits = step_times(t, duration)
     since = seconds_since(hits, n, sample_rate)
     envelope = np.minimum(1.0, since / ATTACK_S) * np.exp(-since / snare_decay(chip_pressure(t)))
     snare = SNARE_LEVEL * envelope * lowpass(rng.uniform(-1.0, 1.0, n), SNARE_CUTOFF_HZ, sample_rate)

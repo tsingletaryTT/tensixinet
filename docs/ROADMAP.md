@@ -39,7 +39,8 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    to use more than one core, then the ttrax bounce, ttrollz's blips, the lead, the EQ (a convolution, which is a matmul), a mixer
    for more than four chips, and a
    `hardware`-marked test that runs in CI's absence of a chip as a skip, which `pyproject.toml` declares and nothing uses yet. The
-   old sketches are in `legacy/ciat_lonbarde_kernels.py`.
+   old sketches are in `legacy/ciat_lonbarde_kernels.py`. The kernels' host side uses the default patch, so they do not follow the
+   steam routes (`docs/SOUND.md`); the `pitch` route's cumulative phase is the part that would need a new kernel.
 7b. **Load kernels, used seldom and with a hard governor.** Kernels whose purpose is to spend as much power or as many cycles or
    cores as the box allows, briefly, so a burst of real load becomes a real event in the music and in the readings that drive the
    other devices. Open design questions: how the governor caps temperature, power and wall time before such a kernel is allowed to
