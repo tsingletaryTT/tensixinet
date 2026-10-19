@@ -10,6 +10,7 @@ The synth devices as TT-Lang kernels, so the chips can play the sound as well as
 | `ttgong.py` | `gong` (one ringing strike, up to five partials each with a detuned copy) | `att * sum_p exp(e_p) * (sin a_p + sin c_p)`, built in stages (four working registers); run once per overlapping strike (three) | phases with the pitch sag in closed form, each partial's own tile and its detuned copy's own phase tile, decay exponents with the amplitudes folded in, the attack ramp; adds the runs and applies `0.6 * tanh` |
 | `ttavdog.py` | `ttavdog` (the AVDog's white and red voices) | `relu(u) * white_wave + relu(-u) * red_wave`, with `u = sin(pu) * exp(e)` and `min`-skewed triangles with swapped slopes | the dogtone's phase, the slopes, the undulation's phase and decay, and four constants for the level and red gain (the chip takes tensors, not numbers) |
 | `ttmix.py` | `current_mix` (the chips' mixer) | `tanh(a + b + c + d)` | each chip's weight and `1 / sqrt(chips)`, folded into its signal; up to four chips |
+| `ttcoco.py` | `ttcoco` (the Cocoquantus's delay chips, as eight parallel echo taps) | `tanh(a0 + a1 + ... + a7)`, built in stages (four working registers) | each tap's delay, decay and bit-crunch (`echo_tap`, a truncated sum of repeats, like the gong's ring-down) and the device's own headroom term |
 
 ## How a kernel is written here
 
@@ -63,7 +64,7 @@ simulator venv. This is a bug in `tt-lang-sim` 1.1.6, not in these kernels.
 
 ## What happened on the chips (2026-10-18)
 
-All five kernels ran on all four Blackhole chips (two p300c boards, one `gozer` lease per board) and matched the numpy devices.
+All six kernels ran on all four Blackhole chips (two p300c boards, one `gozer` lease per board) and matched the numpy devices.
 `python3 kernels/cycle.py --out DIR` does the whole cycle and `--save` keeps what each chip computed as WAV files beside the
 numpy reference. Raw results are in `docs/hardware/`.
 
@@ -74,6 +75,7 @@ numpy reference. Raw results are in `docs/hardware/`.
 | `ttgong` | 2.0e-7 | 1.4e-7 | 0.5 to 0.7 ms (three strikes) | 2e-4 |
 | `ttavdog` | 2.3e-3 | 1.2e-7 | 0.2 to 0.4 ms | 5e-3 |
 | `ttmix` | 2.8e-4 | 6e-8 | 0.2 ms | 1e-3 |
+| `ttcoco` | 8.8e-4 | 1.2e-7 | 0.2 to 0.4 ms | 1e-3 |
 
 What the chip taught us that the simulator did not:
 

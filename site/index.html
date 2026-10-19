@@ -279,7 +279,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 <section id="kernels"><div class="wrap">
   <div class="kicker">On the chip</div>
   <h2>The devices as TT-Lang kernels</h2>
-  <p>The synthesis runs on the Tensix cores. Five kernels (<code>ttshock</code>, <code>ttshimmer</code>, <code>ttgong</code>, <code>ttavdog</code> and <code>ttmix</code>) match their numpy devices to better than 3e-7 in the TT-Lang simulator, and all five have now run on real hardware: both boards, all four Blackhole chips. Each is a short <code>@ttl.operation</code> of <code>sin</code>, <code>exp</code> and arithmetic over 32 by 32 tiles, with the host reducing phase in double precision.</p>
+  <p>The synthesis runs on the Tensix cores. Six kernels (<code>ttshock</code>, <code>ttshimmer</code>, <code>ttgong</code>, <code>ttavdog</code>, <code>ttmix</code> and <code>ttcoco</code>) match their numpy devices to better than 3e-7 in the TT-Lang simulator, and all six have now run on real hardware: both boards, all four Blackhole chips. Each is a short <code>@ttl.operation</code> of <code>sin</code>, <code>exp</code> and arithmetic over 32 by 32 tiles, with the host reducing phase in double precision.</p>
   <table>
     <thead><tr><th>kernel</th><th>worst difference from numpy, on a chip</th><th>same, in the simulator</th><th>one timed run</th></tr></thead>
     <tbody>
@@ -288,18 +288,20 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
       <tr><td><code>ttgong</code></td><td>2.0e-7</td><td>1.4e-7</td><td>0.5 to 0.7 ms (three strikes)</td></tr>
       <tr><td><code>ttavdog</code></td><td>2.3e-3</td><td>1.2e-7</td><td>0.2 to 0.4 ms</td></tr>
       <tr><td><code>ttmix</code></td><td>2.8e-4</td><td>6e-8</td><td>0.2 ms</td></tr>
+      <tr><td><code>ttcoco</code></td><td>8.8e-4</td><td>1.2e-7</td><td>0.2 to 0.4 ms</td></tr>
     </tbody>
   </table>
-  <p>The two larger differences are the chip's multiplies, not its <code>sin</code> or <code>exp</code>: both stay inside 1e-7 on every kernel. <code>tanh</code> and a chain of multiplies carry about ten bits less precision than the simulator's, which models them exactly. That is far below hearing.</p>
-  <p>The chip taught us two things the simulator did not. Its compiler refuses one input buffer that feeds both <code>sin</code> (the vector unit) and an addition (the matrix unit), so <code>ttgong</code> now gives each partial's detuned copy its own phase instead of computing it with an add. And a kernel has four working registers, so <code>ttavdog</code>'s one long expression and <code>ttgong</code>'s sum of five partials are built in stages, each passed to the next through its own buffer. Below: what chip 2 of board 1 computed for every kernel, its waveform against the numpy reference above it, and its own spectrogram, with the chip's own audio as the soundtrack.</p>
+  <p>The larger differences are the chip's multiplies, not its <code>sin</code> or <code>exp</code>: both stay inside 1e-7 on every kernel. <code>tanh</code> and a chain of multiplies carry about ten bits less precision than the simulator's, which models them exactly. That is far below hearing.</p>
+  <p>The chip taught us two things the simulator did not. Its compiler refuses one input buffer that feeds both <code>sin</code> (the vector unit) and an addition (the matrix unit), so <code>ttgong</code> now gives each partial's detuned copy its own phase instead of computing it with an add. And a kernel has four working registers, so <code>ttavdog</code>'s one long expression, <code>ttgong</code>'s sum of five partials and <code>ttcoco</code>'s sum of eight taps are all built in stages, each passed to the next through its own buffer. Below: what chip 2 of board 1 computed for every kernel, its waveform against the numpy reference above it, and its own spectrogram, with the chip's own audio as the soundtrack.</p>
   <div class="diagram">
     <video controls preload="none" poster="assets/hardware/kernels_on_chip2.sheet.png" style="width:100%;border-radius:8px" src="assets/hardware/kernels_on_chip2.mp4"></video>
   </div>
   <div class="players" style="margin-top:20px">
     <div class="card"><h3>ttgong, computed on the chip</h3><p>The same gong strike heard in Listen above, this time the chip's own output, not numpy's.</p><audio controls preload="none" src="assets/audio/ttgong_chip.mp3"></audio></div>
-    <div class="card"><h3>ttavdog, computed on the chip</h3><p>The chip's two voices. This is the kernel with the largest measured difference from numpy, 2.3e-3, and it sounds the same.</p><audio controls preload="none" src="assets/audio/ttavdog_chip.mp3"></audio></div>
+    <div class="card"><h3>ttavdog, computed on the chip</h3><p>The chip's two voices. This is the kernel with the largest measured difference from numpy among the first five, 2.3e-3, and it sounds the same.</p><audio controls preload="none" src="assets/audio/ttavdog_chip.mp3"></audio></div>
+    <div class="card"><h3>ttcoco, computed on the chip</h3><p>Eight delay taps summed and squashed on the chip, where the real instrument affords two.</p><audio controls preload="none" src="assets/audio/ttcoco_chip.mp3"></audio></div>
   </div>
-  <p>The longer idea is a closed loop: the instrument's own load changes the chip's power and temperature, those readings change the sound, and the sound changes the load. That needs a software chip model and a governor first, and both are still ahead of us. So are the remaining devices (<code>ttrollz</code>, <code>ttrax</code>, <code>ttquantus</code>, <code>ttdrone</code>, <code>lead</code>, <code>ttsteam</code>, <code>ttchoir</code>) and the cables between them.</p>
+  <p>The longer idea is a closed loop: the instrument's own load changes the chip's power and temperature, those readings change the sound, and the sound changes the load. That needs a software chip model and a governor first, and both are still ahead of us. So are the remaining devices (<code>ttrollz</code>, <code>ttrax</code>, <code>ttquantus</code>, <code>ttdrone</code>, <code>lead</code>, <code>ttsteam</code>, <code>ttchoir</code>) and the cables between them, plus splitting <code>ttcoco</code>'s eight taps across real cores instead of precomputing them on the host.</p>
 </div></section>
 
 <section id="hardware"><div class="wrap">

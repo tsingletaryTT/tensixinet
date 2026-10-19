@@ -31,12 +31,13 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    100 in `media/llm.py`) or send several prompts so tt-toplike shows load for longer.
 6. **Align audio to the LLM reply.** The soundtrack starts at video time 0, but telemetry is
    sampled after the reply.
-7. **Run the devices as TT-Lang kernels.** Five kernels (`ttshock` the drone's ripple, `ttshimmer`, `ttgong` up to five partials and
-   three overlapping strikes, `ttavdog`, `ttmix` the mixer up to four chips) match their numpy devices in the TT-Lang simulator and
-   have now run on all four chips of both boards (`kernels/README.md`, `kernels/cycle.py`, `docs/hardware/`). Next, in order: `ttcoco`'s
-   echo mix (and, as a further step, splitting its eight taps across real Tensix cores instead of pre-computing them on the host,
-   which would make it the first kernel here to use more than one core), the ttrax bounce, ttrollz's blips, the lead, the EQ (a
-   convolution, which is a matmul), a mixer for more than four chips, and a
+7. **Run the devices as TT-Lang kernels.** Six kernels (`ttshock` the drone's ripple, `ttshimmer`, `ttgong` up to five partials and
+   three overlapping strikes, `ttavdog`, `ttmix` the mixer up to four chips, `ttcoco` the eight-tap delay mix) match their numpy devices
+   in the TT-Lang simulator and have now run on all four chips of both boards (`kernels/README.md`, `kernels/cycle.py`, `docs/hardware/`).
+   Next, in order: splitting
+   `ttcoco`'s eight taps across real Tensix cores instead of pre-computing them on the host, which would make it the first kernel here
+   to use more than one core, then the ttrax bounce, ttrollz's blips, the lead, the EQ (a convolution, which is a matmul), a mixer
+   for more than four chips, and a
    `hardware`-marked test that runs in CI's absence of a chip as a skip, which `pyproject.toml` declares and nothing uses yet. The
    old sketches are in `legacy/ciat_lonbarde_kernels.py`.
 7b. **Load kernels, used seldom and with a hard governor.** Kernels whose purpose is to spend as much power or as many cycles or

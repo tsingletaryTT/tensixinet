@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """The host side of the kernels: packing audio into tiles, and splitting a device's maths between host and chip."""
+import math
+
 import numpy as np
 import pytest
 
@@ -74,7 +76,10 @@ def test_tolerance_is_checked_on_the_worst_sample_and_reports_it():
 # --- the shimmer: two tones with a snap on every strike ---------------------------------------------------------
 
 from tensixinet.kernels.packing import (  # noqa: E402
+    COCO_TAPS,
     SNAP_FLOOR,
+    coco_inputs,
+    coco_on_host,
     mix_inputs,
     mix_on_host,
     shimmer_inputs,
@@ -260,3 +265,47 @@ def test_the_chips_formula_on_the_hosts_inputs_is_the_ttavdog_device(pressure_li
     got = avdog_on_host(avdog_inputs(since, rate_hz, decay_s, pitch, shape, n, 8000), n)
     assert np.allclose(got, ttavdog(t, 10.0, 8000, 0), atol=2e-4)
 
+
+
+# --- ttcoco: eight taps summed and squashed, the same shape as the mixer but with eight inputs --------------------
+
+def test_there_are_exactly_eight_tap_slots():
+    assert COCO_TAPS == 8
+
+
+def test_coco_inputs_scale_each_tap_by_the_devices_own_headroom_term_and_pack_all_eight():
+    from tensixinet.music.ttcoco import LEVEL, N_TAPS
+    taps = [np.full(10, 0.1 * (i + 1)) for i in range(N_TAPS)]
+    tiles = coco_inputs(taps, n=10)
+    assert len(tiles) == COCO_TAPS == N_TAPS and all(t.shape == tiles[0].shape for t in tiles)
+    for i, tap in enumerate(taps):
+        assert np.allclose(coco_on_host([tiles[i]] + [np.zeros_like(tiles[0])] * (COCO_TAPS - 1), 10),
+                            np.tanh(LEVEL / math.sqrt(N_TAPS) * tap), atol=1e-6)
+
+
+def test_coco_on_host_is_tanh_of_the_sum_and_matches_ttcoco_on_a_real_chip():
+    import dataclasses
+    from tensixinet.music.ttcoco import echo_tap, tap_bits, tap_delay_ms, tap_feedback, ttcoco
+    t = dataclasses.replace(FALLBACK, gddr_temps=(28.0, 55.0, 70.0, 40.0, 90.0, 33.0, 60.0, 48.0), power=95.0)
+    n = 24000
+    from tensixinet.music.devices import quantussy_tone
+    tone = quantussy_tone(t, n / 8000, 8000, 0)
+    feedback = tap_feedback(t)
+    taps = []
+    for ch in range(COCO_TAPS):
+        delay_ms = tap_delay_ms(t.gddr_temps[ch])
+        bits = tap_bits(delay_ms)
+        delay_samples = int(round(delay_ms / 1000.0 * 8000))
+        taps.append(echo_tap(tone, delay_samples, feedback, bits))
+    got = coco_on_host(coco_inputs(taps, n), n)
+    assert np.allclose(got, ttcoco(t, n / 8000, 8000, 0), atol=1e-6)
+
+
+def test_more_than_eight_taps_are_refused():
+    with pytest.raises(ValueError):
+        coco_inputs([np.zeros(4)] * 9, n=4)
+
+
+def test_fewer_than_eight_taps_are_padded_with_silence():
+    tiles = coco_inputs([np.full(5, 0.3)], n=5)
+    assert len(tiles) == COCO_TAPS and not tiles[1].any() and not tiles[-1].any()

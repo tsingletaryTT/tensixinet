@@ -33,6 +33,7 @@ KERNELS_UNDER_TEST = [
     ("ttmix.py", 24000, 1e-6),
     ("ttgong.py", 72000, 1e-5),
     ("ttavdog.py", 80000, 1e-5),
+    ("ttcoco.py", 24000, 1e-5),
 ]
 
 

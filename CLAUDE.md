@@ -324,6 +324,29 @@ legacy/        first prototype scripts, kept for reference
   near the ceiling may not begin) and `should_stop` (the cap or the ceiling, whichever comes first). Pure host-side logic, no device,
   tested without hardware; a mutation battery found three survivors (both constants unpinned, and `>` for `>=` at the pressure
   boundary) and each got a test. The load kernel itself (the part that actually burns cycles on a chip) is not built.
+* **2026-10-18, "make the site behave better on mobile ... the interactive UIs are great explainers ... triple down ... we want people to
+  be excited enough that they'd want the hardware":** a third flagship interactive piece, `site/`'s mapping sandbox: four sliders
+  (ASIC temperature, power, aiclk, GDDR spread) run the exact ported formulas from `mapping.py` and `patch.py` (`temp_to_pitch_hz`,
+  `aiclk_to_bpm`, `pressure`, `scale_for`) and show pitch (with a note name), tempo, a pressure meter and the chosen scale, live. A
+  new `#hardware` section makes the case directly: the project only works because real silicon gives up this many live signals for
+  free, with links to tenstorrent.com, the Tenstorrent GitHub org and the repo. Mobile: a `@media(max-width:640px)` pass (smaller
+  section padding and type, full-width stacked buttons, narrower slider labels) on top of layouts that already had no page-level
+  horizontal overflow at 375px (checked with an iframe harness reading `scrollWidth`, not by eye).
+  * `tests/test_site.py` now also checks that the sandbox's JS constants equal the Python ones it claims to port (`C3_HZ`,
+    `PITCH_SEMITONES`, the temperature/aiclk/bpm ranges, the pressure floors, the scale step and the scale name order) and that the
+    page links to tenstorrent.com and github.com/tenstorrent. Changing a constant or the scale order in the page, by hand, turned it red.
+* **2026-10-18, "let's also make ttrax configurable in bars ... like the tetrax, sidrax, and quatrax configurations":**
+  looked up the real instruments: Sidrax is 7 bars (the guide this module was built from), Tetrax is 4, Quatrax is
+  14 (44, 28 and 100 banana jacks respectively). `patch.rax_bars` (4, 7 or 14) picks ttrax's size, drawn uniformly
+  from the seed; an old saved patch with no `rax_bars` field defaults to 7, so it still replays as it always did.
+  * `glitch_bounds(n_bars, barre)` (next barre, one after) replaces the hardcoded `BOUNDS_TABLE["3"]` lookup in the
+    render path; it reproduces that table exactly for seven bars (tested), and for 4 or 14 it is this code's own
+    extension of the pattern, since there is no Tetrax or Quatrax guide here to transcribe from. `BOUNDS_TABLE`
+    itself is untouched and still documents the guide's figure 1.
+  * `ttrolzer.barre_bpm` wraps past its seven-entry tempo table (`barre % len(BARRE_BPM)`) rather than indexing off
+    the end, so Quatrax's extra barres play at one of the same seven tempos instead of crashing.
+  * Mutation checks: a battery of four deliberate breaks (`glitch_bounds` collapsed to one barre, the bar-count
+    tuple changed, the old-patch default changed, the tempo wrap off by one) were each caught by a test.
 * **2026-10-18, "let's get the rest of these machines built in tt-lang kernels. look up the delay chips that power the
   cocoquantus 2. let's do our own tensix version of that that really embraces our unique hardware":** researched the
   real chips: a pair of crunchy 8-bit echo ICs, each a buffer of a few tens of kilobits clocked by a VCO, whose length
@@ -347,29 +370,16 @@ legacy/        first prototype scripts, kept for reference
     wiring, the shift helper's padding, the final headroom term) was already caught.
   * Not yet built: the TT-Lang kernel for this device (next), and splitting the eight taps across real Tensix cores
     instead of precomputing them on the host, which would be the first kernel here to use more than one core.
-* **2026-10-18, "let's also make ttrax configurable in bars ... like the tetrax, sidrax, and quatrax configurations":**
-  looked up the real instruments: Sidrax is 7 bars (the guide this module was built from), Tetrax is 4, Quatrax is
-  14 (44, 28 and 100 banana jacks respectively). `patch.rax_bars` (4, 7 or 14) picks ttrax's size, drawn uniformly
-  from the seed; an old saved patch with no `rax_bars` field defaults to 7, so it still replays as it always did.
-  * `glitch_bounds(n_bars, barre)` (next barre, one after) replaces the hardcoded `BOUNDS_TABLE["3"]` lookup in the
-    render path; it reproduces that table exactly for seven bars (tested), and for 4 or 14 it is this code's own
-    extension of the pattern, since there is no Tetrax or Quatrax guide here to transcribe from. `BOUNDS_TABLE`
-    itself is untouched and still documents the guide's figure 1.
-  * `ttrolzer.barre_bpm` wraps past its seven-entry tempo table (`barre % len(BARRE_BPM)`) rather than indexing off
-    the end, so Quatrax's extra barres play at one of the same seven tempos instead of crashing.
-  * Mutation checks: a battery of four deliberate breaks (`glitch_bounds` collapsed to one barre, the bar-count
-    tuple changed, the old-patch default changed, the tempo wrap off by one) were each caught by a test.
-* **2026-10-18, "make the site behave better on mobile ... the interactive UIs are great explainers ... triple down ... we want people to
-  be excited enough that they'd want the hardware":** a third flagship interactive piece, `site/`'s mapping sandbox: four sliders
-  (ASIC temperature, power, aiclk, GDDR spread) run the exact ported formulas from `mapping.py` and `patch.py` (`temp_to_pitch_hz`,
-  `aiclk_to_bpm`, `pressure`, `scale_for`) and show pitch (with a note name), tempo, a pressure meter and the chosen scale, live. A
-  new `#hardware` section makes the case directly: the project only works because real silicon gives up this many live signals for
-  free, with links to tenstorrent.com, the Tenstorrent GitHub org and the repo. Mobile: a `@media(max-width:640px)` pass (smaller
-  section padding and type, full-width stacked buttons, narrower slider labels) on top of layouts that already had no page-level
-  horizontal overflow at 375px (checked with an iframe harness reading `scrollWidth`, not by eye).
-  * `tests/test_site.py` now also checks that the sandbox's JS constants equal the Python ones it claims to port (`C3_HZ`,
-    `PITCH_SEMITONES`, the temperature/aiclk/bpm ranges, the pressure floors, the scale step and the scale name order) and that the
-    page links to tenstorrent.com and github.com/tenstorrent. Changing a constant or the scale order in the page, by hand, turned it red.
+* **2026-10-18, `ttcoco` kernel:** `kernels/ttcoco.py` ports the device's final mix, `tanh(a0 + ... + a7)`, the same shape as
+  `ttmix` with eight inputs instead of four; the eight taps themselves (`echo_tap`, sequential and data-dependent) stay on the
+  host, the same way the gong's ring-down and the AVDog's undulation do. `tensixinet/kernels/packing.py` gained `coco_inputs`/
+  `coco_on_host`, tested against `ttcoco()` directly (not just against the kernel) so the host/chip split is proven correct on
+  its own. Matched the simulator to 1.2e-7 on the first run; four deliberate breakages (a subtraction for an addition, a
+  dropped term, a missing `tanh`, a swapped input tile) each failed. Ran on all four chips (two leases, one per board) and
+  matched to 8.8e-4, inside a 1e-3 tolerance (the sum has seven adds before `tanh`, one more than `ttmix`'s three, so a little
+  looser than `ttmix`'s own 2.8e-4). Recorded the same way as the first five kernels: `kernels/make_video.py` now covers all
+  six, the site's kernel video and its "On the chip" section are rebuilt, and a `ttcoco`-on-chip audio clip is on the site.
+  Splitting the eight taps across real cores, instead of precomputing them on the host, is still open (roadmap 7).
 * **2026-10-18, `--only`:** since none of the new sound has been heard, `--only NAME[,NAME]` plays only the named devices at full level with
   no turn-taking (`render_chorus(..., only=[...])`, also in live mode). A log line says what is soloed. Mutation checks found two
   survivors in the command-line parsing (spaces around commas, a list of nothing); both got tests.

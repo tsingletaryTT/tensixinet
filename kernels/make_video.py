@@ -14,13 +14,14 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-KERNELS = ["ttshock", "ttshimmer", "ttgong", "ttavdog", "ttmix"]
+KERNELS = ["ttshock", "ttshimmer", "ttgong", "ttavdog", "ttmix", "ttcoco"]
 BLURB = {
     "ttshock": "the drone's shock wave",
     "ttshimmer": "the ultrasonic shimmer",
     "ttgong": "a ringing gong strike",
     "ttavdog": "the AVDog's two voices",
     "ttmix": "the chips' mixer",
+    "ttcoco": "eight parallel delay taps, summed",
 }
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 W = 1280

@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-KERNELS = ["ttshock.py", "ttshimmer.py", "ttgong.py", "ttavdog.py", "ttmix.py"]
+KERNELS = ["ttshock.py", "ttshimmer.py", "ttgong.py", "ttavdog.py", "ttmix.py", "ttcoco.py"]
 
 
 def last_json(text: str):

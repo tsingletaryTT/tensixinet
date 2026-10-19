@@ -8,3 +8,5 @@
 {"kernel": "ttgong", "samples": 72000, "sample_rate": 8000, "worst": 1.9628941885785345e-07, "atol": 0.0002, "ok": true, "run_ms": 0.515, "device": 1, "simulator": false, "exit": 0}
 {"kernel": "ttavdog", "samples": 80000, "sample_rate": 8000, "worst": 0.002334296703338623, "atol": 0.005, "ok": true, "run_ms": 0.24, "device": 1, "simulator": false, "exit": 0}
 {"kernel": "ttmix", "samples": 24000, "sample_rate": 8000, "worst": 0.0002793391628992947, "atol": 0.001, "ok": true, "run_ms": 0.219, "device": 1, "simulator": false, "exit": 0}
+{"kernel": "ttcoco", "samples": 24000, "sample_rate": 8000, "worst": 0.0008792877197265625, "atol": 0.001, "ok": true, "run_ms": 0.243, "device": 0, "simulator": false, "exit": 0}
+{"kernel": "ttcoco", "samples": 24000, "sample_rate": 8000, "worst": 0.0008792877197265625, "atol": 0.001, "ok": true, "run_ms": 0.241, "device": 1, "simulator": false, "exit": 0}

@@ -7,6 +7,10 @@ __pycache__/
 
 # Local scratch and backups (archive/ holds editor backups and memory snapshots)
 archive/
+
+# tt-metal's own runtime cache (device topology, kernel compile logs): written into the working
+# directory as a side effect of running a kernel, not project source, and it names the host and ASIC IDs.
+generated/
 build/
 videos/
 input.mp4

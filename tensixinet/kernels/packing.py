@@ -123,6 +123,27 @@ def mix_on_host(tiles: Sequence[np.ndarray], n: int) -> np.ndarray:
     return unpack(np.tanh(sum(tiles)), n)
 
 
+COCO_TAPS = 8  # ttcoco's delay taps, one per GDDR channel
+
+
+def coco_inputs(taps: Sequence[np.ndarray], n: int) -> List[np.ndarray]:
+    """ttcoco's eight taps, ready for the kernel: each one already multiplied by the device's own headroom term
+    (`ttcoco.LEVEL / sqrt(N_TAPS)`), packed, and padded with silence to `COCO_TAPS`. The chip adds them and
+    applies `tanh`, the same shape as the mixer but with eight inputs instead of four."""
+    from ..music.ttcoco import LEVEL, N_TAPS
+    if len(taps) > COCO_TAPS:
+        raise ValueError(f"the coco kernel takes {COCO_TAPS} taps, got {len(taps)}")
+    scale = LEVEL / math.sqrt(N_TAPS)
+    scaled = [pack(scale * np.asarray(tap, dtype=np.float64)[:n]) for tap in taps]
+    scaled += [pack(np.zeros(n)) for _ in range(COCO_TAPS - len(scaled))]
+    return scaled
+
+
+def coco_on_host(tiles: Sequence[np.ndarray], n: int) -> np.ndarray:
+    """The coco kernel's formula, `tanh(sum)` of eight already-scaled taps, in float32 numpy."""
+    return unpack(np.tanh(sum(tiles)), n)
+
+
 def strike_ages(strikes: np.ndarray, n: int, sample_rate: int, length: int, back: int = 0) -> np.ndarray:
     """For each of `n` samples, how many samples ago the `back`-th latest strike began (0 is the latest), placed the way
     `devices.gong` places it (at `int(onset * sample_rate)`). -1 where there is no such strike or it has rung out."""
