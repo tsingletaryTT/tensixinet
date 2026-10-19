@@ -43,6 +43,7 @@ runs `tt-smi -s`.
 | | `ttsteam.py` | A shift register that steps a noise snare, with the harvested Tensix columns as its pattern |
 | | `ttchoir.py` | A singer: a glottal buzz shaped by formant resonances, sung on vowels that the GDDR channels pick |
 | | `ttavdog.py` | The AVDog's dogtone under the two halves of an undulation: a white voice and a red voice that answer each other |
+| | `ttcoco.py` | The Cocoquantus's own delay chips, as eight parallel echo taps instead of the real instrument's two |
 | | `lead.py` | The lead voice and its shift/invert transforms |
 | | `events.py` | Tick, breath and sweep sounds for memory errors and thermal trips; silent on a healthy chip |
 | | `turns.py` | Who solos each turn, and the gain curves |

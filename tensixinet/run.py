@@ -79,7 +79,7 @@ def describe_readings(
     for d in explain_patch(patch, telemetry, patch_source):
         log.event("patch", d.what, d.why)
     for i, t in enumerate(telemetry):
-        for d in explain_chip(i, t, n):
+        for d in explain_chip(i, t, n, patch):
             log.event("chip", d.what, d.why, chip=i)
         if any(dev.__name__ == "lead" for dev in chip_devices(i, n)):
             d = explain_lead(t, duration)

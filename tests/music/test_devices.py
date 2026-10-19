@@ -621,3 +621,13 @@ def test_gong_parameters_are_the_numbers_the_strike_is_built_from():
     assert freq == pytest.approx(g.f0 * DEFAULT_PATCH.gong_partials[1]) and amp == DEFAULT_PATCH.gong_amps[1]
     assert decay == pytest.approx(0.3 * interval / (1 + 0.25 * (DEFAULT_PATCH.gong_partials[1] - 1)))
     assert gong_parameters(t, 4000, DEFAULT_PATCH).partials[-1][0] <= 0.45 * 4000  # partials above Nyquist are held at 0.45 of it
+
+
+def test_quantussy_tone_is_the_plain_sine_before_the_cocos_crunch(monkeypatch):
+    """A regression lock for the ttcoco refactor: ttquantus is exactly crunch(quantussy_tone(...), rate)."""
+    from tensixinet.music.devices import quantussy_tone
+    t = tel(axiclk=1920.0)
+    tone = quantussy_tone(t, 1.0, SR, 0)
+    assert np.abs(tone).max() <= 0.8 + 1e-9
+    expected = devices_module.crunch(tone, 1.0)
+    assert np.array_equal(ttquantus(t, 1.0, SR, 0), expected.astype(np.float32))

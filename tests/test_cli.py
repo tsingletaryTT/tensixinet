@@ -181,7 +181,9 @@ def test_no_normalise_keeps_the_absolute_level_and_normalising_is_the_default(tm
     _, a = run_cli(tmp_path, "norm", "--patch-seed", "5")
     _, b = run_cli(tmp_path, "raw", "--patch-seed", "5", "--no-normalise")
     rms = lambda d: float(np.sqrt(np.mean(sf.read(str(d / "o.wav"))[0] ** 2)))
-    assert rms(a) > 1.5 * rms(b) and 0.1 < rms(a) < 0.15
+    # the margin is loose on purpose: it only needs to show normalising did something, not pin the raw mix's
+    # own level, which moves a little with every device the chorus adds
+    assert rms(a) > 1.2 * rms(b) and 0.1 < rms(a) < 0.15
     assert any("left as rendered" in e["what"] for e in read_events(b / "logs"))
 
 

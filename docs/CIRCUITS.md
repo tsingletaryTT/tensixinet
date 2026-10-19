@@ -60,7 +60,8 @@ a recreation of the instruments. Our devices carry a `tt` prefix for that reason
 | The default leader is two positions counter-clockwise, and two does not divide five, so the chain visits every petal. The castle mod select cycles through leaders 2, 3, 4 and 1. | A chip's identity picks one of those four offsets. | `castle_offset` |
 | Petals with low prime ratios make a repeating pattern, and petals that are slightly off make it drift. The castle is not random. | Ratios are 1, 3/2, 5/4, 4/3 and 5/3, each nudged by up to 3% from the seed. The old random sample-and-hold is gone. | `petal_ratios` |
 | The delay buffers store 8-bit audio, and the clock is the sample rate, so a slower clock aliases. | The voice is rounded to 8 bits. A slower AXI clock holds each sample longer, from the full rate at 1920 MHz down to a quarter. | `crunch` |
-| Delay, looping, feedback, flip, skip, the Dolby switches, the iron cross and the track-and-hold mode. | Not modelled. ttquantus here is the Quantussy's melody through its buffer. | |
+| The two delay chips: a pair of crunchy 8-bit echo ICs, each a buffer whose length trades against its resolution. | `ttcoco`: eight parallel taps (one per GDDR channel, where the real instrument affords two), each independently timed and crunched, each echoing with feedback. | `music/ttcoco.py` |
+| Delay, looping, feedback, flip, skip, the Dolby switches, the iron cross and the track-and-hold mode. | Feedback (as a truncated geometric series of re-crunched repeats) is now `ttcoco`. Looping the buffer itself, flip, skip, the Dolby switches, the iron cross and track-and-hold are not modelled. | `echo_tap` |
 
 ## What would come next
 

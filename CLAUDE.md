@@ -324,6 +324,29 @@ legacy/        first prototype scripts, kept for reference
   near the ceiling may not begin) and `should_stop` (the cap or the ceiling, whichever comes first). Pure host-side logic, no device,
   tested without hardware; a mutation battery found three survivors (both constants unpinned, and `>` for `>=` at the pressure
   boundary) and each got a test. The load kernel itself (the part that actually burns cycles on a chip) is not built.
+* **2026-10-18, "let's get the rest of these machines built in tt-lang kernels. look up the delay chips that power the
+  cocoquantus 2. let's do our own tensix version of that that really embraces our unique hardware":** researched the
+  real chips: a pair of crunchy 8-bit echo ICs, each a buffer of a few tens of kilobits clocked by a VCO, whose length
+  trades directly against its resolution (a shorter delay holds more bits). `music/ttcoco.py` is the eleventh device:
+  eight parallel delay taps, one per GDDR channel, each independently timed and crunched, echoing `devices.quantussy_tone`
+  (factored out of `ttquantus`, a pure refactor, tests unchanged). The real instrument affords two delay lines because
+  each is a separate chip; here a tap costs a core's worth of work, so there are eight, and the docs and site say so
+  plainly as the concrete answer to "embrace our unique hardware" rather than a slogan.
+  * Each tap: a truncated geometric series of delayed, decaying, independently re-crunched copies (`echo_tap`), the
+    same "closed-form sum of repeats" shape as `ttgong`'s ring-down, chosen because it is what a kernel can port later.
+    Feedback is pressure, scaled to a ceiling of 0.8.
+  * Registering an eleventh device touched the same places the ninth and tenth did: `DEVICE_INPUTS`, `explain.py`
+    (plus a new pressure-mentions index), the site's embedded device list, cable seeds and band grid, and a handful of
+    docs that named "ten" devices. One test needed loosening, not fixing: `--no-normalise`'s raw-vs-normalised ratio
+    assumed the old mix's exact raw loudness, which moved when ttcoco joined it.
+  * Found and fixed a gap from the ttrax work two entries back: `explain_chip` never saw the patch, so the log always
+    said "seven ttrax barres" even when the patch's `rax_bars` was 4 or 14. `explain_chip`/`describe_readings` now
+    thread `patch` through (an optional, defaulted parameter, so every existing call site is unaffected).
+  * Mutation checks: four survivors, all unpinned constants (`DELAY_RANGE_MS`, `BITS_RANGE`, `FEEDBACK_MAX`,
+    `ECHO_FLOOR`); each got a test. Everything else (the delay-vs-bits trade direction, the feedback-pressure
+    wiring, the shift helper's padding, the final headroom term) was already caught.
+  * Not yet built: the TT-Lang kernel for this device (next), and splitting the eight taps across real Tensix cores
+    instead of precomputing them on the host, which would be the first kernel here to use more than one core.
 * **2026-10-18, "let's also make ttrax configurable in bars ... like the tetrax, sidrax, and quatrax configurations":**
   looked up the real instruments: Sidrax is 7 bars (the guide this module was built from), Tetrax is 4, Quatrax is
   14 (44, 28 and 100 banana jacks respectively). `patch.rax_bars` (4, 7 or 14) picks ttrax's size, drawn uniformly

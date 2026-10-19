@@ -42,7 +42,7 @@ In short:
 
 The functions are in `tensixinet/music/mapping.py`. Readings outside a range hold the nearest end.
 
-## The ten devices
+## The eleven devices
 
 | Device | Character | Reads |
 |---|---|---|
@@ -56,6 +56,7 @@ The functions are in `tensixinet/music/mapping.py`. Readings outside a range hol
 | ttavdog | A drone oscillator opened by a ringing filter: a white voice on one half of each swing, a red voice on the other | aiclk, temperature, heartbeat, pressure, chip identity |
 | ttchoir | A singer: a buzz through formant resonances, sung on vowels at the chip's pitch | temperature, aiclk, GDDR temperatures, pressure, chip identity |
 | ttsteam and Snare | A noise snare on the steps of a 14-step register that the harvested Tensix columns pick, over a bed of dust | aiclk, Tensix mask, pressure, PCIe usage |
+| ttcoco | The Cocoquantus's own delay chips: eight parallel echo taps, one per GDDR channel, each independently timed and bit-crunched, echoing the ttquantussy's own tone | aiclk, axiclk, GDDR temperatures, pressure, chip identity |
 
 
 `DEVICE_INPUTS` in `music/devices.py` is the exact list, and a test checks it field by field. The lead and
@@ -115,6 +116,32 @@ Petal 0 reaches a peak or a valley once per note. Its castle samples a leader pe
 leader is 2, 3, 4 or 1 places round the ring, picked by the chip's identity. The held value picks a note of the
 patch's scale over two octaves. Low prime ratios make the notes repeat, and the nudge makes the pattern drift.
 The voice is a sine rounded to 8 bits, held for longer at a lower AXI clock.
+
+## ttcoco
+
+After the Cocoquantus's own delay chips: a pair of crunchy 8-bit echo ICs, each a buffer of a few tens of
+kilobits clocked by a VCO, whose length trades directly against its resolution (a shorter delay holds more
+bits; a longer one holds fewer, because the same silicon serves both). There are two of them because each
+delay line costs a separate piece of hardware.
+
+A Tensix chip has no such limit, and ttcoco is built around that difference: eight parallel taps, one per
+GDDR channel, each independently timed and independently crunched, run genuinely in parallel because here a
+delay line costs a core's worth of work, not a chip's worth of board space.
+
+* **Source:** `devices.quantussy_tone`, the ttquantussy's plain tone before ttquantus's own 8-bit buffer, patched
+  into every tap, as the real instrument's Quantussy patches into its Coco.
+* **Per-tap delay:** a hotter GDDR channel echoes faster. 40 ms (hottest) to 900 ms (coolest).
+* **Per-tap resolution:** the real chips' own trade, inverted from the delay: the shortest delay holds 8 bits, the
+  longest 4.
+* **Echo:** each tap is a truncated geometric series of delayed, decaying, independently re-crunched copies: the
+  dry signal, then that signal delayed and scaled by the feedback, then delayed twice and scaled by feedback
+  squared, and so on until a repeat falls below 1/400 of the first and the series stops. Every repeat is crunched
+  to its tap's own bit depth, not to one that keeps getting coarser, which is a simplification of a real feedback
+  loop through a lo-fi buffer.
+* **Feedback:** pressure, scaled to a ceiling of 0.8 so the echoes always die.
+* **Mix:** the eight taps are summed, scaled by 1/sqrt(8), and go through `tanh`.
+
+Not modelled: looping the buffer itself, flip, skip, the Dolby switches, the iron cross and track-and-hold.
 
 ## ttavdog
 

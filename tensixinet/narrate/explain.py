@@ -29,6 +29,7 @@ from ..music.devices import (
 from ..music.ttsteam import STEPS, dust_per_second, snare_decay, step_pattern
 from ..music.ttchoir import voice_scale, vowel_sequence
 from ..music.ttquantussy import castle_offset
+from ..music.ttcoco import N_TAPS, tap_bits, tap_delay_ms, tap_feedback
 from ..music.ttrax import FALLBACK_ARCCLK, N_BARRES, barre_bounds
 from ..music.events import MAX_BREATHS, MAX_SWEEPS, MAX_TICKS
 from ..music.lead import BRIGHTNESS, identity_offset, lead_transforms
@@ -67,7 +68,7 @@ class Decision:
     why: str
 
 
-def explain_chip(index: int, t: Telemetry, n_chips: Optional[int] = None) -> List[Decision]:
+def explain_chip(index: int, t: Telemetry, n_chips: Optional[int] = None, patch: Patch = DEFAULT_PATCH) -> List[Decision]:
     """What this chip plays and what each reading it feeds into those devices becomes."""
     n_chips = len(DEVICES) if n_chips is None else n_chips
     devices = [d.__name__ for d in chip_devices(index, n_chips)]
@@ -104,7 +105,7 @@ def explain_chip(index: int, t: Telemetry, n_chips: Optional[int] = None) -> Lis
             "each DDR field adds a ttrolzer roll of 3, 4, 5 or 6 sides on its own barre, so the lanes drift against "
             "each other; an odd roll is unsteady and an even one swings; status 0 grounds the roll and mutes it",
         ))
-    out.extend(_explain_wider_readings(t, devices))
+    out.extend(_explain_wider_readings(t, devices, patch))
     out.append(Decision(
         f"power {t.power:.0f} W -> volume {power_to_volume(t.power):.2f}",
         "0-200 W maps onto volume 0.3-1.0 on an exponential curve",
@@ -116,7 +117,7 @@ def _percent_list(levels) -> str:
     return ", ".join(f"{lv:.0%}" for lv in levels)
 
 
-def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
+def _explain_wider_readings(t: Telemetry, devices: List[str], patch: Patch = DEFAULT_PATCH) -> List[Decision]:
     """Decisions for the readings beyond temperature, clock and power, only for devices on this chip."""
     out: List[Decision] = []
     pressure = chip_pressure(t)
@@ -133,10 +134,11 @@ def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
             "the share of its group that is up, so a link going down quietens its lane",
         ))
     if "ttrax" in devices:
-        walls = [barre_bounds(t.gddr_temps, b) for b in range(N_BARRES)]
+        n_bars = patch.rax_bars
+        walls = [barre_bounds(t.gddr_temps, b) for b in range(n_bars)]
         out.append(Decision(
             f"GDDR {min(t.gddr_temps):.0f}-{max(t.gddr_temps):.0f} C -> barre walls {min(w[0] for w in walls):.2f} to {max(w[1] for w in walls):.2f}",
-            "each of the seven ttrax barres bounces between two walls: its own GDDR channel sets the upper one and the "
+            f"each of the {n_bars} ttrax barres bounces between two walls: its own GDDR channel sets the upper one and the "
             "next channel the lower, so a hotter channel pushes a wall further out",
         ))
         out.append(Decision(
@@ -208,6 +210,20 @@ def _explain_wider_readings(t: Telemetry, devices: List[str]) -> List[Decision]:
             "each gong strike pings the ringing filter: the white voice sounds on one half of the swing, the red voice on the other",
             "after the AVDog, whose undulation opens a silent drone oscillator as it swings; the voices answer each other, at the same pitch "
             "with the opposite slope, and the red is a little quieter. The swing is the one that ripples the ttdrone",
+        ))
+    if "ttcoco" in devices:
+        delays = [tap_delay_ms(g) for g in t.gddr_temps[:N_TAPS]]
+        bits = [tap_bits(d) for d in delays]
+        feedback = tap_feedback(t)
+        out.append(Decision(
+            f"GDDR channels -> {N_TAPS} delay taps, {min(delays):.0f} to {max(delays):.0f} ms, {min(bits):.0f} to {max(bits):.0f} bits",
+            "each GDDR channel drives one tap of the coco's own delay chips: a hotter channel echoes faster, and a "
+            "shorter delay holds more bits, the real chips' own trade of buffer length against resolution. The real "
+            f"instrument affords two such chips; a chip here is {N_TAPS} cores' worth of work, not {N_TAPS} chips' worth of board space",
+        ))
+        out.append(Decision(
+            f"pressure {pressure:.2f} -> tap feedback {feedback:.2f}",
+            f"{pressure_why}; every tap feeds back on itself, so a chip under pressure rings with more, longer-lived echoes",
         ))
     if "lead" in devices:
         out.append(Decision(

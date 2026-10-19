@@ -53,6 +53,7 @@ DEVICE_INPUTS = {
     "ttavdog": frozenset({"asic_temperature", "aiclk", "heartbeat"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ttchoir": frozenset({"asic_temperature", "gddr_temps", "aiclk"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ultrasonic_shimmer": frozenset({"gddr_temps", "aiclk", "heartbeat"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
+    "ttcoco": frozenset({"aiclk", "axiclk", "gddr_temps"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
 }
 
 
@@ -138,14 +139,20 @@ def ttquantus_steps(t: Telemetry, duration: float, sample_rate: int, seed: int, 
     return quantize_to_scale(castle, patch.scale)
 
 
-def ttquantus(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
-    """The castle's notes as a sine, through the coco's 8-bit buffer. A slower AXI clock slows the buffer's
-    sample clock, which holds each sample longer and aliases."""
+def quantussy_tone(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """The castle's notes as a plain sine, before the coco's 8-bit buffer. ttcoco patches this same tone into its
+    delay taps, as the real instrument's Quantussy patches into its Coco."""
     semis = ttquantus_steps(t, duration, sample_rate, seed, patch)
     freq = temp_to_pitch_hz(t.asic_temperature) * 2 ** (semis / 12)
     phase = 2 * math.pi * np.cumsum(freq) / sample_rate
+    return 0.8 * np.sin(phase)
+
+
+def ttquantus(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """The castle's notes as a sine, through the coco's 8-bit buffer. A slower AXI clock slows the buffer's
+    sample clock, which holds each sample longer and aliases."""
     rate = min(1.0, max(CRUNCH_MIN_RATE, t.axiclk / CRUNCH_FULL_AXICLK))
-    return crunch(0.8 * np.sin(phase), rate).astype(np.float32)
+    return crunch(quantussy_tone(t, duration, sample_rate, seed, patch), rate).astype(np.float32)
 
 
 # --- Plumbutter: drone + current-based mixing ----------------------------------

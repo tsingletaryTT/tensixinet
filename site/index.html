@@ -143,7 +143,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   <p>tensixinet connects the two. Nothing in the music is scheduled. A hot chip and a cool chip sound different, a busy chip gets more solos, and uneven memory temperatures make the melody wander. Give the box a prompt and the work heats the chips, so you hear the model think.</p>
   <div class="grid">
     <div class="card"><h3>Readings are patch jacks</h3><p>Over thirty fields from <code>tt-smi -s</code> each drive something: pitch, tempo, wall positions, scale choice, which voice solos, how hard a cable pushes.</p><span class="tag">read-only, no device lease</span></div>
-    <div class="card"><h3>Ten devices, any number of chips</h3><p>Devices are dealt to chips in turn. One chip plays all ten. Ten or more chips play one device each.</p><span class="tag">slot % chips</span></div>
+    <div class="card"><h3>Eleven devices, any number of chips</h3><p>Devices are dealt to chips in turn. One chip plays all eleven. Eleven or more chips play one device each.</p><span class="tag">slot % chips</span></div>
     <div class="card"><h3>Cables between voices</h3><p>Five to eight cables per patch let one device bend, crunch, swell or fold another. The choir is wired both ways.</p><span class="tag">drawn from the patch seed</span></div>
     <div class="card"><h3>The load is part of the sound</h3><p>The chip that plays a cable's source sets how hard it pushes. Work on one chip changes how other devices sound.</p><span class="tag">chip chaos = pressure + rate of change</span></div>
   </div>
@@ -160,11 +160,11 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 <section id="routing"><div class="wrap">
   <div class="kicker">Routing</div>
   <h2>How a reading becomes sound</h2>
-  <p>This is the path of one turn of music. Chips on the left report; the readings are mapped to musical values; the ten devices render; the cables bend the voices; the turn gains give one device the floor; the chips are mixed by their current; an EQ and a loudness gain finish it. Pick a scenario to see which paths carry signal and why.</p>
+  <p>This is the path of one turn of music. Chips on the left report; the readings are mapped to musical values; the eleven devices render; the cables bend the voices; the turn gains give one device the floor; the chips are mixed by their current; an EQ and a loudness gain finish it. Pick a scenario to see which paths carry signal and why.</p>
   <div class="diagram">
     <div class="tabs" id="scen-tabs" role="group" aria-label="Scenario"></div>
     <div class="scroll">
-    <svg id="flow" viewBox="0 0 1100 530" role="img" aria-label="Signal routing from four chips through mapping, ten devices, cables, turn gains, mix, EQ and loudness to the speakers">
+    <svg id="flow" viewBox="0 0 1100 530" role="img" aria-label="Signal routing from four chips through mapping, eleven devices, cables, turn gains, mix, EQ and loudness to the speakers">
       <defs>
         <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#9db9b6"/></marker>
       </defs>
@@ -183,7 +183,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
         <text class="s" x="340" y="130" text-anchor="middle">pitch</text><text class="s" x="340" y="146" text-anchor="middle">tempo</text><text class="s" x="340" y="162" text-anchor="middle">pressure</text>
         <text class="s" x="340" y="178" text-anchor="middle">chaos</text><text class="s" x="340" y="194" text-anchor="middle">identity</text><text class="s" x="340" y="210" text-anchor="middle">scale, tuning</text>
         <text class="s" x="340" y="226" text-anchor="middle">turn weight</text></g>
-      <g class="node"><rect x="435" y="75" width="130" height="330" rx="9"/><text class="t" x="500" y="97" text-anchor="middle">10 devices</text><g id="pills"></g></g>
+      <g class="node"><rect x="435" y="75" width="130" height="330" rx="9"/><text class="t" x="500" y="97" text-anchor="middle">11 devices</text><g id="pills"></g></g>
       <g class="node"><rect x="610" y="75" width="80" height="330" rx="9"/><text class="t" x="650" y="100" text-anchor="middle">cables</text>
         <text class="s" x="650" y="130" text-anchor="middle">fm</text><text class="s" x="650" y="146" text-anchor="middle">crunch</text><text class="s" x="650" y="162" text-anchor="middle">inflate</text><text class="s" x="650" y="178" text-anchor="middle">fold</text></g>
       <g class="node"><rect x="735" y="75" width="80" height="330" rx="9"/><text class="t" x="775" y="100" text-anchor="middle">turn</text><text class="t" x="775" y="116" text-anchor="middle">gains</text>
@@ -200,7 +200,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     </div>
     <div class="caption" id="caption"></div>
   </div>
-  <p class="src" style="margin-top:12px">The four colours are chips. With four chips the ten devices are dealt <span class="mono">slot % 4</span>, so chip 0 plays ttrollz, lead and ttavdog; chip 1 plays ttrax, gong and ttchoir; chip 2 plays ttquantus and the shimmer; chip 3 plays ttdrone and ttsteam.</p>
+  <p class="src" style="margin-top:12px">The four colours are chips. With four chips the eleven devices are dealt <span class="mono">slot % 4</span>, so chip 0 plays ttrollz, lead and ttavdog; chip 1 plays ttrax, gong and ttchoir; chip 2 plays ttquantus, the shimmer and ttcoco; chip 3 plays ttdrone and ttsteam.</p>
 </div></section>
 
 <section id="cables"><div class="wrap">
@@ -211,7 +211,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   <div class="diagram">
     <div class="tabs" id="seed-tabs" role="group" aria-label="Patch seed"></div>
     <div class="ringbox">
-      <svg class="ring" id="ring" viewBox="0 0 520 520" role="img" aria-label="Ten devices in a ring with patch cables between them"></svg>
+      <svg class="ring" id="ring" viewBox="0 0 520 520" role="img" aria-label="Eleven devices in a ring with patch cables between them"></svg>
       <div>
         <div class="sliders" id="sliders"></div>
         <table id="cabtable"><thead><tr><th>cable</th><th>kind</th><th>depth</th><th>push</th></tr></thead><tbody></tbody></table>
@@ -232,7 +232,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 
 <section id="band"><div class="wrap">
   <div class="kicker">The band</div>
-  <h2>Ten devices, each inspired by a different instrument</h2>
+  <h2>Eleven devices, each inspired by a different instrument</h2>
   <p>The names carry a <code>tt</code> prefix on purpose. These are new instruments inspired by Ciat-Lonbarde designs and the guides Josh Singer wrote about them. They are not recreations.</p>
   <div class="grid" id="band-grid"></div>
 </div></section>
@@ -242,7 +242,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   <h2>What the chips played</h2>
   <p>Thirty seconds each, from four synthetic chips with patch seed 5, so anyone can reproduce them with <code>tensixinet --mock-chips 4 --patch-seed 5</code>. The first two are the whole band, with and without cables.</p>
   <div class="players">
-    <div class="card"><h3>The whole band, cables on</h3><p>All ten devices, cross-patched, with turn-taking.</p><audio controls preload="none" src="assets/audio/all.mp3"></audio></div>
+    <div class="card"><h3>The whole band, cables on</h3><p>All eleven devices, cross-patched, with turn-taking.</p><audio controls preload="none" src="assets/audio/all.mp3"></audio></div>
     <div class="card"><h3>The same patch, no cables</h3><p>The same chips and seed with <code>--no-cables</code>. Play it after the first.</p><audio controls preload="none" src="assets/audio/all_nocables.mp3"></audio></div>
     <div class="card"><h3>ttchoir</h3><p>A voice built from formant resonances, singing vowels the memory channels choose.</p><audio controls preload="none" src="assets/audio/choir.mp3"></audio></div>
     <div class="card"><h3>ttavdog</h3><p>A shock wave that undulates, with a second voice answering on the other half with the opposite slope.</p><audio controls preload="none" src="assets/audio/avdog.mp3"></audio></div>
@@ -333,8 +333,8 @@ tensixinet --no-cables                           # the band without the patch ca
 </div></footer>
 
 <script>
-const SEEDS = {"5": [["ttchoir", "lead", "fold", 0.919], ["ultrasonic_shimmer", "ttchoir", "fm", 0.302], ["ttsteam", "ttavdog", "crunch", 0.301], ["lead", "ttdrone", "inflate", 0.943], ["ttchoir", "ttquantus", "fold", 0.64], ["ttrollz", "ttdrone", "fm", 0.884], ["ttsteam", "ttrax", "crunch", 0.536]], "11": [["ttchoir", "ttrax", "fold", 0.37], ["ttavdog", "ttchoir", "fm", 0.381], ["ttchoir", "ttquantus", "crunch", 0.648], ["ttsteam", "ttrollz", "inflate", 0.991], ["lead", "ttrollz", "fold", 0.427], ["ttchoir", "ttrollz", "fm", 0.901], ["ultrasonic_shimmer", "lead", "crunch", 0.804], ["ttchoir", "lead", "inflate", 0.39]], "23": [["ttchoir", "ttrax", "inflate", 0.711], ["ttavdog", "ttchoir", "fold", 0.939], ["ttdrone", "lead", "fm", 0.685], ["ultrasonic_shimmer", "ttquantus", "crunch", 0.38], ["lead", "ttdrone", "inflate", 0.301]], "42": [["ttchoir", "ttquantus", "inflate", 0.768], ["lead", "ttchoir", "fold", 0.381], ["ttsteam", "ttavdog", "fm", 0.656], ["ttavdog", "ttquantus", "crunch", 0.642], ["ttchoir", "ultrasonic_shimmer", "inflate", 0.823], ["lead", "ttrollz", "fold", 0.886], ["gong", "ttquantus", "fm", 0.778]], "77": [["ttchoir", "ttsteam", "fm", 0.402], ["ttdrone", "ttchoir", "crunch", 0.612], ["ttrollz", "gong", "inflate", 0.336], ["ttquantus", "gong", "fold", 0.951], ["gong", "ttquantus", "fm", 0.788]], "101": [["ttchoir", "lead", "inflate", 0.929], ["gong", "ttchoir", "fold", 0.766], ["ttquantus", "ultrasonic_shimmer", "fm", 0.808], ["ttsteam", "ttchoir", "crunch", 0.976], ["ttrax", "ttrollz", "inflate", 0.967]]};
-const DEVICES = ["ttrollz", "ttrax", "ttquantus", "ttdrone", "lead", "gong", "ultrasonic_shimmer", "ttsteam", "ttavdog", "ttchoir"];
+const SEEDS = {"5": [["ttchoir", "gong", "fold", 0.919], ["ultrasonic_shimmer", "ttchoir", "fm", 0.302], ["ttavdog", "ttchoir", "crunch", 0.301], ["lead", "ttdrone", "inflate", 0.943], ["ttcoco", "ttquantus", "fold", 0.64], ["ttrollz", "ttdrone", "fm", 0.884], ["ttsteam", "ttrax", "crunch", 0.536]], "11": [["ttchoir", "ttrax", "fold", 0.6], ["ttcoco", "ttchoir", "fm", 0.592], ["ttchoir", "ttdrone", "crunch", 0.37], ["ttquantus", "ttrax", "inflate", 0.381], ["ttavdog", "ttrollz", "fold", 0.648], ["lead", "ttrollz", "fm", 0.991], ["ttchoir", "ttrollz", "crunch", 0.427], ["ttsteam", "lead", "inflate", 0.901]], "23": [["ttchoir", "ttrax", "inflate", 0.562], ["ttcoco", "ttchoir", "fold", 0.711], ["ttdrone", "gong", "fm", 0.939], ["ttsteam", "ultrasonic_shimmer", "crunch", 0.685], ["ttsteam", "ttquantus", "inflate", 0.38]], "42": [["ttchoir", "ttquantus", "inflate", 0.768], ["lead", "ttchoir", "fold", 0.381], ["ttavdog", "ttchoir", "fm", 0.656], ["ttavdog", "ttquantus", "crunch", 0.642], ["ttcoco", "ultrasonic_shimmer", "inflate", 0.823], ["gong", "ttrollz", "fold", 0.886], ["gong", "ttquantus", "fm", 0.778]], "77": [["ttchoir", "ttavdog", "fm", 0.402], ["lead", "ttchoir", "crunch", 0.612], ["ttrollz", "gong", "inflate", 0.336], ["ttdrone", "ultrasonic_shimmer", "fold", 0.951], ["gong", "ttquantus", "fm", 0.788]], "101": [["ttchoir", "gong", "inflate", 0.929], ["gong", "ttchoir", "fold", 0.766], ["ttdrone", "ttsteam", "fm", 0.808], ["ttavdog", "ttcoco", "crunch", 0.976], ["ttrax", "ttrollz", "inflate", 0.967]]};
+const DEVICES = ["ttrollz", "ttrax", "ttquantus", "ttdrone", "lead", "gong", "ultrasonic_shimmer", "ttsteam", "ttavdog", "ttchoir", "ttcoco"];
 
 const COLORS = ["var(--c0)", "var(--c1)", "var(--c2)", "var(--c3)"];
 const HEX = ["#74C5DF", "#6FABA0", "#F6BC42", "#FF9E8A"];
@@ -384,11 +384,12 @@ for (let i = 0; i < N_CHIPS; i++) {
 }
 const pillsG = document.getElementById("pills");
 const pillEls = [];
+const PILL_STEP = 26;
 DEVICES.forEach((d, i) => {
   const g = el("g", {class: "pill"}, pillsG);
   const c = chipOf(d);
-  el("rect", {x: 445, y: 108 + i * 29, width: 110, height: 24, rx: 6, stroke: HEX[c]}, g);
-  const t = el("text", {x: 500, y: 124 + i * 29, "text-anchor": "middle"}, g);
+  el("rect", {x: 445, y: 100 + i * PILL_STEP, width: 110, height: 22, rx: 6, stroke: HEX[c]}, g);
+  const t = el("text", {x: 500, y: 115 + i * PILL_STEP, "text-anchor": "middle"}, g);
   t.textContent = label(d);
   pillEls.push({g, chip: c});
 });
@@ -511,6 +512,7 @@ const BAND = [
   ["ttsteam", "A shift register steps a snare pattern with dust, in the manner of a steam engine.", "the Man with the Red Steam", "temperature, clock, harvested columns"],
   ["ttavdog", "A shock wave that undulates. A red voice answers on the other half of each swing with the opposite slope.", "the AVDog", "temperature, power, pressure"],
   ["ttchoir", "A singer built from formant resonances, singing oo, oh, ah, eh and ee as the memory channels choose. It has no Ciat-Lonbarde original; it adds a human voice.", "(our own)", "temperature, GDDR temps, identity, pressure"],
+  ["ttcoco", "The Cocoquantus's own delay chips, reimagined: eight parallel echo taps (the real pair affords two), one per GDDR channel, each independently timed and bit-crunched, echoing the ttquantussy's own tone.", "Cocoquantus's delay chips", "clock, GDDR temps, identity, pressure"],
 ];
 const bg = document.getElementById("band-grid");
 BAND.forEach(([n, d, from, drives], i) => {

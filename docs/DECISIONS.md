@@ -4,7 +4,7 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 
 * **Chip count is never assumed.** Voices, devices, GDDR channels and log text all come from
   the telemetry. Devices are slots, and there are always at least as many slots as devices
-  (`max(chips, 10)`). Slot `s` goes to chip `s % chips`. A 1-chip box plays all ten devices,
+  (`max(chips, 11)`). Slot `s` goes to chip `s % chips`. A 1-chip box plays all eleven devices,
   and a box with 10 or more chips plays one device per chip. New devices go on the end of the list so slot numbers do not move.
 * **Players trade solos.** Each turn lasts two bars at the average tempo. One slot is featured and
   the rest drop to 35% volume, with 0.25 s fades. The soloist is drawn in proportion to the

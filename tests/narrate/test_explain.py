@@ -299,7 +299,7 @@ def test_each_wider_decision_appears_only_on_chips_that_play_its_device():
     assert "ethernet" in texts[0] and not any("ethernet" in texts[i] for i in others({0}))
     assert "ARC clock" in texts[1] and not any("ARC clock" in texts[i] for i in others({1}))
     assert "AXI clock" in texts[2] and not any("AXI clock" in texts[i] for i in others({2}))
-    assert all("pressure" in texts[i] for i in (1, 4, 6, 7, 8, 9)) and not any("pressure" in texts[i] for i in others({1, 4, 6, 7, 8, 9}))  # ttrax's chaos, the lead, the shimmer, the snare, the ttavdog's wave shape, the ttchoir's glottal slope
+    assert all("pressure" in texts[i] for i in (1, 4, 6, 7, 8, 9, 10)) and not any("pressure" in texts[i] for i in others({1, 4, 6, 7, 8, 9, 10}))  # ttrax's chaos, the lead, the shimmer, the snare, the ttavdog's wave shape, the ttchoir's glottal slope, ttcoco's feedback
     assert "vowels" in texts[9] and "voice" in texts[9] and not any("vowels" in texts[i] for i in others({9}))
     assert "wave shape" in texts[8] and not any("wave shape" in texts[i] for i in others({8}))
     assert "snare" in texts[7] and not any("snare" in texts[i] for i in others({7}))
@@ -382,3 +382,23 @@ def test_a_cable_kind_is_described_in_plain_words():
     assert set(words) == set(KINDS)
     for kind, word in words.items():
         assert word in explain_cables([Cable("ttrollz", "ttchoir", kind, 0.5)], [FALLBACK])[0].why
+
+
+# --- ttrax's bar count in the log, for Tetrax and Quatrax too -----------------------------------------------------
+
+def test_ttrax_reports_its_own_bar_count_not_a_hardcoded_seven():
+    import dataclasses
+    from tensixinet.music.patch import DEFAULT_PATCH
+    why = lambda decisions: " | ".join(d.why for d in decisions)
+    sidrax_why = why(explain_chip(1, LOADED, n_chips=len(DEVICES)))
+    assert "7 ttrax barres" in sidrax_why
+    tetrax = dataclasses.replace(DEFAULT_PATCH, rax_bars=4)
+    tetrax_why = why(explain_chip(1, LOADED, n_chips=len(DEVICES), patch=tetrax))
+    assert "4 ttrax barres" in tetrax_why and "7 ttrax barres" not in tetrax_why
+
+
+def test_ttcoco_says_its_tap_spread_and_its_feedback():
+    text = subjects(explain_chip(10, LOADED, n_chips=len(DEVICES)))
+    why = " ".join(d.why for d in explain_chip(10, LOADED, n_chips=len(DEVICES)))
+    assert "delay taps" in text and "bits" in text
+    assert "two such chips" in why and "tap feeds back" in why
