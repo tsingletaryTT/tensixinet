@@ -6,6 +6,7 @@ The fixture is a real `tt-smi -s` capture from a 4-device box (2026-10-17).
 Devices 0-1 and 2-3 are different boards, so aiclk differs (800 vs 1350).
 """
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -176,3 +177,21 @@ def test_host_fingerprint_changes_with_the_host_and_ignores_the_clock_fields():
     b = {"host_info": {"Hostname": "b", "Kernel": "7.0", "Driver": "TT-KMD 2.11.0", "Memory": "249 GB"}}
     assert host_fingerprint(a) == host_fingerprint(dict(a)) != host_fingerprint(b)
     assert host_fingerprint({}) == 0
+
+
+# --- a slow read must not outlast the music it feeds ---------------------------
+
+def test_a_hung_tt_smi_is_given_up_on_well_inside_one_live_segment():
+    """Live mode reads the chips between segments. Eight reads that each ran to a 5 s timeout made the sound stop and start,
+    because a segment is only 4.3 s long at the default tempo. A healthy read takes about 0.25 s."""
+    from tensixinet.live import MIN_SEGMENT_S
+    from tensixinet.telemetry.snapshot import SNAPSHOT_TIMEOUT_S, fetch_snapshot
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(kw)
+        raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+
+    assert fetch_snapshot(fake_run) == {}
+    assert seen["timeout"] == SNAPSHOT_TIMEOUT_S == 1.5
+    assert SNAPSHOT_TIMEOUT_S < MIN_SEGMENT_S

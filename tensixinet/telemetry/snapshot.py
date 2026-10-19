@@ -177,13 +177,19 @@ def host_fingerprint(snapshot: dict) -> int:
     return int.from_bytes(hashlib.sha256(text.encode()).digest()[:6], "big")
 
 
+# A healthy `tt-smi -s` takes about 0.25 s. Live mode reads between segments of 2 s or more, so a read that
+# hangs must be abandoned well inside that: at 5 s, eight failed reads in a row each outlasted the 4.3 s of
+# music they were meant to feed and the sound stopped and started.
+SNAPSHOT_TIMEOUT_S = 1.5
+
+
 def fetch_snapshot(run: Callable = subprocess.run) -> dict:
     """Run `tt-smi -s` and return its parsed JSON, or {} on any failure.
 
     `run` is injectable so callers can substitute a canned response.
     """
     try:
-        result = run(["tt-smi", "-s"], capture_output=True, text=True, timeout=5)
+        result = run(["tt-smi", "-s"], capture_output=True, text=True, timeout=SNAPSHOT_TIMEOUT_S)
         if result.returncode == 0:
             return json.loads(result.stdout)
     except (OSError, subprocess.SubprocessError, ValueError):
