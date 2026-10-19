@@ -11,6 +11,11 @@
 and the run log. Right: [tt-toplike](https://github.com/tenstorrent/tt-toplike) watching the same chips.
 The soundtrack is what the chips played.*
 
+There's also a 2-minute demo of every feature at once (`demo/assets/features.final.mp4`, also on
+the [site](https://tsingletaryTT.github.io/tensixinet/)): `--live` mode reading all eleven devices
+from four real chips, read-only, next to `tt-toplike --rotate` cycling unattended through every one
+of its views.
+
 Every chip reports its temperature, clock, power, current, memory temperatures, DDR status, harvesting and
 more. tensixinet turns those readings into music. Each chip joins a small band of synthesizers inspired by
 [Ciat-Lonbarde](https://www.ciat-lonbarde.net/) instruments (see [Credits](#credits)), and the band trades solos. A cool chip and a hot chip

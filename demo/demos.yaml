@@ -12,3 +12,12 @@ scenes:
     split_ratio: 45
     duration: 50s
     caption: "The prompt drives the chips serving the model (chips 2 and 3 here). Every chip's telemetry becomes a Ciat-Lonbarde-style voice, and the log says why."
+
+  - id: features
+    title: "Every feature at once: live mode, all eleven devices, patch cables, tt-toplike rotating through every view"
+    layout: split
+    left:  { run: "demo/left_pane_features.sh", wait_for: "played .*s in" }
+    right: { run: "tt-toplike {backend} --rotate" }
+    split_ratio: 45
+    duration: 120s
+    caption: "tensixinet --live reads the real chips every turn: all eleven devices (ttrollz through ttcoco), the patch's cross-modulation cables, turn-taking, EQ and loudness, read-only. tt-toplike --rotate cycles unattended through every view of the same four chips: the table, the starfield, memory castle, memory flow, arcade, HivemindSweeper and the training monitor."

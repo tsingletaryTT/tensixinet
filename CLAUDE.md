@@ -383,3 +383,22 @@ legacy/        first prototype scripts, kept for reference
 * **2026-10-18, `--only`:** since none of the new sound has been heard, `--only NAME[,NAME]` plays only the named devices at full level with
   no turn-taking (`render_chorus(..., only=[...])`, also in live mode). A log line says what is soloed. Mutation checks found two
   survivors in the command-line parsing (spaces around commas, a list of nothing); both got tests.
+* **2026-10-18, "one fresh tt-demo-maker tt-toplike video featuring EVERY DANG FEATURE AT ONCE ... 2 minute video so we can do
+  --rotate mode ... integrate the video into the site, and then release to tt-orchard":** a new `features` scene in
+  `demo/demos.yaml`: the left pane (`demo/left_pane_features.sh`) runs `tensixinet --live`, reading all eleven devices off
+  the four real chips every turn (read-only, no gozer lease); the right pane runs `tt-toplike --rotate`, which cycles
+  unattended through every one of its views (table, starfield, memory castle, memory flow, arcade, HivemindSweeper, training
+  monitor). 120 s recorded, muxed with the live run's own WAV as the soundtrack (`demo/assets/features.final.mp4`), and
+  embedded directly in the site's hero section in place of the old static frame, with a new poster image
+  (`site/assets/features.mp4`, `site/assets/features-frame.png`). README gained a line pointing at it alongside the
+  original 50 s chorus demo; neither replaces the other.
+  * Checked with tt-orchard-1d before recording: no model of theirs was being served to prompt, gozer showed all four chips
+    free, and reading them was fine as long as nothing of mine reset a board mid-recording. An unrelated service was listening
+    on port 8001 but nobody present could vouch for what it served or whether it touched a chip, so the recording uses idle
+    real telemetry rather than prompting it.
+  * `tt-demo render features --mp4` took longer than real time to encode (2-minute capture at roughly 0.7 to 0.8x realtime with
+    x11grab plus libx264) and outran the foreground command timeout; it was restarted detached and watched for completion
+    instead of polled.
+  * `.gitignore` gained `!demo/assets/features.final.mp4` / `!demo/assets/features.sheet.png`, matching the chorus demo's
+    allow-list entries. `site/assets/` is not under the restrictive `demo/assets/*` rule, so the video and poster there needed
+    no gitignore change, only `git add -n` to confirm nothing else came along with them.
