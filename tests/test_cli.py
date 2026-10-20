@@ -733,3 +733,26 @@ def test_mock_load_needs_mock_chips_and_live_mode(tmp_path, capsys):
     with pytest.raises(SystemExit):
         main(args(tmp_path, "--mock-chips", "2", "--mock-load", "40"))
     assert "--live" in capsys.readouterr().err
+
+
+def test_kernels_sim_holds_a_pretend_chip_for_every_chip_the_run_plays_and_says_it_is_the_simulator(tmp_path):
+    calls = []
+
+    def make(mode, chips):
+        calls.append((mode, chips))
+        return _Worker(devices=chips)
+
+    assert main(args(tmp_path, "--mock-chips", "4", "--duration", "4", "--kernels", "sim"), make_worker=make) == 0
+    assert calls == [("sim", 4)]
+    ev = [e for e in read_events(tmp_path / "logs") if e["event"] == "backend"]
+    assert "TT-Lang simulator" in ev[0]["what"] and "no chip" in ev[0]["what"] and "4 pretend chips" in ev[0]["what"] and "leased" not in ev[0]["what"]
+    per_chip = [e for e in ev if e["what"].startswith("chip ")]
+    assert len(per_chip) == 4 and all("simulated chip" in e["why"] and "leased" not in e["why"] for e in per_chip)
+
+
+def test_the_default_worker_for_sim_mode_is_the_simulator_pool_with_no_lease(monkeypatch):
+    import tensixinet.media.chip as chip
+    monkeypatch.setattr(chip, "find_simulator", lambda *a, **k: "/venv/bin/tt-lang-sim")
+    from tensixinet.cli import default_make_worker
+    w = default_make_worker("sim", 4)
+    assert "--sim=/venv/bin/tt-lang-sim" in w.command and "--devices=4" in w.command and "gozer" not in w.command and w.devices == 4

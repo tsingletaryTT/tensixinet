@@ -12,6 +12,7 @@ closes it ends the workers and waits for them, so `gozer run` only resets and re
 
     gozer run --chips 4 --who ... --reason ... -- python3 kernels/pool.py --devices=4
     python3 kernels/pool.py --host --devices=4        # numpy workers, no chip
+    python3 kernels/pool.py --sim=$(which tt-lang-sim) --devices=4   # the kernels in the TT-Lang simulator, no chip
 
 Each worker is told to exit if this process dies, so a killed pool cannot leave a worker holding a chip.
 """
@@ -43,14 +44,15 @@ def die_with_parent() -> None:
         pass
 
 
-def start_workers(chips: int, host: bool, chunk_tiles: int):
-    """One worker per board of the `chips` chips. On a chip, each is shown only its own board of the lease."""
+def start_workers(chips: int, host: bool, chunk_tiles: int, sim: str = ""):
+    """One worker per board of the `chips` chips. On a chip, each is shown only its own board of the lease. With `sim` (the path of a
+    `tt-lang-sim`) each runs under the TT-Lang simulator instead: the same kernels, no chip, no lease and no TT_VISIBLE_DEVICES."""
     workers = []
     for board in range(boards_needed(chips)):
         env = dict(os.environ)
-        if not host:
+        if not host and not sim:
             env["TT_VISIBLE_DEVICES"] = board_visible_devices(os.environ.get("TT_VISIBLE_DEVICES"), board, chips)
-        cmd = [sys.executable, str(WORKER), f"--chunk-tiles={chunk_tiles}"] + (["--host"] if host else [])
+        cmd = ([sim] if sim else [sys.executable]) + [str(WORKER), f"--chunk-tiles={chunk_tiles}"] + (["--host"] if host else [])
         workers.append(subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, preexec_fn=die_with_parent))
     return workers
 
@@ -62,6 +64,7 @@ def error_frame(message: str):
 def main() -> int:
     parser = argparse.ArgumentParser(description="One chip worker per leased chip, behind one pipe.")
     parser.add_argument("--host", action="store_true", help="numpy workers instead of chips")
+    parser.add_argument("--sim", metavar="TT_LANG_SIM", default="", help="run each worker under this tt-lang-sim: the kernels in the TT-Lang simulator, no chip")
     parser.add_argument("--devices", type=int, default=1, help="how many chips, device 0 up")
     parser.add_argument("--chunk-tiles", type=int, default=DEFAULT_CHUNK_TILES)
     args = parser.parse_args()
@@ -72,7 +75,7 @@ def main() -> int:
     sys.stdout = sys.stderr
 
     try:
-        workers = start_workers(args.devices, args.host, args.chunk_tiles)
+        workers = start_workers(args.devices, args.host, args.chunk_tiles, args.sim)
     except ChipError as e:
         print(f"pool: {e}", file=sys.stderr, flush=True)
         return 2

@@ -22,7 +22,7 @@ import numpy as np
 
 from tensixinet.music.patch import save_patch
 from tensixinet.ui.chart import flow_svg
-from tensixinet.ui.forms import DRAW, SOURCES, new_session, patch_choices, style_choices
+from tensixinet.ui.forms import DRAW, SOURCES, kernel_choices, new_session, patch_choices, source_choices, style_choices
 from tensixinet.ui.logview import log_html
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -45,13 +45,13 @@ def _stop_current() -> None:
         old.stop()
 
 
-def play(source, style, seed, chips, load_s, patch_name, stereo, evict, cables):
+def play(source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables):
     """Start a session and stream it: each step yields the next segment's audio with the chart and the log as they stand."""
     global _current
     _stop_current()
     try:
         session, patch = new_session(source, style, int(seed), int(chips), float(load_s), patch_name, PATCH_DIRS, time.sleep,
-                                     stereo=stereo, evict=evict, cables=cables)
+                                     stereo=stereo, evict=evict, cables=cables, kernels=kernels)
     except ValueError as e:
         yield gr.skip(), WAITING, log_html([]), f"could not start: {e}"
         return
@@ -83,7 +83,8 @@ def build() -> gr.Blocks:
     with gr.Blocks(title="tensixinet: what is playing") as demo:
         gr.Markdown(f"## tensixinet: what is playing\n{INTRO}")
         with gr.Row():
-            source = gr.Radio(SOURCES, value=SOURCES[0], label="Source")
+            sources, kernel_options = source_choices(), kernel_choices()  # the real chips need tt-smi, the simulator needs tt-lang-sim
+            source = gr.Radio(sources, value=sources[0], label="Source")
             style = gr.Dropdown(style_choices(), value=style_choices()[0], label="Style")
             patch_name = gr.Dropdown(patch_choices(PATCH_DIRS), value=DRAW, label="Patch (a saved one ignores the style and the seed)")
         with gr.Row():
@@ -92,6 +93,7 @@ def build() -> gr.Blocks:
             load_s = gr.Slider(0, 120, value=60, step=5, label="Load cycle, seconds (0 = none; a chip that unloads evicts)")
         with gr.Row():
             stereo = gr.Checkbox(True, label="Stereo")
+            kernels = gr.Radio(kernel_options, value=kernel_options[0], label="Where the gong, shimmer, drone ripple, AVDog, delay mix and mixer run")
             evict = gr.Checkbox(True, label="Eviction")
             cables = gr.Checkbox(True, label="Patch cables")
             play_btn = gr.Button("Play", variant="primary")
@@ -103,7 +105,7 @@ def build() -> gr.Blocks:
                 audio = gr.Audio(streaming=True, autoplay=True, label="What the chips play", interactive=False)
             with gr.Column(scale=2):
                 log = gr.HTML(log_html([]), label="Log")
-        inputs = [source, style, seed, chips, load_s, patch_name, stereo, evict, cables]
+        inputs = [source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables]
         # No concurrency limit: a new Play must be able to start and end the one that is running, and Stop cancels the stream.
         playing = play_btn.click(play, inputs, [audio, chart, log, status], concurrency_limit=None)
         stop_btn.click(stop, None, status, cancels=[playing])

@@ -534,3 +534,10 @@ legacy/        first prototype scripts, kept for reference
 * **2026-10-20, "can the log stay color coded in the gradio UI":** the app's log had only the coloured left bar. The terminal log also colours each device, each chip and each number with a unit
   inside the line, so the app's log (`ui/logview.decorate_html`) now uses the same token rules (`narrate/color._TOKEN`) and the same colours. Checked by screenshot in Chrome and in Playwright's Firefox
   after 14 s of play, so the colours hold as the log updates. Mutation run: three mutants (number colour, chip colour, no decoration), all caught.
+* **2026-10-20, "prepare the HF space with synthetic chips and the tt-lang-sim kernels":** prepared locally, not published. `--kernels sim` (and a Kernels choice in the
+  app) starts the chip workers under `tt-lang-sim` with no lease (`media/chip.find_simulator`, `simulator_command`, `kernels/pool.py --sim`); a missing simulator ends the
+  session with a `ChipError` message and closes the worker. `space/` holds the Dockerfile, the Space README and `assemble.sh`, which copies only what the Space runs into `build/space`.
+  * Built the image (1.8 GB), ran it, and played the simulator mode through `gradio_client`: the log names the simulator and 120 updates streamed. The first run failed on the
+    container's log, not in the page: Gradio's streaming audio needs `ffmpeg`, which `python:3.12-slim` lacks. The Dockerfile installs it, with a test.
+  * Full suite 2171 passed, 2 skipped, with `TT_LANG_SIM` set (without it the sim tests skip).
+

@@ -309,3 +309,39 @@ def test_every_chip_of_a_pool_answers_and_the_request_reaches_the_right_board():
     with ChipWorker(host_command(devices=4), devices=4) as w:
         for chip in range(4):
             assert np.allclose(w.run("ttshock", tiles, N, device=chip), EXPECTED["ttshock"](tiles, N), atol=1e-6)
+
+
+# --- the TT-Lang simulator as a worker (no chip, no lease) ------------------------------------------------------------------
+
+def test_the_simulator_command_runs_the_pool_with_the_simulator_and_the_chip_count():
+    from tensixinet.media.chip import WORKER, simulator_command
+    cmd = simulator_command(4, exe="/venv/bin/tt-lang-sim", chunk_tiles=16)
+    assert cmd[:2] == [sys.executable, str(WORKER)] and "--sim=/venv/bin/tt-lang-sim" in cmd and "--devices=4" in cmd
+    assert "--chunk-tiles=16" in cmd and "--host" not in cmd and "gozer" not in cmd  # no lease: the simulator opens no chip
+
+
+def test_the_simulator_is_found_from_the_environment_then_the_path_then_beside_python(tmp_path):
+    from tensixinet.media.chip import find_simulator
+    named = tmp_path / "named"
+    named.write_text("")
+    beside = tmp_path / "bin" / "tt-lang-sim"
+    beside.parent.mkdir()
+    beside.write_text("")
+    py = str(beside.parent / "python")
+    assert find_simulator({"TT_LANG_SIM": str(named)}, lambda n: "/usr/bin/tt-lang-sim", py) == str(named)
+    assert find_simulator({}, lambda n: "/usr/bin/tt-lang-sim", py) == "/usr/bin/tt-lang-sim"
+    assert find_simulator({}, lambda n: None, py) == str(beside)
+    assert find_simulator({"TT_LANG_SIM": str(tmp_path / "gone")}, lambda n: None, str(tmp_path / "nowhere" / "python")) is None
+
+
+def test_no_simulator_is_an_error_that_says_how_to_get_one(monkeypatch):
+    import tensixinet.media.chip as chip
+    monkeypatch.setattr(chip, "find_simulator", lambda *a, **k: None)
+    with pytest.raises(ChipError, match="tt-lang-sim"):
+        chip.simulator_command(2)
+
+
+def test_a_simulator_worker_gets_the_quick_timeouts_of_a_host_worker_not_the_chip_ones():
+    from tensixinet.media.chip import SIM_START_TIMEOUT_S, simulator_command
+    w = ChipWorker(simulator_command(2, exe="x"))
+    assert w.close_timeout == 30.0 and w.start_timeout == SIM_START_TIMEOUT_S < 300.0

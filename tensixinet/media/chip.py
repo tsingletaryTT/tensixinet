@@ -17,6 +17,7 @@ import io
 import os
 import re
 import select
+import shutil
 import signal
 import struct
 import subprocess
@@ -33,6 +34,7 @@ DEFAULT_CHUNK_TILES = 448  # a chunk is this many 1024-sample tiles, 10.4 s at 4
 WORKER = Path(__file__).resolve().parents[2] / "kernels" / "pool.py"  # starts one kernels/worker.py per chip
 CHIP_START_TIMEOUT_S = 300.0  # a chip takes a while to open, and each kernel compiles on first use
 HOST_START_TIMEOUT_S = 30.0
+SIM_START_TIMEOUT_S = 120.0  # the simulator imports torch, and a cold disk can take a while
 RUN_TIMEOUT_S = 120.0
 # Closing a chip worker ends `gozer run`, which resets the chips and re-initialises the boards before it releases the lease:
 # 44 s on this box. Killing it part-way leaves the lease for gozer to reap as "owning process is dead", so wait for it.
@@ -85,6 +87,31 @@ def host_command(chunk_tiles: Optional[int] = None, devices: int = 1) -> List[st
     return cmd + (["--chunk-tiles", str(chunk_tiles)] if chunk_tiles else [])
 
 
+def find_simulator(env=None, which=shutil.which, python: str = sys.executable) -> Optional[str]:
+    """The `tt-lang-sim` to run the kernels with: the one TT_LANG_SIM names, else the one on the path, else the one beside the running Python
+    (a venv's `bin/`). None when there is none. It must come from an environment with no real `ttnn` (kernels/README.md)."""
+    env = os.environ if env is None else env
+    named = env.get("TT_LANG_SIM")
+    if named and Path(named).is_file():
+        return named
+    found = which("tt-lang-sim")
+    if found:
+        return found
+    beside = Path(python).parent / "tt-lang-sim"
+    return str(beside) if beside.is_file() else None
+
+
+def simulator_command(chips: int = 1, exe: Optional[str] = None, chunk_tiles: Optional[int] = None) -> List[str]:
+    """Start the pool with every worker running under the TT-Lang simulator: the real kernels, computed by the simulator on the CPU, with
+    `chips` pretend chips and no lease. The simulator is slower than a chip and faster than the music (kernels/README.md)."""
+    exe = exe or find_simulator()
+    if exe is None:
+        raise ChipError("the TT-Lang simulator was not found: `pip install tt-lang-sim` into an environment with no ttnn, "
+                        "then put its tt-lang-sim on the path or name it in TT_LANG_SIM")
+    cmd = [sys.executable, str(WORKER), f"--sim={exe}", f"--devices={chips}"]
+    return cmd + ([f"--chunk-tiles={chunk_tiles}"] if chunk_tiles else [])
+
+
 CHIPS_PER_BOARD = 2  # a p300c board carries two chips; they are one tt-metal cluster and a lease covers the whole board
 
 
@@ -127,10 +154,11 @@ class ChipWorker:
                  close_timeout: Optional[float] = None, devices: int = 1):
         self.command = list(command)
         self.devices = devices  # how many chips the worker holds open; a request names one of them
+        simulated = any(c.startswith("--sim=") for c in self.command)
         self.close_timeout = close_timeout if close_timeout is not None else (
-            HOST_CLOSE_TIMEOUT_S if "--host" in self.command else CHIP_CLOSE_TIMEOUT_S)
+            HOST_CLOSE_TIMEOUT_S if "--host" in self.command or simulated else CHIP_CLOSE_TIMEOUT_S)
         self.start_timeout = start_timeout if start_timeout is not None else (
-            HOST_START_TIMEOUT_S if "--host" in self.command else CHIP_START_TIMEOUT_S)
+            SIM_START_TIMEOUT_S if simulated else HOST_START_TIMEOUT_S if "--host" in self.command else CHIP_START_TIMEOUT_S)
         self.run_timeout = run_timeout
         self.process: Optional[subprocess.Popen] = None
         self._stderr = None

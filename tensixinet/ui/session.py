@@ -20,7 +20,9 @@ from typing import Callable, Optional, Sequence
 
 import numpy as np
 
+from ..kernels.backend import KERNEL_DEVICES, KernelBackend
 from ..live import run_live
+from ..media.chip import ChipError
 from ..music.chorus import assign_device, n_slots, slot_chip
 from ..music.live import Tracker
 from ..music.patch import Patch, draw_patch
@@ -122,7 +124,9 @@ class Session:
         cables: bool = True,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        worker=None,
     ):
+        self._worker = worker  # a chip worker (see media/chip.py) that has not started: the session starts it, runs the kernels through it and closes it
         self.sample_rate, self._sleep, self._clock = sample_rate, sleep, clock
         self._sample, self._patch, self._source = sample, patch, source
         self._stereo, self._evict, self._cables = stereo, evict, cables
@@ -162,16 +166,27 @@ class Session:
 
     def _run(self) -> None:
         log = RunLog(_Events(self._on_event), io.StringIO(), clock=self._clock, dedupe_why=True)
+        backend = None
         try:
+            if self._worker is not None:
+                self._worker.start()
+                backend = KernelBackend(self._worker, log=lambda note: log.event(
+                    "backend", note, "the kernels' formulas run on the CPU from here on, so the sound does not stop"))
+                log.event("backend", "TT-Lang kernels in the simulator (no chip)",
+                          f"the {', '.join(KERNEL_DEVICES)} devices and the mixer do their per-sample arithmetic in the kernels, run by the TT-Lang "
+                          "simulator on the CPU, and the rest stay on the CPU")
             run_live(self._watched_sample, _UiSink(self), log, self.sample_rate, duration=None, source=self._source, patch=self._patch,
-                     patch_source="the session's patch", stereo=self._stereo, evict=self._evict, cables=self._cables)
+                     patch_source="the session's patch", stereo=self._stereo, evict=self._evict, cables=self._cables, backend=backend)
         except _Stopped:
             pass
-        except ValueError as e:
+        except (ValueError, ChipError) as e:
             self._error = str(e)
         except BaseException as e:  # the thread has nowhere to raise to; the snapshot carries it
             if not isinstance(e.__cause__, _Stopped) and not self._stop.is_set():
                 self._error = f"{type(e).__name__}: {e}"
+        finally:
+            if self._worker is not None:
+                self._worker.close()
 
     def _on_event(self, rec: dict) -> None:
         with self._lock:

@@ -116,3 +116,15 @@ What the chip taught us that the simulator did not:
   multiplies in `ttavdog` by 2e-3 (about 10 bits of mantissa). That is far below hearing and is the reason for the two looser tolerances.
 * One timed run (the first call compiles) takes 0.2 to 0.7 ms for one to ten seconds of audio, so a single core is hundreds of
   times faster than real time for any of these devices.
+
+## In the simulator, for a machine with no chip (`--kernels sim`)
+
+`tensixinet --live --kernels sim` runs the same worker and pool as `--kernels chips`, but each worker is started by `tt-lang-sim` and
+no lease is taken. The pool starts one worker per pretend board and the simulator answers for two chips on each. Starting a worker takes
+up to two minutes (the simulator imports torch), so `SIM_START_TIMEOUT_S` is 120 s. `find_simulator` looks at `TT_LANG_SIM`, then the
+path, then beside the running Python. `tests/media/test_chip_sim.py` (marked `sim`) runs every kernel through the pool on four pretend
+chips and compares with the host formula to 1e-4. It skips unless `TT_LANG_SIM` names the simulator.
+
+The Hugging Face Space (`space/`, built by `space/assemble.sh`) uses this mode with synthetic chips. It has no Tenstorrent hardware and
+says so on its page. Nothing has been published.
+

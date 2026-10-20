@@ -12,7 +12,7 @@ from typing import Callable, Optional, Sequence
 
 from .kernels.backend import KERNEL_DEVICES, KernelBackend
 from .live import run_live
-from .media.chip import ChipError, ChipWorker, chip_command, host_command
+from .media.chip import ChipError, ChipWorker, chip_command, host_command, simulator_command
 from .music.chorus import chip_devices, device_names
 from .media import llm
 from .media.player import PLAYERS, PlayerError, make_sink as default_make_sink
@@ -66,11 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="with --live, where the sound goes: auto (the first of %s that is installed), none (no sound, "
                         "at the speed of the music), or one of those players. --out still records what is played"
                         % ", ".join(PLAYERS))
-    p.add_argument("--kernels", nargs="?", const="chip", choices=("chip", "chips", "host"), metavar="MODE",
+    p.add_argument("--kernels", nargs="?", const="chip", choices=("chip", "chips", "host", "sim"), metavar="MODE",
                    help="run the devices that have TT-Lang kernels (the gong, shimmer, drone ripple, AVDog, ttcoco mix and the mixer) "
                         "on chips: 'chip' (the default) takes a gozer lease on one chip for the run, 'chips' on as many chips as "
                         "the run plays (each chip's devices run on that chip), 'host' runs the same kernels' formulas in numpy "
-                        "with no chip; the other devices stay on the CPU")
+                        "with no chip, 'sim' runs the real kernels in the TT-Lang simulator (tt-lang-sim, no chip and no lease); the other devices stay on "
+                        "the CPU")
     p.add_argument("--color", choices=("auto", "always", "never"), default="auto",
                    help="colour the screen with the Ciat-Lonbarde jack colours: 'auto' (the default) colours a terminal unless NO_COLOR "
                         "is set, 'always' colours a recording that is not a terminal; the text log and the JSONL are never coloured")
@@ -92,7 +93,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def default_make_worker(mode: str, chips: int = 1) -> ChipWorker:
     """The chip worker for `--kernels MODE`: on `chips` leased chips, or the same kernels' formulas in numpy."""
-    return ChipWorker(host_command(devices=chips) if mode == "host" else chip_command(chips), devices=chips)
+    command = host_command(devices=chips) if mode == "host" else simulator_command(chips) if mode == "sim" else chip_command(chips)
+    return ChipWorker(command, devices=chips)
 
 
 def main(
@@ -203,9 +205,10 @@ def main(
                 save_patch(patch, log_dir / f"patch_{stamp}.json")
             backend = None
             if a.kernels:
-                held = len(chips) if a.kernels in ("chips", "host") else 1  # chips (or pretend chips) the worker holds open
+                held = len(chips) if a.kernels in ("chips", "host", "sim") else 1  # chips (or pretend chips) the worker holds open
                 worker = (make_worker or default_make_worker)(a.kernels, held)
                 where = ("the host (numpy, no chip)" if a.kernels == "host"
+                         else f"the TT-Lang simulator (no chip; {held} pretend chip{'' if held == 1 else 's'})" if a.kernels == "sim"
                          else f"{held} leased chip{'' if held == 1 else 's'}")
                 try:
                     worker.start()
@@ -224,7 +227,7 @@ def main(
                         mine = [d.__name__ for d in chip_devices(index, len(chips)) if d.__name__ in KERNEL_DEVICES]
                         mixer = ", and the mixer" if index == 0 else ""
                         log.event("backend", f"chip {index} runs {', '.join(mine) or 'nothing'}{mixer} on its own kernels",
-                                  f"the devices dealt to chip {index} do their arithmetic on leased chip {index % held}, so all "
+                                  f"the devices dealt to chip {index} do their arithmetic on {'simulated' if a.kernels == 'sim' else 'leased'} chip {index % held}, so all "
                                   f"{held} chips are working at once")
             if a.live:
                 try:
