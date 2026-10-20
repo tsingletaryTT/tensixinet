@@ -20,6 +20,7 @@ say what exists and what is left.
 ## Run it
 
 ```bash
+./tensixinet.py --live                                  # the one command: builds .venv on first use, plays until Ctrl-C (also --app, --doctor, --setup)
 make test                                               # about 14 s, no hardware
 python3 -m tensixinet --mock-chips 4 --duration 20      # synthetic chips, no hardware
 python3 -m tensixinet "your prompt" --duration 60       # real chips + the LLM endpoint
@@ -40,6 +41,7 @@ tensixinet/
   media/       llm (OpenAI-compatible endpoint), mux (WAV under a video), player (live audio out)
   ui/          flow (what is playing as data), chart (it as animated SVG), logview, session (the live loop on a thread), progress (the steps of a start), player (which session the page shows), forms
   run.py live.py cli.py __main__.py     wiring (offline and live) and the command line
+tensixinet.py  the launcher: standard library only; finds or builds .venv, falls back to synthetic chips, --live/--app/--doctor/--setup
 tests/         mirrors the package: tests/music/test_devices.py tests the music/devices.py module
 app/           the Gradio page that draws what is playing (needs .venv-app; see README), with .disco/app.yaml for tt-discolike
 demo/          tt-demo manifest, left-pane script, build.sh
@@ -564,3 +566,10 @@ legacy/        first prototype scripts, kept for reference
   * Mutation run: 15 mutants; one survivor (a buffer step listed with no lead), now tested. Looked at in headless Chrome: the checklist and bar show, and the log lines arrive.
   * Not known: how long the Space's own start takes now; the timings above are from before this change, and only the 18 s was measured.
 
+* **2026-10-20, "we need install instructions and helpers. an obvious top level script ... `cd tensixinet && ./tensixinet.py --live` to be all I need":** `tensixinet.py` at the top
+  (standard library only; `tests/test_launcher.py` loads it by path because it shares its name with the package, and the package wins an `import`). It uses the running Python if it has numpy and soundfile,
+  else `.venv` (built on first use with `pip install -e .`); with no `tt-smi` and no chosen source it plays four synthetic chips and says so; `--live` with no `--duration` plays until Ctrl-C; `--app` builds
+  `.venv-app` with Gradio and starts the page; `--doctor` and `--setup`. README's quick start now starts there; `make setup` and `make live`.
+  * Mutation run: 15 mutants, all caught. The run itself found a flaw in the tests: one mutant (`pick_python` always None) made a test run the real `setup_env`, which built an 88 MB `.venv` in the repo with a
+    network install. The tests now pass a `run` that raises, and use a root that does not exist for `--doctor`. `.venv/` is gitignored.
+  * Run for real: on this box (real chips, 8 s, no sound), on the same box with `tt-smi` off the PATH (synthetic fallback), and from a copy of the repo with a system Python that lacks soundfile (it built `.venv`, then played, 10 s in all). Not tried: macOS or Windows (the venv path is `bin/python`).

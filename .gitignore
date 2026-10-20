@@ -29,5 +29,6 @@ demo/assets/*
 !demo/assets/hardware/
 !demo/assets/hardware/kernels_on_chip0.mp4
 !demo/assets/hardware/kernels_on_chip0.sheet.png
+.venv/
 .venv-app/
 *.egg-info/

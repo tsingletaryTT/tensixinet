@@ -33,11 +33,23 @@ You do not need Tenstorrent hardware to try it. It can play any number of synthe
 
 ```bash
 git clone https://github.com/tsingletaryTT/tensixinet && cd tensixinet
-pip install .                                  # numpy and soundfile
-tensixinet --mock-chips 4 --duration 20        # four synthetic chips, no hardware
+./tensixinet.py --live
 ```
 
-It writes a WAV file to `audio/` and the run log to `logs/`. Play the WAV with anything.
+That is all. `tensixinet.py` needs Python 3.10 or newer and nothing else installed. The first run makes a `.venv` in the folder and installs
+numpy and soundfile there, then plays until you press Ctrl-C. If the box has `tt-smi` it plays your chips. If it does not, it says so and plays four
+synthetic chips. The sound goes to `paplay`, `aplay` or `ffplay`, whichever is installed.
+
+| Command | Does |
+|---|---|
+| `./tensixinet.py --live` | Play as it goes, until Ctrl-C |
+| `./tensixinet.py --app` | Open the page that draws what is playing, at http://localhost:7880 (builds `.venv-app` with Gradio the first time) |
+| `./tensixinet.py --doctor` | Say what is installed: Python, numpy and soundfile, `tt-smi`, a sound player, `ffmpeg` |
+| `./tensixinet.py --setup` | Build `.venv` now, without playing |
+| `./tensixinet.py --mock-chips 4 --duration 20` | Anything else goes to the command line below. This renders 20 s from four synthetic chips to `audio/` |
+
+The log goes to `logs/` and a recording to `audio/`. If you would rather install it yourself, `pip install .` gives a `tensixinet` command
+that takes the same options.
 
 On a machine with Tenstorrent chips:
 
@@ -186,8 +198,10 @@ Before the first segment plays, the chart area shows the steps of the start with
 more on a small machine such as a Space), render the first segment, and fill the buffer (a real bar, against the ten-second lead). The log says when the simulator starts and when it is ready.
 
 ```bash
+./tensixinet.py --app                         # http://localhost:7880; builds .venv-app the first time
+# or by hand:
 uv venv .venv-app && uv pip install --python .venv-app/bin/python "gradio>=5" numpy soundfile -e .
-.venv-app/bin/python app/gradio_app.py        # http://localhost:7880
+.venv-app/bin/python app/gradio_app.py
 ```
 
 It is also a [tt-discolike](https://github.com/tsingletaryTT/tt-discolike) app (`.disco/app.yaml`), so the catalog can start and stop it. The chart,
