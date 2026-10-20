@@ -330,7 +330,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 <section id="listen"><div class="wrap">
   <div class="kicker">Listen</div>
   <h2>What the chips played</h2>
-  <p>Thirty seconds each, from four synthetic chips with patch seed 5, so anyone can reproduce them with <code>tensixinet --mock-chips 4 --patch-seed 5</code>. The first two are the whole band, with and without cables.</p>
+  <p>Thirty seconds each, in stereo, from the four real chips with patch seed 5. The readings differ from run to run, so a rerun sounds different. <code>tensixinet --mock-chips 4 --patch-seed 5</code> gives a reproducible version from synthetic chips. The first two are the whole band, with and without cables.</p>
   <div class="players">
     <div class="card"><h3>The whole band, cables on</h3><p>All eleven devices, cross-patched, with turn-taking.</p><audio controls preload="none" src="assets/audio/all.mp3"></audio></div>
     <div class="card"><h3>The same patch, no cables</h3><p>The same chips and seed with <code>--no-cables</code>. Play it after the first.</p><audio controls preload="none" src="assets/audio/all_nocables.mp3"></audio></div>
@@ -391,7 +391,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   <p>The whole soundtrack can run this way. <code>--kernels chips</code> takes one gozer lease on every chip the run plays (both boards here) and runs each chip's gong, shimmer, drone ripple, AVDog and delay mix, and the final mixer, on that chip's own kernels. The rest of the band stays on the CPU. On the four chips the audio matched the CPU render to 0.0034 at the worst (correlation 1.00000, twelve seconds). The chips are not faster for this work: a live segment renders in about 0.5 s on them against 0.4 s on the CPU, because moving the samples costs more than the 0.2 ms of arithmetic. The point is that the sound is made by the kernels.</p>
   <p>Getting there taught us how a board behaves. The two chips of a board cannot be worked at once: with both open in one process the first kernel launch hung, and a second process waited until the first had closed the board. So each board gets one worker process that keeps one chip open and switches to the other in about 0.1 s, and the two boards run in parallel. Closing takes about 40 s, because <code>gozer</code> resets the chips before it releases the lease.</p>
   <div class="diagram">
-    <video controls preload="none" poster="assets/hardware/kernels_on_chip2.sheet.png" style="width:100%;border-radius:8px" src="assets/hardware/kernels_on_chip2.mp4"></video>
+    <video controls preload="none" poster="assets/hardware/kernels_on_chip0.sheet.png" style="width:100%;border-radius:8px" src="assets/hardware/kernels_on_chip0.mp4"></video>
   </div>
   <div class="players" style="margin-top:20px">
     <div class="card"><h3>ttgong, computed on the chip</h3><p>The same gong strike heard in Listen above, this time the chip's own output, not numpy's.</p><audio controls preload="none" src="assets/audio/ttgong_chip.mp3"></audio></div>

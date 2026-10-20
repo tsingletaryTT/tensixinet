@@ -9,12 +9,14 @@
 # scene duration in demos.yaml.
 cd "$(dirname "$0")/.." || exit 1
 clear
+export COLORTERM=truecolor
 echo '$ tensixinet --live --duration 110'
 echo
 echo "live: reading the real chips every turn (tt-smi -s, read-only) and playing as it goes."
 echo "all eleven devices, patch-drawn cables between them, turn-taking, EQ, loudness."
 echo
 python3 -m tensixinet --live \
+  --color always \
   --duration "${DEMO_SECONDS:-110}" \
   --player none \
   --out demo/assets/features.wav \

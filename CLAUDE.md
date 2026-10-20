@@ -500,3 +500,13 @@ legacy/        first prototype scripts, kept for reference
 
 * **2026-10-20, "commit and push and update site and recordings":** the stereo and evict code is `ee38da8`. New scene `stereo` (`demo/left_pane_stereo.sh`, `demo/build_stereo.sh`): four synthetic chips on `--mock-load 60` beside `tt-toplike --rotate` on the real chips, 100 s, with the log showing evictions and fills. The site has a `#space` section with the video and a 60 s stereo clip, and `tests/test_site.py` ties its numbers to the code.
   * The first recording used `--mock-load 30` and had no evictions: a loaded stretch of 15 s is too short for the 10 s "ran long enough" rule plus the smoothing. 60 s works (chips evict at 41.6 s, 47.5 s, 70.9 s and 82.6 s in the recording).
+* **2026-10-20, "load qwen3-coder-next and give it a go" then "a full re-record of all our audio and video using the HW":** served Qwen3-Coder-Next
+  (`tt-model serve raahemnabeel/qwen3-coder-next-blackhole --detach --port 8011 --profile p300 --device-id 0,1`) under a gozer lease held by a `sleep` through
+  `--owner-pid`, so the lease outlives a detached container. `demo/load_prompts.py` puts real load on it.
+  * Found: long answers (decode) draw only 50 to 57 W against 35 to 45 W at rest, so they never clear the evict rule's 1.5 times rest. Long prompts with 4-token
+    answers keep the chips in prefill at 120 to 180 W. The live loop reads the chips about once a turn, so it still misses most short spikes: in the recording chip 1
+    evicts once (84.7 s, after a 173 W load), chip 0 never does, and chip 2 (no model) evicts twice on a 27 W blip. The captions say so.
+  * Re-recorded: stereo (real load), chorus (prompting Coder-Next), features, kernels (all four chips, no worker failures), the six listening clips (real chips, seed
+    5, stereo), three on-chip clips and a new on-chip video. `kernels/cycle.py` passed 12 of 12. Both `gozer run --chips 2` runs were granted board 0, so chips 2 and 3
+    were not cycled; the on-chip video is chip 0.
+  * Two slips: `pkill -f` matched its own shell and killed the command; `gozer run --exact 0,1` is not a valid form and queued two stray tickets (cancelled).
