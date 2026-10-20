@@ -22,6 +22,7 @@ from .narrate.explain import (
     explain_lead,
     explain_mix,
     explain_patch,
+    explain_space,
     explain_turn_weights,
     explain_turns,
 )
@@ -68,6 +69,7 @@ def describe_readings(
     patch: Patch,
     patch_source: str,
     turns: bool = True,
+    stereo: bool = False,
 ) -> None:
     """Log what the readings and the patch decide, one line each with its reason.
 
@@ -78,6 +80,9 @@ def describe_readings(
               f"the chip count comes from {source}; nothing in the synth assumes a number")
     for d in explain_patch(patch, telemetry, patch_source):
         log.event("patch", d.what, d.why)
+    if stereo:
+        for d in explain_space(telemetry, patch):
+            log.event("space", d.what, d.why)
     for i, t in enumerate(telemetry):
         for d in explain_chip(i, t, n, patch):
             log.event("chip", d.what, d.why, chip=i)
@@ -110,17 +115,18 @@ def run(
     only: Optional[Sequence[str]] = None,
     cables: bool = True,
     backend=None,
+    stereo: bool = False,
 ) -> np.ndarray:
     if not telemetry:
         log.event("discover", "no chips found, nothing to play",
                   f"{source} returned zero devices; refusing to invent any")
         raise ValueError("no chips in telemetry")
-    describe_readings(telemetry, duration, log, source, patch, patch_source)
+    describe_readings(telemetry, duration, log, source, patch, patch_source, stereo=stereo)
     log.event("render", f"rendering {duration:g}s at {sample_rate} Hz",
               "all chips are rendered, scaled by power, then mixed by current")
     log_only(log, only)
     log_cables(log, telemetry, patch, cables)
-    audio = render_chorus(telemetry, duration, sample_rate, patch=patch, only=only, cables=None if cables else [], backend=backend)
+    audio = render_chorus(telemetry, duration, sample_rate, patch=patch, only=only, cables=None if cables else [], backend=backend, stereo=stereo)
     log_eq(log, eq)
     if eq:
         audio = apply_eq(audio, sample_rate)

@@ -25,6 +25,7 @@ import numpy as np
 
 from .music.chorus import assign_device, chip_devices, n_slots, render_chorus, slot_chip, slot_weights, turn_seconds
 from .music.eq import Equaliser
+from .music.evict import EvictTracker
 from .music.live import XFADE_S, Stitcher, Tracker
 from .music.loudness import LiveGain
 from .music.mapping import chip_chaos, chip_pressure, rate_activity
@@ -70,6 +71,8 @@ def run_live(
     only: Optional[Sequence[str]] = None,
     cables: bool = True,
     backend=None,
+    stereo: bool = False,
+    evict: bool = False,
 ) -> int:
     """Play the chips live for `duration` seconds (until Ctrl-C when `None`). Returns the number of segments.
 
@@ -101,6 +104,7 @@ def run_live(
     equaliser = Equaliser(sample_rate) if eq else None
     gain = LiveGain() if normalise else None
     tracker = Tracker()
+    evictor = EvictTracker() if evict else None  # follows each chip's power for the eviction that goes with an unloaded model
     last_good: Optional[Sequence[Telemetry]] = None
     soloist: Optional[int] = None
     played = 0.0
@@ -135,7 +139,7 @@ def run_live(
             remaining = None if duration is None else duration - played
             seconds = segment_seconds(turn_s, remaining)
             if segment == 0:
-                describe_readings(chips, seconds, log, source, patch, patch_source, turns=False)
+                describe_readings(chips, seconds, log, source, patch, patch_source, turns=False, stereo=stereo)
                 log_only(log, only)
                 log_eq(log, eq)
                 log_cables(log, chips, patch, cables)
@@ -144,6 +148,12 @@ def run_live(
             weights = slot_weights(chips, patch)
             soloist = pick_soloist(weights, segment, soloist)
             extra = {} if backend is None else {"backend": backend}  # the kernel backend, when there is one (see kernels/backend.py)
+            if stereo:
+                extra["stereo"] = True  # segments come back as (n, 2), and everything after the chorus carries both ears
+            if evictor is not None:
+                extra["defrag"] = evictor.update(chips, now)
+                for event in evictor.take_events():
+                    log.event(event.kind, event.what, event.why, chip=event.chip, segment=segment)
             audio = render_chorus(chips, seconds + XFADE_S, sample_rate, patch, segment, [soloist], only=only,
                                   cables=None if cables else [], **extra)
             ready = _finish(stitcher.push(audio), equaliser)

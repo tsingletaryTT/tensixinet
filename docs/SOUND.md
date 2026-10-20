@@ -316,6 +316,59 @@ shifts the motif up one scale degree per degree C, at most four. Cooler inverts 
 note. Within 1 C it repeats. Even memory temperatures make the lead loop, and uneven ones make it
 wander.
 
+## Stereo: a field and not a pair
+
+By default every voice is placed in a stereo field, from the Plumbutter's idea that the AVDogs' white and red voices sit on two channels
+and swing between them, and that a patch can send one sound across the field while another stays put. A voice has three coordinates
+(`music/space.py`):
+
+* **azimuth**, -1 (hard left) to +1 (hard right), panned with an equal-power law so a voice keeps its loudness as it moves;
+* **width**, 0 (a point) to 1: a copy delayed by 11 ms is added to one ear and subtracted from the other, so the two ears differ and a mono
+  fold-down loses nothing but the pan law's 3 dB;
+* **depth**, 0 (near) to 1 (far): farther is up to 55% quieter, rolled off from 2.5 kHz, and carries a 23 ms early reflection.
+
+**Fixed.** Each chip has a home, spread from -0.75 to +0.75 in the order of the chips (one chip sits in the middle) and nudged by up to 0.04
+by its identity. Each device has its own offset from home, width and depth: the lead is near and narrow (+0.15, 0.15, 0.0), the shimmer is wide
+and far (0, 1.0, 0.9), the drone wide and behind (0, 1.0, 0.6), the gong far (-0.10, 0.5, 0.7).
+
+**Travelling**, from the chips' own signals:
+
+| What moves | Driven by |
+|---|---|
+| Every voice orbits its place | the size from the chip's chaos (pressure plus how fast its readings move): 0.04 when calm, up to 0.34; the speed from the clock, one orbit in 20 beats; each chip and device out of step |
+| The voice with the floor comes forward and the rest fall back | the turn gains: up to 0.35 deeper at the floor level, in step with the level change |
+| ttavdog swings | the undulation: its white voice (the up half) left, its red answer (the down half) right |
+| ultrasonic_shimmer pans | at its own beat, 0.2 Hz for each degree of GDDR spread; equal temperatures give a steady tone and no motion |
+| gong strikes land | at a new place each strike (the golden ratio apart) and settle to the middle over about a third of a strike interval |
+| ttquantus pans | with its pitch: low notes left, high notes right |
+| ttrollz hops | from lane to lane, each lane at its own place across the field; the clock's blips are in the middle |
+| ttsteam hits | alternate sides |
+| ttdrone comes forward | while its ripple swells |
+
+The cables, the turn gains and the device renders act on the mono voices exactly as before; placing comes after, so the same sound is
+spread out and not changed. Errors are heard at their chip's place. Each ear is mixed by current on its own. `--mono` is the old sound.
+Measured, not heard: 20 s of four mock chips has a left/right correlation of 0.27, the balance moves between -3 and +7 dB over half-second
+blocks, and stereo costs about 0.9 s more than mono to render 20 s.
+
+## Evict: when a chip's model unloads
+
+tt-toplike's Defrag view draws a chip's memory as blocks that fill as weights arrive and dissolve (`EVICT`) when the model goes. Its trigger
+(`src/animation/defrag.rs`) is a chip that has been running, has *seen a load* (power above 1.5 times its learned rest, or above 30% of its TDP when
+no rest has been seen) and has fallen back to about rest (at most 1.2 times, never below 8 W). The "seen a load" gate is what stops an idle chip
+from evicting in a loop. `music/evict.py` follows each chip's power the same way, reading by reading (smoothed, with rest learned as a running
+minimum from steady readings), and the same moment moves the band:
+
+| Phase | What the band does |
+|---|---|
+| running | nothing; a box that only ever idles never leaves it |
+| **evicting** (8 s) | the chip's voices dissolve right to left across the stereo field: each fades and drifts to the left edge and a little back, starting a step (0.35 s) after the voice to its right, at a drain rate that is a prime multiple (2, 3, 5, 7, 11 ...) as the Defrag view gives each channel. A noise sweep falls in pitch, panning right to left |
+| idle | the chip is silent and has the floor about one time in twenty |
+| **filling** (8 s) | when load returns the voices come back left to right, a sweep rises, panning left to right, and the chip has 60% of its usual share of the floor until it has settled |
+
+A load that returns during an eviction turns it round from where it had got to. `--mock-load SECONDS` takes each synthetic chip round a load cycle
+(14 W rest, 62 W under load, loaded for half the cycle, the chips staggered) so this can be heard without a model; `--no-evict` turns it off. The
+log says which chip evicted, the power that decided it, and why. Auditioning with `--only` ignores it. Not heard: only measured.
+
 ## Patch cables
 
 The Ciat-Lonbarde guides describe jacks that reach into the innards of a module, so one instrument's signal degrades, mutates

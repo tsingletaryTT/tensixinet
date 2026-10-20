@@ -461,3 +461,24 @@ def test_the_log_says_what_the_gong_is_patched_to():
             assert "the roll's own pulses" in text
     chipless = dataclasses.replace(FALLBACK, ddr_status=(0, 0, 0, 0), eth_mask=0x0000)
     assert "gong is patched to the chip's own ttrollz clock" in " | ".join(d.what for d in explain_chip(5, chipless))
+
+
+def test_the_log_says_where_each_chip_sits_how_far_it_orbits_and_what_the_field_is():
+    from tensixinet.music.mapping import chip_chaos
+    from tensixinet.music.space import ORBIT_CALM, ORBIT_CHAOS, chip_azimuth
+    from tensixinet.narrate.explain import explain_space
+    chips = mock_telemetry_for_space()
+    ds = explain_space(chips, DEFAULT_PATCH_FOR_ROUTES)
+    assert len(ds) == 1 + len(chips) and ds[0].what.startswith("stereo field")
+    assert "azimuth" in ds[0].why and "width" in ds[0].why and "depth" in ds[0].why and "orbit" in ds[0].why
+    for i, (t, d) in enumerate(zip(chips, ds[1:])):
+        assert d.what.startswith(f"chip {i} sits ") and f"{chip_azimuth(i, len(chips), t):+.2f}" in d.what
+        reach = ORBIT_CALM + ORBIT_CHAOS * min(1.0, chip_chaos(t))
+        assert f"orbits {reach:.2f}" in d.what or f"orbits {reach:.2f}" in d.why
+    assert "left" in ds[1].what and "right" in ds[-1].what
+    assert "centre" in explain_space(chips[:1], DEFAULT_PATCH_FOR_ROUTES)[1].what
+
+
+def mock_telemetry_for_space():
+    from tensixinet.telemetry.mock import mock_telemetry
+    return mock_telemetry(4, 3)

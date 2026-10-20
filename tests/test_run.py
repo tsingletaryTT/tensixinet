@@ -298,3 +298,24 @@ def test_a_backend_is_handed_to_the_render_and_the_run_is_the_cpus_when_it_chang
     without = run(chips, 1.0, tmp_path / "b.wav", log, 8000)
     log.close()
     assert seen == [marker, None] and np.array_equal(with_backend, without)
+
+
+def test_a_stereo_run_writes_two_channels_and_says_where_each_chip_sits(tmp_path):
+    import soundfile as sf
+    chips = mock_telemetry(3)
+    log = _log(tmp_path)
+    audio = run(chips, 2.0, tmp_path / "s.wav", log, 8000, stereo=True)
+    log.close()
+    assert audio.shape == (16000, 2) and sf.read(str(tmp_path / "s.wav"))[0].shape == (16000, 2)
+    events = [json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines()]
+    space = [e for e in events if e["event"] == "space"]
+    assert len(space) == 1 + 3 and space[0]["what"].startswith("stereo field")
+
+
+def test_a_mono_run_is_one_channel_and_says_nothing_about_space(tmp_path):
+    import soundfile as sf
+    log = _log(tmp_path)
+    audio = run(mock_telemetry(3), 1.0, tmp_path / "m.wav", log, 8000)
+    log.close()
+    assert audio.ndim == 1 and sf.read(str(tmp_path / "m.wav"))[0].ndim == 1
+    assert not [l for l in (tmp_path / "run.jsonl").read_text().splitlines() if '"space"' in l]

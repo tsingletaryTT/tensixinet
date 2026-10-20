@@ -110,3 +110,26 @@ def test_a_run_that_starts_in_silence_gets_its_gain_from_its_first_sound():
     live.apply(np.zeros(500))
     _, gain = live.apply(_tone(0.05))
     assert gain == pytest.approx(loudness_gain(_tone(0.05)))
+
+
+# --- two channels ---------------------------------------------------------------------------------------------------------------
+
+def test_a_stereo_render_gets_one_gain_for_both_ears_from_its_whole_level():
+    from tensixinet.music.loudness import loudness_gain, normalise
+    rng = np.random.default_rng(6)
+    stereo = (rng.uniform(-1, 1, (5000, 2)) * np.array([0.02, 0.05])).astype(np.float32)
+    gain = loudness_gain(stereo)
+    assert gain == pytest.approx(loudness_gain(stereo.ravel()))
+    out, g = normalise(stereo)
+    assert out.shape == (5000, 2) and out.dtype == np.float32 and g == pytest.approx(gain)
+    assert np.allclose(out, stereo * gain, atol=1e-6) and float(np.abs(out).max()) <= PEAK_LIMIT + 1e-6
+
+
+def test_the_live_gain_ramps_a_stereo_chunk_without_mixing_the_ears():
+    from tensixinet.music.loudness import LiveGain
+    chunk = np.zeros((4000, 2), dtype=np.float32)
+    chunk[:, 0] = 0.05 * np.sin(np.arange(4000) / 7.0)
+    out, end = LiveGain().apply(chunk)
+    assert out.shape == (4000, 2) and out.dtype == np.float32 and np.abs(out[:, 1]).max() == 0.0 and np.abs(out[:, 0]).max() > 0.05
+    quiet, held = LiveGain().apply(np.zeros((100, 2), dtype=np.float32))
+    assert quiet.shape == (100, 2) and held == 1.0

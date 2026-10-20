@@ -231,3 +231,26 @@ def test_stitched_audio_keeps_its_dtype_and_stays_inside_one_for_real_segments()
     first = s.push(render_chorus([FALLBACK], 2.25, SR, segment=0))
     second = s.push(render_chorus([FALLBACK], 2.25, SR, segment=1))
     assert first.dtype == second.dtype == np.float32 and np.abs(second).max() <= 1.5  # equal-power can add up to 3 dB at the join
+
+
+# --- Stitcher with two channels ----------------------------------------------------------------------------------------------------
+
+def test_a_stereo_segment_is_crossfaded_in_both_ears_like_a_mono_one():
+    n = int(0.25 * SR)
+    left = np.random.default_rng(7).uniform(-1, 1, int(2.25 * SR))
+    right = np.random.default_rng(8).uniform(-1, 1, int(2.25 * SR))
+    mono_l, mono_r = Stitcher(SR, 0.25), Stitcher(SR, 0.25)
+    st = Stitcher(SR, 0.25)
+    stereo = np.stack([left, right], axis=1).astype(np.float32)
+    first = st.push(stereo)
+    assert first.shape == (int(2.25 * SR) - n, 2) and first.dtype == np.float32
+    second = st.push(stereo)
+    ref_l = np.concatenate([mono_l.push(left.astype(np.float32)), mono_l.push(left.astype(np.float32))])
+    ref_r = np.concatenate([mono_r.push(right.astype(np.float32)), mono_r.push(right.astype(np.float32))])
+    assert np.allclose(np.concatenate([first, second])[:, 0], ref_l, atol=1e-5) and np.allclose(np.concatenate([first, second])[:, 1], ref_r, atol=1e-5)
+    tail = st.flush()
+    assert tail.shape == (n, 2) and st.flush().shape == (0, 2)
+
+
+def test_a_stitcher_that_has_taken_nothing_flushes_nothing_in_either_shape():
+    assert Stitcher(SR, 0.25).flush().shape == (0,)

@@ -88,18 +88,24 @@ class Stitcher:
         self._fade_in = np.sin(0.5 * math.pi * k)
         self._fade_out = np.cos(0.5 * math.pi * k)
         self._tail: Optional[np.ndarray] = None
+        self._channels = 1  # 1 for mono segments, 2 for stereo ones, as last pushed
 
     def push(self, segment: np.ndarray) -> np.ndarray:
-        """The audio that is ready to play: the segment less its tail. The tail waits for the next push."""
+        """The audio that is ready to play: the segment less its tail. The tail waits for the next push. A segment is mono, shape (n,),
+        or stereo, shape (n, 2); both ears take the same crossfade."""
         if len(segment) <= 2 * self.n:
             raise ValueError(f"a segment needs more than two crossfades of audio ({2 * self.n} samples), got {len(segment)}")
         audio = segment.astype(np.float64)  # a copy, so the caller's array is left alone
+        fade_in, fade_out = (self._fade_in[:, None], self._fade_out[:, None]) if audio.ndim == 2 else (self._fade_in, self._fade_out)
+        self._channels = audio.shape[1] if audio.ndim == 2 else 1
         if self._tail is not None:
-            audio[: self.n] = audio[: self.n] * self._fade_in + self._tail
-        self._tail = audio[-self.n:] * self._fade_out
+            audio[: self.n] = audio[: self.n] * fade_in + self._tail
+        self._tail = audio[-self.n:] * fade_out
         return audio[: -self.n].astype(segment.dtype)
 
     def flush(self) -> np.ndarray:
         """The last segment's faded-out tail, once. Empty when there is none."""
         tail, self._tail = self._tail, None
-        return np.zeros(0, dtype=np.float32) if tail is None else tail.astype(np.float32)
+        if tail is None:
+            return np.zeros((0, self._channels) if self._channels > 1 else 0, dtype=np.float32)
+        return tail.astype(np.float32)

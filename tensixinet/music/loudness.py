@@ -60,6 +60,8 @@ class LiveGain:
         end = start * (target / start) ** SMOOTHING
         end = min(end, PEAK_LIMIT / float(np.max(np.abs(chunk))))
         ramp = np.linspace(start, end, len(chunk))
+        if chunk.ndim == 2:
+            ramp = ramp[:, None]  # the same ramp in both ears
         out = np.clip(chunk * ramp, -PEAK_LIMIT, PEAK_LIMIT)  # the start of the ramp can still be above this chunk's limit
         self.gain = end
         return out.astype(chunk.dtype), end

@@ -208,11 +208,16 @@ class MemorySink:
 def live(tmp_path, *extra, sample=None, ask=None, sink=None, **kw):
     """Run the CLI in live mode with a memory sink. Returns (exit code, the sink, what make_sink was asked)."""
     sink = sink or MemorySink()
-    asked = []
+    class Asked(list):
+        channels = None
+
+    asked = Asked()
+    asked.channels = []
     tmp_path.mkdir(exist_ok=True)
 
-    def make_sink(player, rate, out):
+    def make_sink(player, rate, out, channels=1):
         asked.append((player, rate, out))
+        asked.channels.append(channels)
         return sink, "a memory sink"
 
     argv = ["--live", "--sample-rate", "8000", "--out", str(tmp_path / "o.wav"), "--log-dir", str(tmp_path / "logs"), *extra]
@@ -279,7 +284,7 @@ def test_live_mode_with_no_chips_exits_nonzero_and_still_closes_the_sink(tmp_pat
 
 
 def test_a_player_that_cannot_start_is_a_logged_error_with_its_own_exit_code(tmp_path):
-    def make_sink(player, rate, out):
+    def make_sink(player, rate, out, channels=1):
         raise PlayerError("cannot start paplay: not installed")
     code, _, _ = live(tmp_path, make_sink=make_sink)
     assert code == 3
@@ -319,7 +324,7 @@ def test_ctrl_c_before_the_run_starts_exits_quietly(tmp_path):
 
 
 def test_offline_mode_never_builds_a_sink(tmp_path):
-    def make_sink(*a): raise AssertionError("offline runs write a file and play nothing")
+    def make_sink(*a, **k): raise AssertionError("offline runs write a file and play nothing")
     assert main(args(tmp_path, "--mock-chips", "2"), make_sink=make_sink) == 0
 
 
@@ -344,6 +349,7 @@ def test_no_eq_leaves_the_mix_unshaped_and_the_eq_is_the_default(tmp_path):
     _, b = run_cli(tmp_path, "flat", "--patch-seed", "5", "--no-eq")
     def high_share(d):
         x, rate = sf.read(str(d / "o.wav"))
+        x = x.mean(axis=1) if x.ndim == 2 else x  # the default is stereo
         spec = np.abs(np.fft.rfft(x)) ** 2
         f = np.fft.rfftfreq(len(x), 1 / rate)
         return spec[f > 1500].sum() / spec.sum()  # 8 kHz sample rate: the top of the band
@@ -664,3 +670,66 @@ def test_an_unknown_style_is_refused_by_the_parser(tmp_path, capsys):
     with pytest.raises(SystemExit):
         main(args(tmp_path, "--mock-chips", "2", "--style", "polka"))
     assert "chiptune" in capsys.readouterr().err
+
+
+# --- stereo is the default; --mono is the old sound -----------------------------------------------------------------------------------
+
+def test_a_run_is_stereo_by_default_and_mono_on_request(tmp_path):
+    import soundfile as sf
+    assert main(args(tmp_path, "--mock-chips", "3", "--no-banner")) == 0
+    assert sf.read(str(tmp_path / "o.wav"))[0].shape[1] == 2
+    mono = tmp_path / "m"
+    mono.mkdir()
+    assert main(["--duration", "0.5", "--sample-rate", "8000", "--out", str(mono / "o.wav"), "--log-dir", str(mono / "logs"),
+                 "--mock-chips", "3", "--mono", "--no-banner"]) == 0
+    assert sf.read(str(mono / "o.wav"))[0].ndim == 1
+    assert not [e for e in read_events(mono / "logs") if e["event"] == "space"]            # nothing to say about space in mono
+    assert [e for e in read_events(tmp_path / "logs") if e["event"] == "space"]
+
+
+def test_live_mode_asks_for_two_channels_by_default_and_one_with_mono(tmp_path):
+    code, sink, asked = live(tmp_path / "a")
+    assert code == 0 and asked.channels == [2] and all(c.ndim == 2 and c.shape[1] == 2 for c in sink.chunks)
+    code, sink, asked = live(tmp_path / "b", "--mono")
+    assert code == 0 and asked.channels == [1] and all(c.ndim == 1 for c in sink.chunks)
+
+
+def test_the_options_say_what_stereo_is():
+    from tensixinet.cli import build_parser
+    help_text = build_parser().format_help()
+    assert "--mono" in help_text and "stereo" in help_text
+
+
+# --- eviction from the command line ------------------------------------------------------------------------------------------------------------
+
+class _StepClock:
+    """A clock that moves a fixed step each time it is read, so a run that does not wait for its music still sees time pass."""
+
+    def __init__(self, step):
+        self.now, self.step = 1000.0, step
+
+    def __call__(self):
+        self.now += self.step
+        return self.now
+
+
+def test_a_mock_load_cycle_in_live_mode_evicts_a_chip_and_says_so(tmp_path):
+    code, sink, _ = live(tmp_path, "--mock-chips", "2", "--mock-load", "40", "--duration", "120", "--no-banner", clock=_StepClock(3.0))
+    assert code == 0
+    ev = read_events(tmp_path / "logs")
+    kinds = [e["event"] for e in ev]
+    assert "evict" in kinds and "fill" in kinds
+
+
+def test_no_evict_leaves_a_load_cycle_without_consequences(tmp_path):
+    code, _, _ = live(tmp_path, "--mock-chips", "2", "--mock-load", "40", "--duration", "120", "--no-evict", "--no-banner", clock=_StepClock(3.0))
+    assert code == 0 and not [e for e in read_events(tmp_path / "logs") if e["event"] in ("evict", "fill")]
+
+
+def test_mock_load_needs_mock_chips_and_live_mode(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        main(args(tmp_path, "--mock-load", "40"))
+    assert "--mock-load" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(args(tmp_path, "--mock-chips", "2", "--mock-load", "40"))
+    assert "--live" in capsys.readouterr().err

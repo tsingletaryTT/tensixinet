@@ -480,4 +480,21 @@ legacy/        first prototype scripts, kept for reference
   tunings, motif length and leaps, turn length, floor, steam routes and ttrax size, and sets an `emphasis` (a factor on each device's level and on how often it
   gets the floor; `patch.emphasis`, applied in `render_chorus` and `slot_weights`). The system still picks which of the style's scales and tunings from the
   chips, and the seed draws the rest. A saved patch with no `style` or `emphasis` replays as before. `--only` ignores the balance.
+* **2026-10-20, "work on stereo separation ... not just left and right but the full spectrum ... some somewhat fixed, some that travel":** `music/space.py`
+  (azimuth, width and depth of a voice; a home for each chip, an offset for each device, an orbit from the chip's chaos and clock), `music/spatial.py`
+  (movements from inside the devices: the AVDog's white and red on the two ears, the shimmer's beat, each gong strike's landing, ttquantus's pitch, ttrollz's
+  lanes, the snare's alternation, the drone's approach) and `music/stereo.py` (one voice placed). `render_chorus(stereo=True)`; the CLI is stereo by default and
+  `--mono` is the old sound. The EQ, loudness gain, stitcher, sinks, players and WAV carry two channels. The mono path is byte-for-byte what it was.
+  * First mutation run: 14 survivors. Real gaps: a test that read its own constant (the identity nudge), a depth test that did not isolate the level from the
+    lowpass, a dissolve test that passed whichever way the voice drifted, and a smoothing test that a wide voice's own start-up transient dominated. Each got a
+    test that measures the one thing; one equivalent mutant (the load flag reset on eviction, which every way back to running sets again).
+  * Measured only: left/right correlation 0.27, balance moving -3 to +7 dB, stereo about 0.9 s dearer than mono over 20 s. Not listened to.
+* **2026-10-20, "the defrag view has the evict mode -- when that triggers ... should also trigger a certain kind of change in the system":** read tt-toplike's
+  `src/animation/defrag.rs`: EVICT fires when a chip that has been running has seen a load (power above 1.5x rest, or 30% of TDP) and falls back to at most 1.2x
+  rest (never below 8 W); the "seen a load" gate stops idle chips evicting in a loop (its own phase 29 bug). `music/evict.py` follows each chip's power the same way
+  and the same moment moves the band: the chip's voices dissolve right to left across the stereo field at prime-multiplied rates with a falling sweep, the chip goes
+  silent and almost never has the floor, and when load returns they fill left to right with a rising sweep. `--mock-load SECONDS` cycles synthetic chips through
+  rest, load and rest so it can be heard without a model; `--no-evict` turns it off. Only in live mode; an idle box never leaves "running".
+  * My first scenario for a load interrupting an eviction was wrong: four readings back at rest had not yet taken the smoothed power under the threshold, so there was
+    nothing to interrupt. The rest baseline is learned only from steady readings, so the edge of a fall is not taken for rest.
 

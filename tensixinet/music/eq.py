@@ -74,24 +74,41 @@ def design_fir(sample_rate: int, taps: int = EQ_TAPS) -> np.ndarray:
 
 class Equaliser:
     """The EQ on a stream. `process` returns as many samples as it was given; `flush` returns the ring-out
-    (`EQ_TAPS - 1` samples) that is left when the stream ends."""
+    (`EQ_TAPS - 1` samples) that is left when the stream ends. A chunk is mono, shape (n,), or stereo, shape (n, 2): each channel is
+    filtered on its own with the same curve, and a stream keeps one ring-out for each."""
 
     def __init__(self, sample_rate: int):
         self._h = design_fir(sample_rate)
-        self._carry = np.zeros(len(self._h) - 1)
+        self._carries: List[np.ndarray] = [np.zeros(len(self._h) - 1)]
+        self._channels = 0  # 0 until a chunk arrives; 1 for a mono stream; the width of a 2-D one
 
-    def process(self, chunk: np.ndarray) -> np.ndarray:
-        n = len(chunk)
-        if n == 0:
-            return np.zeros(0, dtype=np.float32)
+    def _channel(self, x: np.ndarray, k: int) -> np.ndarray:
+        while len(self._carries) <= k:
+            self._carries.append(np.zeros(len(self._h) - 1))
+        n = len(x)
         size = 1 << int(np.ceil(np.log2(n + len(self._h) - 1)))
-        full = np.fft.irfft(np.fft.rfft(chunk, size) * np.fft.rfft(self._h, size), size)[: n + len(self._h) - 1]
-        full[: len(self._carry)] += self._carry
-        self._carry = full[n:].copy()
+        full = np.fft.irfft(np.fft.rfft(x, size) * np.fft.rfft(self._h, size), size)[: n + len(self._h) - 1]
+        full[: len(self._carries[k])] += self._carries[k]
+        self._carries[k] = full[n:].copy()
         return full[:n].astype(np.float32)
 
+    def process(self, chunk: np.ndarray) -> np.ndarray:
+        if chunk.ndim == 2:
+            self._channels = chunk.shape[1]
+            if len(chunk) == 0:
+                return np.zeros((0, chunk.shape[1]), dtype=np.float32)
+            return np.stack([self._channel(chunk[:, c], c) for c in range(chunk.shape[1])], axis=1)
+        self._channels = 1
+        if len(chunk) == 0:
+            return np.zeros(0, dtype=np.float32)
+        return self._channel(chunk, 0)
+
     def flush(self) -> np.ndarray:
-        tail, self._carry = self._carry, np.zeros(0)
+        if self._channels > 1:
+            tails = [self._carries[c] if c < len(self._carries) else np.zeros(0) for c in range(self._channels)]
+            self._carries = [np.zeros(0) for _ in tails]
+            return np.stack(tails, axis=1).astype(np.float32)
+        tail, self._carries = self._carries[0], [np.zeros(0)]
         return tail.astype(np.float32)
 
 

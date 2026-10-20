@@ -25,6 +25,9 @@ from .ttcoco import ttcoco
 from .ttsteam import ttsteam
 from .mapping import aiclk_to_bpm, chip_chaos, chip_pressure, power_to_volume, turn_weight
 from .patch import DEFAULT_PATCH, Patch
+from .evict import SWEEP_S, ChipDefrag, drain_progress, phase_sweep, presence_weight
+from .space import chip_azimuth, device_space, spatialize
+from .stereo import place_voice, turn_depth
 from .ttrolzer import SEGMENT_SEED_STRIDE  # noqa: F401  (the chorus uses it; devices read the segment back out of their seed)
 from ..telemetry import Telemetry
 from .turns import soloists as plan_soloists, turn_gains
@@ -64,20 +67,32 @@ def emphasis_of(patch: Patch, device_name: str) -> float:
     return dict(patch.emphasis).get(device_name, 1.0)
 
 
-def slot_weights(telemetry: Sequence[Telemetry], patch: Patch = DEFAULT_PATCH) -> List[float]:
+def slot_weights(telemetry: Sequence[Telemetry], patch: Patch = DEFAULT_PATCH, defrag: Optional[Sequence[ChipDefrag]] = None) -> List[float]:
     """How often each slot solos. A slot's weight is `mapping.turn_weight` for its chip: the power it
     draws, raised by a heavier board load, by pressure near a limit and by processes using it, so
-    busier chips solo more often. The patch's emphasis scales a device's share (a style's balance)."""
+    busier chips solo more often. The patch's emphasis scales a device's share (a style's balance), and a chip that has been evicted (or is
+    filling again) has little of the floor until it settles (`evict.presence_weight`)."""
     n = len(telemetry)
     mean_board = sum(t.board_power for t in telemetry) / n
     chip_weight = [turn_weight(t.power, t.board_power, mean_board, chip_pressure(t), t.busy) for t in telemetry]
-    return [chip_weight[slot_chip(s, n)] * emphasis_of(patch, assign_device(s).__name__) for s in range(n_slots(n))]
+    present = [1.0 if defrag is None else presence_weight(d.phase) for d in (defrag or [None] * n)]
+    return [chip_weight[slot_chip(s, n)] * emphasis_of(patch, assign_device(s).__name__) * present[slot_chip(s, n)] for s in range(n_slots(n))]
 
 
-def plan_turns(telemetry: Sequence[Telemetry], duration: float, patch: Patch = DEFAULT_PATCH) -> Tuple[List[int], float]:
+def plan_turns(telemetry: Sequence[Telemetry], duration: float, patch: Patch = DEFAULT_PATCH,
+               defrag: Optional[Sequence[ChipDefrag]] = None) -> Tuple[List[int], float]:
     """(soloist slot for each turn, turn length in seconds)."""
     turn_s = turn_seconds(telemetry, patch)
-    return plan_soloists(slot_weights(telemetry, patch), max(1, math.ceil(duration / turn_s))), turn_s
+    return plan_soloists(slot_weights(telemetry, patch, defrag), max(1, math.ceil(duration / turn_s))), turn_s
+
+
+def voice_order(slot: int, n_chips: int) -> Tuple[int, int, int]:
+    """(rank from the right, voices on the chip, drain multiplier index) for a slot: how its chip's voices go in an eviction. The rightmost
+    voice (the largest offset in the field) goes first and each one after it a step later; the multiplier is the voice's place among the chip's."""
+    chip = slot_chip(slot, n_chips)
+    mine = [s for s in range(n_slots(n_chips)) if slot_chip(s, n_chips) == chip]
+    by_right = sorted(mine, key=lambda s: (-device_space(assign_device(s).__name__)[0], s))
+    return by_right.index(slot), len(mine), mine.index(slot)
 
 
 
@@ -92,6 +107,8 @@ def render_chorus(
     only: Optional[Sequence[str]] = None,
     cables: Optional[Sequence[Cable]] = None,
     backend=None,
+    stereo: bool = False,
+    defrag: Optional[Sequence[ChipDefrag]] = None,
 ) -> np.ndarray:
     """Render every device, give the soloist the floor, add each chip's event sounds, scale by power, mix by current.
 
@@ -108,7 +125,14 @@ def render_chorus(
     its cables whether or not it has the floor.
 
     `backend` (a `tensixinet.kernels.backend.KernelBackend`) runs the devices that have TT-Lang kernels, and the mixer, on a
-    chip; the other devices stay on the CPU. Left as None everything is numpy."""
+    chip; the other devices stay on the CPU. Left as None everything is numpy.
+
+    `stereo` places every voice in the field (`space.py`, `spatial.py`, `stereo.py`) and returns shape (n, 2) instead of (n,). The cables
+    and the turn gains act on the mono voices exactly as before; placing comes after, so the same sound is spread out and not changed.
+
+    `defrag` is one `ChipDefrag` per chip (`evict.py`): a chip that is evicting dissolves its voices right to left, one that is idle is silent,
+    one that is filling brings them back left to right, and a sweep travels with the change. Left as None, or with every chip running, nothing
+    changes. Auditioning with `only` ignores it."""
     if not telemetry:
         raise ValueError("render_chorus needs at least one chip's telemetry")
     if only is not None:
@@ -119,13 +143,15 @@ def render_chorus(
             raise ValueError(f"unknown device {', '.join(unknown)}; the devices are {', '.join(device_names())}")
     n = len(telemetry)
     n_samples = int(duration * sample_rate)
-    planned, turn_s = plan_turns(telemetry, duration, patch)
+    if defrag is not None and len(defrag) != n:
+        raise ValueError(f"defrag needs one state for each of the {n} chips, got {len(defrag)}")
+    planned, turn_s = plan_turns(telemetry, duration, patch, defrag)
     solo_slots = planned if soloists is None else list(soloists)
     seed_base = segment * SEGMENT_SEED_STRIDE
     gains = turn_gains(solo_slots, n_slots(n), n_samples, sample_rate, turn_s, floor=patch.floor)
     if only is not None:
         gains = np.ones_like(gains)
-    per_chip = [np.zeros(n_samples) for _ in range(n)]
+    per_chip = [np.zeros((n_samples, 2) if stereo else n_samples) for _ in range(n)]
     slots = range(n_slots(n))
     def device_for(slot: int) -> Callable:
         """The device this slot plays: the chip's own kernels' version when a backend has one, else the numpy device."""
@@ -146,11 +172,36 @@ def render_chorus(
     for s in slots:
         if voices[s] is not None:
             balance = 1.0 if only is not None else emphasis_of(patch, assign_device(s).__name__)  # auditioning plays a device as it is
-            per_chip[slot_chip(s, n)] += balance * gains[s] * voices[s]
+            chip = slot_chip(s, n)
+            dissolve = None
+            if defrag is not None and only is None and defrag[chip].phase != "running":
+                rank, count, prime = voice_order(s, n)
+                dissolve = drain_progress(defrag[chip].phase, defrag[chip].elapsed, n_samples, sample_rate, rank, count, prime)
+                balance = balance * (1.0 - dissolve) ** 2  # an evicting voice fades as it goes, an idle one is gone
+            if stereo:
+                back = turn_depth(gains[s], patch.floor) if only is None else np.zeros(n_samples)  # the voice with the floor comes forward
+                placed = place_voice(assign_device(s).__name__, chip, n, telemetry[chip], voices[s], duration, sample_rate, seed_base + s,
+                                     patch, chip_chaos(telemetry[chip]), back, dissolve)
+                per_chip[chip] += (balance * gains[s])[:, None] * placed
+            else:
+                per_chip[chip] += balance * gains[s] * voices[s]
     signals = []
     for chip, t in enumerate(telemetry):
         voices = len(chip_devices(chip, n))
         events = error_events(t, duration, sample_rate, seed=seed_base + 1000 + chip)  # not part of the turns
+        if stereo:  # an error is heard at its chip's place
+            events = spatialize(events, chip_azimuth(chip, n, t), 0.3, 0.2, sample_rate)
+        if defrag is not None and only is None:  # the sweep that goes with an eviction (it falls, right to left) or a fill (it rises, left to right)
+            sweep = phase_sweep(defrag[chip].phase, defrag[chip].elapsed, duration, sample_rate, seed_base + 2000 + chip)
+            if sweep is not None:
+                if stereo:
+                    along = (defrag[chip].elapsed + np.arange(n_samples) / sample_rate) / SWEEP_S
+                    azimuth = 0.9 - 1.8 * along if defrag[chip].phase == "evicting" else -0.9 + 1.8 * along
+                    sweep = spatialize(sweep, np.clip(azimuth, -0.9, 0.9), 0.8, 0.1, sample_rate)
+                events = events + sweep
         signals.append((per_chip[chip] / math.sqrt(voices) + events) * power_to_volume(t.power))
     mix = backend.mix if backend else current_mix
-    return mix(signals, [t.current for t in telemetry]).astype(np.float32)
+    currents = [t.current for t in telemetry]
+    if stereo:  # each ear is mixed by current on its own
+        return np.stack([mix([s[:, 0] for s in signals], currents), mix([s[:, 1] for s in signals], currents)], axis=1).astype(np.float32)
+    return mix(signals, currents).astype(np.float32)

@@ -28,6 +28,7 @@ from ..music.devices import (
     strike_times,
     ttrollz_network,
 )
+from ..music.space import ORBIT_CALM, ORBIT_CHAOS, ORBIT_HZ_PER_BPM, chip_azimuth
 from ..music.ttrolzer import draw_links, roll_drift
 from ..music.ttsteam import STEPS, dust_per_second, snare_decay, step_pattern
 from ..music.ttchoir import voice_scale, vowel_sequence
@@ -445,6 +446,35 @@ def explain_turns(
         out.append(Decision(
             f"{more} more turns follow the same way",
             f"the run has {len(solo_slots)} turns of {turn_s:.1f}s; only the first {limit} are listed to keep the log short",
+        ))
+    return out
+
+
+def _side(azimuth: float) -> str:
+    return "in the centre" if abs(azimuth) < 0.15 else ("on the left" if azimuth < 0 else "on the right")
+
+
+def explain_space(telemetry: Sequence[Telemetry], patch: Patch) -> List[Decision]:
+    """Where each chip sits in the stereo field and how far it travels: one line on how the field works, then one for each chip."""
+    out = [Decision(
+        "stereo field: azimuth, width and depth",
+        "a voice has an azimuth from -1 (hard left) to +1 (hard right), a width from a point to wide, and a depth from near to far (farther is "
+        "quieter, darker and carries a reflection). Each chip has a home, spread left to right by its index and nudged by its identity, and each "
+        "device has its own offset, width and depth, so the air of the shimmer is wide and far and the lead is near. A voice also moves: it orbits "
+        "its place by an amount that comes from its chip's chaos at a speed that comes from the clock, the voice with the floor comes forward, "
+        "the AVDog swings with its undulation, the shimmer pans at its beat, each gong strike lands somewhere new, ttquantus pans with its pitch "
+        "and ttrollz hops from lane to lane",
+    )]
+    n = len(telemetry)
+    for i, t in enumerate(telemetry):
+        az = chip_azimuth(i, n, t)
+        chaos = chip_chaos(t)
+        reach = ORBIT_CALM + ORBIT_CHAOS * min(1.0, chaos)
+        period = 1.0 / (aiclk_to_bpm(t.aiclk) * ORBIT_HZ_PER_BPM)
+        out.append(Decision(
+            f"chip {i} sits {_side(az)} of the field ({az:+.2f}) and orbits {reach:.2f} around it",
+            f"its chaos is {chaos:.2f} (pressure plus how fast its readings move), which sets how far it travels: {ORBIT_CALM:.2f} when calm and up "
+            f"to {ORBIT_CALM + ORBIT_CHAOS:.2f}; its {t.aiclk:.0f} MHz clock sets how fast, one orbit in about {period:.0f} s",
         ))
     return out
 

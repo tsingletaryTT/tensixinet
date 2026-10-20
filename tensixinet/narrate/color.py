@@ -52,8 +52,8 @@ LOG_MEANING = {  # what each colour stands for in this log
 }
 
 EVENT_JACKS = {
-    "discover": "orange", "chip": "blue", "lead": "blue", "motion": "grey", "patch": "purple", "cable": "purple",
-    "events": "red", "mix": "white", "render": "white", "eq": "white", "loudness": "white", "only": "white",
+    "discover": "orange", "chip": "blue", "lead": "blue", "space": "blue", "motion": "grey", "patch": "purple", "cable": "purple",
+    "events": "red", "evict": "red", "fill": "green", "mix": "white", "render": "white", "eq": "white", "loudness": "white", "only": "white",
     "weight": "green", "turn": "green", "live": "green", "backend": "teal", "llm": "brown", "player": "yellow", "done": "yellow",
 }
 DEVICE_JACKS = {

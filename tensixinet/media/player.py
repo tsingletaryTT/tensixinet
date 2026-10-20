@@ -3,7 +3,7 @@
 """Where live audio goes: a player process, a WAV file, or nowhere at the right speed.
 
 Playing audio never needs `sounddevice` here (the hygiene test forbids it). The sound goes to the
-standard input of an ordinary command line player as raw 16-bit mono, and the player's own buffer
+standard input of an ordinary command line player as raw 16-bit audio (mono, or interleaved stereo), and the player's own buffer
 paces the run: a write blocks while the player is full.
 
 A sink has `write(audio)` for a float32 array in [-1, 1] and `close()`.
@@ -19,7 +19,7 @@ from typing import Callable, List, Optional, Sequence
 import numpy as np
 import soundfile as sf
 
-# In the order they are tried. Each reads raw signed 16-bit little-endian mono from standard input.
+# In the order they are tried. Each reads raw signed 16-bit little-endian samples from standard input, mono or interleaved stereo.
 PLAYERS = ("paplay", "aplay", "ffplay")
 
 
@@ -32,22 +32,22 @@ def pcm16(audio: np.ndarray) -> bytes:
     return np.round(np.clip(audio, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
 
-def player_command(name: str, sample_rate: int) -> List[str]:
-    """The command line that plays raw 16-bit mono at `sample_rate` from standard input."""
+def player_command(name: str, sample_rate: int, channels: int = 1) -> List[str]:
+    """The command line that plays raw 16-bit audio with `channels` channels at `sample_rate` from standard input."""
     if name == "paplay":
-        return ["paplay", "--raw", "--format=s16le", f"--rate={sample_rate}", "--channels=1"]
+        return ["paplay", "--raw", "--format=s16le", f"--rate={sample_rate}", f"--channels={channels}"]
     if name == "aplay":
-        return ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", str(sample_rate), "-c", "1"]
+        return ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", str(sample_rate), "-c", str(channels)]
     if name == "ffplay":
-        return ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-f", "s16le", "-ar", str(sample_rate), "-ac", "1", "-i", "pipe:0"]
+        return ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-f", "s16le", "-ar", str(sample_rate), "-ac", str(channels), "-i", "pipe:0"]
     raise ValueError(f"unknown player {name!r}; known: {', '.join(PLAYERS)}")
 
 
-def find_player(sample_rate: int, which: Callable[[str], Optional[str]] = shutil.which) -> Optional[List[str]]:
+def find_player(sample_rate: int, which: Callable[[str], Optional[str]] = shutil.which, channels: int = 1) -> Optional[List[str]]:
     """The command for the first installed player, or None when there is none."""
     for name in PLAYERS:
         if which(name):
-            return player_command(name, sample_rate)
+            return player_command(name, sample_rate, channels)
     return None
 
 
@@ -94,8 +94,8 @@ class NullSink:
 class WavSink:
     """A 16-bit WAV file that grows as the run plays, so what was heard is kept."""
 
-    def __init__(self, path, sample_rate: int):
-        self._file = sf.SoundFile(str(Path(path)), "w", samplerate=sample_rate, channels=1, subtype="PCM_16")
+    def __init__(self, path, sample_rate: int, channels: int = 1):
+        self._file = sf.SoundFile(str(Path(path)), "w", samplerate=sample_rate, channels=channels, subtype="PCM_16")
 
     def write(self, audio: np.ndarray) -> None:
         self._file.write(audio)
@@ -131,27 +131,29 @@ def make_sink(
     wav_path,
     which: Callable[[str], Optional[str]] = shutil.which,
     start: Callable[[Sequence[str]], object] = PlayerSink,
+    channels: int = 1,
 ):
     """(the sink for a `--player` choice, a sentence saying where the sound goes).
 
     `player` is `auto` (the first installed of `PLAYERS`, or silence at the speed of the music when none is
     installed), `none` (silence), or the name of one player, which must be installed. Every sink also records
-    what is played to `wav_path`. Raises `PlayerError` for a named player that is missing or will not start."""
+    what is played to `wav_path`. `channels` is 1 for mono audio and 2 for stereo. Raises `PlayerError` for a named player that is
+    missing or will not start."""
     record = f"recording to {wav_path}"
     if player == "none":
-        return TeeSink(WavSink(wav_path, sample_rate), NullSink(sample_rate)), f"no sound, at the speed of the music; {record}"
+        return TeeSink(WavSink(wav_path, sample_rate, channels), NullSink(sample_rate)), f"no sound, at the speed of the music; {record}"
     if player == "auto":
-        command = find_player(sample_rate, which)
+        command = find_player(sample_rate, which, channels)
         if command is None:
             return (
-                TeeSink(WavSink(wav_path, sample_rate), NullSink(sample_rate)),
+                TeeSink(WavSink(wav_path, sample_rate, channels), NullSink(sample_rate)),
                 f"no audio player found ({', '.join(PLAYERS)}), so no sound, at the speed of the music; {record}",
             )
     else:
         if not which(player):
             raise PlayerError(f"{player} is not installed")
-        command = player_command(player, sample_rate)
-    wav = WavSink(wav_path, sample_rate)
+        command = player_command(player, sample_rate, channels)
+    wav = WavSink(wav_path, sample_rate, channels)
     try:
         process = start(command)
     except PlayerError:

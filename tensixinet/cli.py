@@ -74,6 +74,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--color", choices=("auto", "always", "never"), default="auto",
                    help="colour the screen with the Ciat-Lonbarde jack colours: 'auto' (the default) colours a terminal unless NO_COLOR "
                         "is set, 'always' colours a recording that is not a terminal; the text log and the JSONL are never coloured")
+    p.add_argument("--mono", action="store_true",
+                   help="play one channel, the sound as it was before stereo. By default every voice is placed in a stereo field: a "
+                        "home for each chip, an offset for each device, an orbit that follows the chip's chaos and clock, depth, and "
+                        "movements from inside the devices")
+    p.add_argument("--mock-load", type=float, metavar="SECONDS",
+                   help="with --mock-chips and --live: take each synthetic chip round a load cycle of this many seconds (rest, a load, rest "
+                        "again, the chips staggered), so a chip unloads and the eviction can be heard without a model")
+    p.add_argument("--no-evict", action="store_true",
+                   help="in live mode, do not dissolve a chip's voices when its model unloads (power back to rest after a load, as "
+                        "tt-toplike's Defrag EVICT reads it)")
     p.add_argument("--no-banner", action="store_true", help="start with the first log line instead of the art and the colour legend")
     p.add_argument("--endpoint", default="http://127.0.0.1:8011", help="OpenAI-compatible LLM endpoint")
     p.add_argument("--model", help="model name (default: whatever the endpoint serves)")
@@ -92,6 +102,7 @@ def main(
     entropy: Optional[Callable] = None,
     make_sink: Optional[Callable] = None,
     make_worker: Optional[Callable] = None,
+    clock: Optional[Callable[[], float]] = None,
 ) -> int:
     parser = build_parser()
     a = parser.parse_args(argv)
@@ -103,6 +114,13 @@ def main(
             parser.error(f"--only: unknown device {', '.join(unknown) or '(none given)'}; the devices are {', '.join(device_names())}")
     if a.style and a.patch:
         parser.error("--style draws a new patch and --patch replays a saved one; use one of them (a saved patch keeps its own style)")
+    if a.mock_load is not None:
+        if not a.mock_chips:
+            parser.error("--mock-load needs --mock-chips: real chips load and unload when the work does")
+        if not a.live:
+            parser.error("--mock-load needs --live: a load cycle plays out over time, and an offline run reads the chips once")
+        if a.mock_load <= 0:
+            parser.error("--mock-load needs a positive number of seconds")
     if a.player and not a.live:
         parser.error("--player needs --live: an offline run writes a file and plays nothing")
     if a.mock_faults and not a.mock_chips:
@@ -132,7 +150,9 @@ def main(
     host = [0]  # fingerprint of the machine tt-smi describes; 0 when the readings are not from tt-smi
     if sample is None:
         if a.mock_chips:
-            sample = lambda: mock_telemetry(a.mock_chips, a.seed, faults=a.mock_faults)
+            started = (clock or time.monotonic)()
+            sample = lambda: mock_telemetry(a.mock_chips, a.seed, faults=a.mock_faults, load_period=a.mock_load,
+                                            elapsed=(clock or time.monotonic)() - started)
             source = "--mock-chips (synthetic, no hardware is read)"
         else:
             def sample():
@@ -208,7 +228,7 @@ def main(
                                   f"{held} chips are working at once")
             if a.live:
                 try:
-                    sink, where = (make_sink or default_make_sink)(a.player or "auto", a.sample_rate, out)
+                    sink, where = (make_sink or default_make_sink)(a.player or "auto", a.sample_rate, out, channels=1 if a.mono else 2)
                 except PlayerError as e:
                     log.event("player", f"the audio output could not be used: {e}", "a live run ends when it has nowhere to play")
                     return 3
@@ -217,12 +237,12 @@ def main(
                 try:
                     run_live(sample, sink, log, a.sample_rate, duration=a.duration or None, source=source, patch=patch,
                              patch_source=patch_source, normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables,
-                             backend=backend)
+                             backend=backend, stereo=not a.mono, evict=not a.no_evict, **({"clock": clock} if clock else {}))
                 except PlayerError:
                     return 3  # run_live has logged what stopped
             else:
                 run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source,
-                    normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables, backend=backend)
+                    normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables, backend=backend, stereo=not a.mono)
         except ValueError:
             return 2
         return 0

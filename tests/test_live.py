@@ -497,3 +497,61 @@ def test_live_mode_gives_the_patch_to_the_turn_weights_so_a_styles_balance_picks
     patch = dataclasses.replace(ONE_BAR, emphasis=(("ttchoir", 3.0),))
     _go(tmp_path, lambda: [FALLBACK], duration=4.0, patch=patch)
     assert seen and all(p is patch for p in seen)
+
+
+def test_live_stereo_hands_stereo_segments_to_the_sink_and_asks_the_chorus_for_them(tmp_path, monkeypatch):
+    seen = []
+    real = live_module.render_chorus
+
+    def spy(*a, **k):
+        seen.append(k.get("stereo", False))
+        return real(*a, **k)
+
+    monkeypatch.setattr(live_module, "render_chorus", spy)
+    sink = MemorySink()
+    _go(tmp_path, lambda: [FALLBACK, dataclasses.replace(FALLBACK, asic_temperature=60.0)], duration=4.0, sink=sink, stereo=True)
+    assert seen and all(seen) and sink.chunks and all(c.ndim == 2 and c.shape[1] == 2 for c in sink.chunks)
+    mono_sink = MemorySink()
+    _go(tmp_path, lambda: [FALLBACK], duration=4.0, sink=mono_sink)
+    assert all(c.ndim == 1 for c in mono_sink.chunks)
+
+
+# --- eviction: a chip whose model unloads dissolves out of the band -----------------------------------------------------------------------
+
+def _power_profile(idle=6, load=6, rest=10):
+    return [14.0] * idle + [62.0] * load + [14.0] * rest
+
+
+def test_live_mode_tracks_each_chips_power_and_logs_an_eviction_and_a_fill(tmp_path, monkeypatch):
+    seen = []
+    real = live_module.render_chorus
+    monkeypatch.setattr(live_module, "render_chorus", lambda *a, **k: (seen.append(k.get("defrag")), real(*a, **k))[1])
+    powers = iter(_power_profile() + [62.0] * 8)
+    ev, _ = _run_with_powers(tmp_path, lambda: [dataclasses.replace(FALLBACK, power=next(powers), tdp_limit=125.0)], duration=2.0 * 30, evict=True)
+    kinds = [e["event"] for e in ev]
+    assert "evict" in kinds and "fill" in kinds and kinds.index("evict") < kinds.index("fill")
+    evict = next(e for e in ev if e["event"] == "evict")
+    assert evict["chip"] == 0 and evict["what"].startswith("chip 0 evicted") and "right to left" in evict["why"]
+    phases = [d[0].phase for d in seen if d is not None]
+    assert phases[0] == "running" and "evicting" in phases and "idle" in phases and "filling" in phases and phases[-1] in ("filling", "running")
+    assert phases.index("evicting") < phases.index("idle") < phases.index("filling")
+
+
+def test_without_evict_the_chorus_is_not_given_a_defrag_and_nothing_is_logged(tmp_path, monkeypatch):
+    seen = []
+    real = live_module.render_chorus
+    monkeypatch.setattr(live_module, "render_chorus", lambda *a, **k: (seen.append("defrag" in k), real(*a, **k))[1])
+    powers = iter(_power_profile() + [62.0] * 8)
+    ev, _ = _run_with_powers(tmp_path, lambda: [dataclasses.replace(FALLBACK, power=next(powers), tdp_limit=125.0)], duration=2.0 * 30)
+    assert seen and not any(seen) and not [e for e in ev if e["event"] in ("evict", "fill")]
+
+
+def test_an_idle_box_that_never_loads_never_evicts_in_a_live_run(tmp_path):
+    ev, _ = _run_with_powers(tmp_path, lambda: [dataclasses.replace(FALLBACK, power=14.0, tdp_limit=125.0)], duration=2.0 * 30, evict=True)
+    assert not [e for e in ev if e["event"] in ("evict", "fill")]
+
+
+def _run_with_powers(tmp_path, sample, duration, **kw):
+    sink = MemorySink()
+    _go(tmp_path, sample, duration=duration, sink=sink, clock=Clock(3.0), **kw)
+    return _events(tmp_path), sink

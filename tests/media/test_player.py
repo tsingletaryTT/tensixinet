@@ -207,3 +207,46 @@ def test_the_wav_gets_each_chunk_before_the_player_does_so_a_dying_player_loses_
         sink.write(np.linspace(-0.5, 0.5, 80, dtype=np.float32))
     sink.close()
     assert len(sf.read(str(tmp_path / "h.wav"))[0]) == 80
+
+
+# --- two channels --------------------------------------------------------------------------------------------------------------------
+
+def test_stereo_audio_goes_to_a_player_as_interleaved_left_right_samples():
+    data = pcm16(np.array([[1.0, -1.0], [0.5, 0.0]], dtype=np.float32))
+    assert np.frombuffer(data, dtype="<i2").tolist() == [32767, -32767, 16384, 0]     # L, R, L, R
+
+
+def test_the_players_are_asked_for_two_channels_when_the_audio_has_two():
+    assert player_command("paplay", 44100, channels=2)[-1] == "--channels=2"
+    assert player_command("aplay", 44100, channels=2)[-2:] == ["-c", "2"]
+    assert player_command("ffplay", 44100, channels=2)[player_command("ffplay", 44100, channels=2).index("-ac") + 1] == "2"
+    assert player_command("paplay", 44100) == player_command("paplay", 44100, channels=1)       # one channel is still the default
+    assert find_player(44100, which=lambda n: "/usr/bin/" + n if n == "aplay" else None, channels=2)[-2:] == ["-c", "2"]
+
+
+def test_a_stereo_wav_sink_records_both_channels(tmp_path):
+    sink = WavSink(tmp_path / "s.wav", SR, channels=2)
+    sink.write(np.stack([np.full(100, 0.25), np.full(100, -0.25)], axis=1).astype(np.float32))
+    sink.close()
+    data, rate = sf.read(str(tmp_path / "s.wav"))
+    assert rate == SR and data.shape == (100, 2) and data[0, 0] == pytest.approx(0.25, abs=1e-3) and data[0, 1] == pytest.approx(-0.25, abs=1e-3)
+
+
+def test_a_null_sink_paces_stereo_by_its_frames_not_its_samples():
+    slept = []
+    NullSink(SR, sleep=slept.append).write(np.zeros((SR, 2), dtype=np.float32))
+    assert slept == [pytest.approx(1.0)]
+
+
+def test_make_sink_asks_the_player_and_the_wav_for_the_channels_it_was_given(tmp_path):
+    started = []
+    sink, where = make_sink("aplay", SR, tmp_path / "h.wav", which=_installed("aplay"), start=lambda cmd: started.append(cmd) or FakePlayer(cmd), channels=2)
+    assert started[0][-2:] == ["-c", "2"]
+    sink.write(np.zeros((50, 2), dtype=np.float32))
+    sink.close()
+    assert sf.read(str(tmp_path / "h.wav"))[0].shape == (50, 2)
+    quiet, _ = make_sink("none", SR, tmp_path / "n.wav", which=lambda name: None, start=lambda cmd: None, channels=2)
+    quiet.sinks[1]._sleep = lambda seconds: None  # the null half would sleep for the audio's length
+    quiet.write(np.zeros((50, 2), dtype=np.float32))
+    quiet.close()
+    assert sf.read(str(tmp_path / "n.wav"))[0].shape == (50, 2)

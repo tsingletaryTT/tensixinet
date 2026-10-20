@@ -132,3 +132,32 @@ def test_the_filter_follows_the_intended_curve_at_every_point(rate):
 
 def test_the_module_lists_exactly_the_intended_points_and_the_two_below_35_hz():
     assert [p for p in EQ_POINTS if p[0] >= 35 and p[0] < 20000] == INTENDED and EQ_POINTS[0] == (10, -60.0) and EQ_POINTS[1] == (20, -30.0)
+
+
+# --- two channels: each ear gets the same EQ, and a stream in chunks still matches a single pass ---------------------------------
+
+def test_each_channel_of_a_stereo_signal_gets_exactly_the_mono_eq():
+    rng = np.random.default_rng(4)
+    stereo = rng.uniform(-1, 1, (6000, 2)).astype(np.float32)
+    out = apply_eq(stereo, 44100)
+    assert out.shape == (6000, 2) and out.dtype == np.float32
+    for ch in (0, 1):
+        assert np.allclose(out[:, ch], apply_eq(stereo[:, ch], 44100), atol=1e-6)
+    assert not np.allclose(out[:, 0], out[:, 1])
+
+
+def test_a_stereo_stream_in_chunks_gives_the_samples_of_one_pass_and_flushes_both_ears():
+    rng = np.random.default_rng(5)
+    stereo = rng.uniform(-1, 1, (9000, 2)).astype(np.float32)
+    eq = Equaliser(44100)
+    pieces = [eq.process(stereo[i:i + 2500]) for i in range(0, 9000, 2500)]
+    assert np.allclose(np.concatenate(pieces), apply_eq(stereo, 44100), atol=1e-5)
+    tail = eq.flush()
+    assert tail.ndim == 2 and tail.shape == (EQ_TAPS - 1, 2)
+    whole = Equaliser(44100)
+    whole.process(stereo)
+    assert np.allclose(tail, whole.flush(), atol=1e-6)
+
+
+def test_an_empty_stereo_chunk_is_an_empty_stereo_chunk():
+    assert Equaliser(44100).process(np.zeros((0, 2), dtype=np.float32)).shape == (0, 2)

@@ -61,3 +61,33 @@ def test_faults_always_hit_at_least_one_chip_and_never_all_of_several():
         chips = mock_telemetry(2, seed=seed, faults=True)
         faulty = [c.corr_errs or c.uncorr_errs or c.thermal_trips for c in chips]
         assert sum(map(bool, faulty)) == 1, seed
+
+
+# --- a load cycle, so eviction can be heard without a model -------------------------------------------------------------------------------------
+
+def test_a_load_cycle_takes_each_chip_from_rest_up_to_a_load_and_back_staggered_from_the_others():
+    import numpy as np
+    from tensixinet.telemetry.mock import mock_telemetry
+    period = 90.0
+    series = np.array([[c.power for c in mock_telemetry(3, 1, load_period=period, elapsed=e)] for e in np.arange(0.0, 90.0, 1.0)])
+    assert series.min() == pytest.approx(14.0) and series.max() == pytest.approx(62.0)
+    assert all(series[:, i].min() == pytest.approx(14.0) and series[:, i].max() == pytest.approx(62.0) for i in range(3))
+    assert len({int(np.argmax(series[:, i])) for i in range(3)}) == 3                         # the chips are not loaded together
+    on = (series > 38.0).mean(axis=0)
+    assert np.all((on > 0.3) & (on < 0.7))                                                      # loaded for about half the cycle
+    assert np.allclose(series[0], [c.power for c in mock_telemetry(3, 1, load_period=period, elapsed=period)])   # and it repeats
+
+
+def test_the_load_cycle_moves_current_and_board_power_with_the_power_and_nothing_else_changes():
+    from tensixinet.telemetry.mock import mock_telemetry
+    base = mock_telemetry(2, 1)
+    rest = mock_telemetry(2, 1, load_period=90.0, elapsed=0.0)
+    for b, r in zip(base, rest):
+        assert r.current == pytest.approx(r.power * 1.3) and r.gddr_temps == b.gddr_temps and r.tensix_mask == b.tensix_mask
+    assert mock_telemetry(2, 1) == base and mock_telemetry(2, 1, load_period=None, elapsed=5.0) == base
+
+
+def test_a_load_cycle_needs_a_positive_period():
+    from tensixinet.telemetry.mock import mock_telemetry
+    with pytest.raises(ValueError):
+        mock_telemetry(2, 1, load_period=0.0, elapsed=1.0)

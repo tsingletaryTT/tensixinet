@@ -3,6 +3,9 @@
 """Synthetic telemetry for N chips, for anyone without N Tenstorrent chips."""
 from __future__ import annotations
 
+import dataclasses
+from typing import Optional
+
 import numpy as np
 
 from .snapshot import Telemetry
@@ -28,11 +31,27 @@ def _distinct_masks(rng: np.random.Generator, n: int) -> list:
     return out
 
 
-def mock_telemetry(n_chips: int, seed: int = 0, faults: bool = False) -> list:
+LOAD_REST_W, LOAD_PEAK_W = 14.0, 62.0  # a Blackhole idles near 14 W and runs inference near 60 to 77 W
+LOAD_DUTY = 0.5  # a loaded chip is loaded for this share of the cycle
+LOAD_RAMP = 0.06  # and takes this share of the cycle to ramp up or down
+
+
+def load_level(chip: int, n_chips: int, period: float, elapsed: float) -> float:
+    """How loaded chip `chip` is at `elapsed` seconds into a load cycle of `period` seconds: 0 at rest, 1 under load. The chips are staggered
+    round the cycle, so they load and unload one after another."""
+    phase = ((elapsed + chip * period / n_chips) % period) / period
+    return float(min(1.0, phase / LOAD_RAMP) * min(1.0, max(0.0, (LOAD_DUTY - phase) / LOAD_RAMP)))
+
+
+def mock_telemetry(n_chips: int, seed: int = 0, faults: bool = False, load_period: Optional[float] = None, elapsed: float = 0.0) -> list:
     """Deterministic, plausible readings for `n_chips` chips.
 
     With `faults`, some chips (at least one, and not all when there are several) report memory
     errors or a thermal trip, so the event sounds can be heard without a failing chip.
+
+    With `load_period`, each chip's power (and the current and board power that follow it) goes round a load cycle of that many seconds, read at
+    `elapsed` seconds in: rest, a load, rest again, the chips staggered. A chip that loads and then falls back to rest is what sets off an
+    eviction (`music/evict.py`), so this is how to hear one without a model. Nothing else about the readings changes.
     """
     if n_chips < 1:
         raise ValueError(f"n_chips must be >= 1, got {n_chips}")
@@ -71,4 +90,10 @@ def mock_telemetry(n_chips: int, seed: int = 0, faults: bool = False) -> list:
             thermal_trips=trips,
             busy=int(extra.integers(0, 3)),
         ))
+    if load_period is not None:
+        if load_period <= 0:
+            raise ValueError(f"load_period must be positive, got {load_period}")
+        for i, c in enumerate(chips):
+            power = round(LOAD_REST_W + (LOAD_PEAK_W - LOAD_REST_W) * load_level(i, n_chips, load_period, elapsed), 1)
+            chips[i] = dataclasses.replace(c, power=power, current=round(power * 1.3, 1), board_power=round(c.board_power - c.power + power, 1))
     return chips
