@@ -310,14 +310,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <li><b>Quiet.</b> The empty chip goes silent and almost never has the floor, so the others take its turns.</li>
     <li><b>Fill.</b> When load returns the voices come back left to right over 8 s with a rising sweep. A load that returns during an eviction turns it around.</li>
   </ul>
-  <div class="diagram" style="margin-top:20px">
-    <video controls preload="none" poster="assets/stereo-frame.png" src="assets/stereo.mp4" style="width:100%;border-radius:8px"></video>
-    <p class="caption">Four synthetic chips that cycle through load with <code>--mock-load</code> (the real chips are idle, so they never evict), with the log naming each placement and each eviction. The right pane is tt-toplike on the real chips and does not show the same chips.</p>
-  </div>
-  <div class="players" style="margin-top:16px">
-    <div class="card"><h3>Stereo and evictions</h3><p>Sixty seconds from that run, with chips evicting and filling in turn. Best on headphones.</p><audio controls preload="none" src="assets/audio/stereo.mp3"></audio></div>
-  </div>
-  <p class="src" style="margin-top:10px">Try <code>tensixinet --live --mock-chips 4 --mock-load 60</code>. <code>--no-evict</code> turns the eviction off. Measured, not yet judged by ear: over 20 s on four chips the two channels correlate at 0.27 and the left-right balance moves between -3 and +7 dB.</p>
+  <p class="src" style="margin-top:10px">Try <code>tensixinet --live --mock-chips 4 --mock-load 60</code> to hear an eviction without a model (<code>--mock-load</code> is the cycle length in seconds). <code>--no-evict</code> turns the eviction off. Measured, not yet judged by ear: over 20 s on four chips the two channels correlate at 0.27 and the left-right balance moves between -3 and +7 dB.</p>
 </div></section>
 
 <section id="band"><div class="wrap">
