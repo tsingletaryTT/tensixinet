@@ -310,6 +310,13 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <li><b>Quiet.</b> The empty chip goes silent and almost never has the floor, so the others take its turns.</li>
     <li><b>Fill.</b> When load returns the voices come back left to right over 8 s with a rising sweep. A load that returns during an eviction turns it around.</li>
   </ul>
+  <div class="diagram" style="margin-top:20px">
+    <video controls preload="none" poster="assets/stereo-frame.png" src="assets/stereo.mp4" style="width:100%;border-radius:8px"></video>
+    <p class="caption">The real chips, with Qwen3-Coder-Next on two of them and long prompts sent to it in bursts, beside tt-toplike on the same four chips. Chip 1 evicts at 1:25, just after a prefill burst that peaked at 173 W, and fills again at 1:33. Chip 2 has no model and evicts twice on a 27 W blip, because the rule counts anything over 1.5 times its 14 W rest. Chip 0 never crosses the rule: the live loop reads the chips about once a turn and misses most of the short spikes.</p>
+  </div>
+  <div class="players" style="margin-top:16px">
+    <div class="card"><h3>Stereo and evictions</h3><p>Sixty seconds from that run, with chip 1's eviction and fill in the middle. Best on headphones.</p><audio controls preload="none" src="assets/audio/stereo.mp3"></audio></div>
+  </div>
   <p class="src" style="margin-top:10px">Try <code>tensixinet --live --mock-chips 4 --mock-load 60</code> to hear an eviction without a model (<code>--mock-load</code> is the cycle length in seconds). <code>--no-evict</code> turns the eviction off. Measured, not yet judged by ear: over 20 s on four chips the two channels correlate at 0.27 and the left-right balance moves between -3 and +7 dB.</p>
 </div></section>
 

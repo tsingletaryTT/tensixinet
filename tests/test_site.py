@@ -185,4 +185,7 @@ def test_the_space_section_states_the_stereo_and_evict_numbers_the_code_uses():
                  f"{evict.EVICT_SECONDS:g} s", f"{round(evict.RUN_TDP_FRACTION * 100)}%", f"{stereo.TURN_DEPTH}",
                  "<code>--mono</code>", "<code>--mock-load</code>", "<code>--no-evict</code>"):
         assert text in section, text
-    assert "assets/stereo" not in section, "the synthetic-chip recording stays off the page until one with real load exists"
+    assert 'src="assets/stereo.mp4"' in section and (SITE / "assets" / "stereo.mp4").is_file()
+    assert 'poster="assets/stereo-frame.png"' in section and (SITE / "assets" / "stereo-frame.png").is_file()
+    assert 'src="assets/audio/stereo.mp3"' in section and (SITE / "assets" / "audio" / "stereo.mp3").is_file()
+    assert "Qwen3-Coder-Next" in section and "real chips" in section  # the recording is of real load; a synthetic one must not take its place

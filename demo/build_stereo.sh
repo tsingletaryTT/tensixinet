@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
-# Build the "stereo" demo: record the split-pane scene (stereo band and evictions on synthetic chips beside tt-toplike), then lay the soundtrack under it.
+# Build the "stereo" demo: record the split-pane scene (the stereo band and evictions on the real chips, with a served model prompted in bursts, beside tt-toplike), then lay the soundtrack under it.
+# A model must already be serving on port 8011 (see left_pane_stereo.sh).
 #
 #   demo/build_stereo.sh     record + render + soundtrack
 #
