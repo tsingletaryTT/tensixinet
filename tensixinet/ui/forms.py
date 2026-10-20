@@ -60,10 +60,11 @@ def new_session(
     clock: Callable[[], float] = time.monotonic,
     kernels: str = CPU,
     worker_factory: Callable = default_worker,
+    lead_s: float = 0.0,
 ) -> Tuple[Session, Patch]:
     """A session and its patch from the form's values. `source` is one of SOURCES; synthetic chips cycle through load every `load_s`
     seconds when that is above 0 (so an eviction can be seen); `kernels` SIMULATED runs the devices that have TT-Lang kernels through a worker
-    under the TT-Lang simulator, one pretend chip for each chip in the first reading; a saved patch is used as it is and the style and the seed are ignored."""
+    under the TT-Lang simulator, one pretend chip for each chip in the first reading; `lead_s` is the session's lead (see `Session`); a saved patch is used as it is and the style and the seed are ignored."""
     if source == SOURCES[0]:
         sample = mock_sample(int(chips), seed=0, load_period=load_s if load_s and load_s > 0 else None, clock=clock)
         label = f"{int(chips)} synthetic chips"
@@ -83,4 +84,4 @@ def new_session(
     else:
         patch = make_patch("" if style in ("", PLAIN) else style, int(seed), first)
     worker = worker_factory(len(first)) if kernels == SIMULATED else None  # started by the session's thread, closed when it ends
-    return Session(sample, patch, source=label, stereo=stereo, evict=evict, cables=cables, sleep=sleep, worker=worker), patch
+    return Session(sample, patch, source=label, stereo=stereo, evict=evict, cables=cables, sleep=sleep, worker=worker, lead_s=lead_s), patch

@@ -3,9 +3,9 @@
 """One listening session for the app: the live loop on a thread, the audio it makes, and what is playing, kept as plain data.
 
 `Session` runs `run_live` (live.py) exactly as the command line does, with a sink that hands each segment to whoever asks for it and
-waits for as long as the audio lasts, so the loop stays about one segment ahead of what is heard. The run log's own events say which
+waits for as long as the audio lasts (less a `lead_s` the app asks for), so the loop stays about one segment ahead of what is heard, or `lead_s` seconds ahead. The run log's own events say which
 device and chip have the floor and when a chip evicts or fills; `build_flow` (flow.py) turns the readings of that moment and those
-events into the state a chart draws. The session holds no UI library, so it is tested without one.
+events into the state a chart draws. The session holds no UI library, so it is tested without one. Until the first segment plays it also keeps `progress()`: the steps of the start and how far each has got.
 """
 from __future__ import annotations
 
@@ -30,9 +30,12 @@ from ..music.styles import STYLES, draw_styled_patch
 from ..narrate.runlog import RunLog
 from ..telemetry import Telemetry, fetch_snapshot, mock_telemetry, parse_snapshot
 from .flow import FlowState, build_flow, phases_at
+from .progress import ACTIVE, DONE, TODO, Progress, Step
 
 LOG_LINES = 400  # how much of the run log a snapshot keeps
 PACE_SLICE_S = 0.25  # the sink waits out a segment in slices this long, so a stop is noticed within one
+SIM_STEP, RENDER_STEP, BUFFER_STEP = "start the TT-Lang simulator", "render the first segment", "fill the buffer"
+PREROLL_S = 10.0  # the app's lead: how many seconds of audio the sink may hand over ahead of real time (see Session)
 
 
 class _Stopped(BaseException):
@@ -68,6 +71,7 @@ class Snapshot:
     segment: int  # the number of the segment that is playing, -1 before the first
     running: bool
     error: Optional[str]
+    progress: Optional[Progress] = None  # the steps before the first segment plays, None once it has
 
 
 def make_patch(style: str, seed: int, chips: Sequence[Telemetry]) -> Patch:
@@ -97,14 +101,18 @@ class _UiSink:
         s = self._session
         if s._stop.is_set():
             raise _Stopped()
-        s._begin_segment(s._writes)  # each segment is one write (the last write is the tail that rings out)
-        s._writes += 1
-        s._audio.put(audio)
-        remaining = len(audio) / s.sample_rate
-        while remaining > 0 and not s._stop.is_set():
-            step = min(PACE_SLICE_S, remaining)
-            s._sleep(step)
-            remaining -= step
+        s._hand_over(audio)  # each segment is one write (the last write is the tail that rings out)
+        if s._lead_s <= 0:
+            remaining = len(audio) / s.sample_rate  # no lead: wait out this segment, so the loop stays about one segment ahead
+            while remaining > 0 and not s._stop.is_set():
+                step = min(PACE_SLICE_S, remaining)
+                s._sleep(step)
+                remaining -= step
+        else:
+            # A lead: keep handing audio over until it is `lead_s` ahead of the listener, then wait for the listener to catch up. The listener
+            # is timed from the first write on the clock, so the time the loop spends rendering counts as time the listener spent listening.
+            while s._ahead() > s._lead_s and not s._stop.is_set():
+                s._sleep(min(PACE_SLICE_S, s._ahead() - s._lead_s))
         if s._stop.is_set():
             raise _Stopped()
 
@@ -125,7 +133,12 @@ class Session:
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         worker=None,
+        lead_s: float = 0.0,
     ):
+        """`lead_s` is how many seconds of audio the sink hands over ahead of real time. The page's audio player starts as soon as it has a
+        segment and then plays on what it has been sent, so with no lead it is never more than about one segment ahead and runs dry whenever a
+        segment takes longer than the last. A lead fills it before it starts. It also puts the sound that far behind the chips; the chart and
+        the log follow the sound and not the chips, so the chart switches to a segment when the listener reaches it."""
         self._worker = worker  # a chip worker (see media/chip.py) that has not started: the session starts it, runs the kernels through it and closes it
         self.sample_rate, self._sleep, self._clock = sample_rate, sleep, clock
         self._sample, self._patch, self._source = sample, patch, source
@@ -141,6 +154,14 @@ class Session:
         self._states: dict = {}  # segment number -> the state of that segment, kept until it has played
         self._playing: Optional[int] = None  # the segment whose audio the sink began last
         self._writes = 0
+        self._lead_s = lead_s
+        self._steps = ([SIM_STEP] if worker is not None else []) + [RENDER_STEP] + ([BUFFER_STEP] if lead_s > 0 else [])
+        self._active = 0  # the step in progress; len(self._steps) when all are done
+        self._marks: dict = {}  # step -> [started, ended]
+        self._t_play: Optional[float] = None
+        self._t0: Optional[float] = None  # the clock at the first write: the listener's time 0
+        self._delivered = 0.0  # seconds of audio handed over so far
+        self._pending: deque = deque()  # (seconds into the audio at which a segment starts, segment) for those handed over and not yet reached
         self._error: Optional[str] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -149,6 +170,8 @@ class Session:
     def start(self) -> None:
         if self._thread is not None:
             raise RuntimeError("a session runs once; make a new one")
+        self._t_play = self._clock()
+        self._enter(0)
         self._thread = threading.Thread(target=self._run, name="tensixinet-session", daemon=True)
         self._thread.start()
 
@@ -169,7 +192,12 @@ class Session:
         backend = None
         try:
             if self._worker is not None:
+                log.event("backend", "starting the TT-Lang simulator",
+                          "it imports torch and builds the kernels; about 15 s on a laptop and longer on a small machine")
+                began = self._clock()
                 self._worker.start()
+                self._enter(1)
+                log.event("backend", f"the TT-Lang simulator is ready ({self._clock() - began:.0f} s)", "the first segment is rendered next")
                 backend = KernelBackend(self._worker, log=lambda note: log.event(
                     "backend", note, "the kernels' formulas run on the CPU from here on, so the sound does not stop"))
                 log.event("backend", "TT-Lang kernels in the simulator (no chip)",
@@ -206,6 +234,73 @@ class Session:
 
     # -- what the app reads --------------------------------------------------------------------------------------------------
 
+    def _hand_over(self, audio: np.ndarray) -> None:
+        """Queue one segment's audio. With no lead its chart state is shown at once; with one, when the listener reaches it."""
+        with self._lock:
+            if self._t0 is None:
+                self._t0 = self._clock()
+            segment, offset = self._writes, self._delivered
+            self._writes += 1
+            self._delivered += len(audio) / self.sample_rate
+            if self._lead_s > 0:
+                self._pending.append((offset, segment))
+        if self._lead_s <= 0:
+            self._begin_segment(segment)
+        self._audio.put(audio)
+        self._advance()
+        self._after_write()
+
+    def _enter(self, step: int) -> None:
+        """Step `step` begins (and the one before it ends); a step past the last means the start is over."""
+        with self._lock:
+            now = self._clock()
+            if self._active in self._marks and len(self._marks[self._active]) == 1:
+                self._marks[self._active].append(now)
+            self._active = step
+            if step < len(self._steps):
+                self._marks[step] = [now]
+
+    def _after_write(self) -> None:
+        """The first segment has been handed over, and then enough audio to fill the lead: each ends a step."""
+        if self._active < len(self._steps) and self._steps[self._active] == RENDER_STEP:
+            self._enter(self._active + 1)
+        if self._active < len(self._steps) and self._steps[self._active] == BUFFER_STEP and self._delivered >= self._lead_s:
+            self._enter(len(self._steps))
+
+    def progress(self) -> Optional[Progress]:
+        """The steps before the first segment plays and where each is, or None when the start is over."""
+        with self._lock:
+            if self._t_play is None or self._active >= len(self._steps):
+                return None
+            now = self._clock()
+            steps = []
+            for i, label in enumerate(self._steps):
+                if i < self._active:
+                    marks = self._marks.get(i, [now, now])
+                    steps.append(Step(label, DONE, (marks[1] if len(marks) > 1 else now) - marks[0]))
+                elif i == self._active:
+                    steps.append(Step(label, ACTIVE, now - self._marks[i][0]))
+                else:
+                    steps.append(Step(label, TODO, 0.0))
+            fraction = min(1.0, self._delivered / self._lead_s) if self._steps[self._active] == BUFFER_STEP else None
+            return Progress(tuple(steps), fraction, now - self._t_play)
+
+    def _ahead(self) -> float:
+        """Seconds of audio handed over that the listener has not reached yet."""
+        return self._delivered - (self._clock() - self._t0) if self._t0 is not None else 0.0
+
+    def _advance(self) -> None:
+        """Begin every handed-over segment the listener has reached."""
+        if self._t0 is None or not self._pending:
+            return
+        elapsed = self._clock() - self._t0
+        reached = []
+        with self._lock:
+            while self._pending and self._pending[0][0] <= elapsed:
+                reached.append(self._pending.popleft()[1])
+        for segment in reached:
+            self._begin_segment(segment)
+
     def _begin_segment(self, segment: int) -> None:
         """The sink is about to play `segment`: from now the snapshot shows its state. The loop renders up to two segments ahead of the
         sound, so older states are dropped here and newer ones wait."""
@@ -215,11 +310,13 @@ class Session:
                 del self._states[old]
 
     def snapshot(self) -> Snapshot:
+        self._advance()
+        progress = self.progress()
         with self._lock:
             running = self._thread is not None and self._thread.is_alive() and not self._stop.is_set()
             state = self._states.get(self._playing) if self._playing is not None else None
             segment = self._playing if state is not None else -1
-            return Snapshot(state, tuple(self._lines), tuple(self._records), segment, running, self._error)
+            return Snapshot(state, tuple(self._lines), tuple(self._records), segment, running, self._error, progress)
 
     def next_audio(self, timeout: float = 1.0) -> Optional[np.ndarray]:
         """The next segment's audio, or None if there is none within `timeout` seconds."""

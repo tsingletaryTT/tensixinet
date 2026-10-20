@@ -155,3 +155,10 @@ def test_a_simulator_that_cannot_start_ends_the_session_with_the_reason_and_stil
     while time.monotonic() < end and s.snapshot().running:
         time.sleep(0.05)
     assert "no simulator today" in (s.snapshot().error or "") and Broken.closed
+
+
+def test_the_lead_goes_to_the_session_and_defaults_to_none():
+    from tensixinet.ui.forms import SOURCES, new_session
+    args = (SOURCES[0], "plain draw", 1, 2, 0, "draw from the seed and the style", [], lambda s: None)
+    assert new_session(*args)[0]._lead_s == 0.0
+    assert new_session(*args, lead_s=7.5)[0]._lead_s == 7.5

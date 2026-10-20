@@ -13,7 +13,6 @@ It reads the real chips with tt-smi (read-only, no device open), so it needs no 
 from __future__ import annotations
 
 import os
-import threading
 import time
 from pathlib import Path
 
@@ -24,6 +23,9 @@ from tensixinet.music.patch import save_patch
 from tensixinet.ui.chart import flow_svg
 from tensixinet.ui.forms import DRAW, SOURCES, kernel_choices, new_session, patch_choices, source_choices, style_choices
 from tensixinet.ui.logview import log_html
+from tensixinet.ui.player import Player
+from tensixinet.ui.progress import ACTIVE, progress_html
+from tensixinet.ui.session import PREROLL_S
 
 ROOT = Path(__file__).resolve().parent.parent
 PATCH_DIRS = [ROOT / "demo", ROOT / "patches"]  # patches/ is optional: drop a *.patch.json there to see it in the list
@@ -33,50 +35,110 @@ INTRO = ("Chip telemetry played as a band of Ciat-Lonbarde-style devices. The ch
          "Wear headphones.")
 WAITING = '<div style="padding:40px;color:#7d9a98;font:14px ui-monospace,monospace">press Play: the chart draws what is playing as it plays</div>'
 
-_current = None  # the one session that is playing; starting another ends it
-_lock = threading.Lock()
+STARTING = '<div style="padding:40px;color:#7d9a98;font:14px ui-monospace,monospace">starting: ending what was playing and building the new session</div>'
+STOPPED = '<div style="padding:40px;color:#7d9a98;font:14px ui-monospace,monospace">stopped: press Play, or change a setting while it plays and it restarts with the change</div>'
+
+# The browser plays on what it had already buffered after the server has stopped sending, for about ten seconds. These run in the page before
+# the server hears anything: they cut the audio on Stop, on Play, and on a change that alters the settings of what is playing (the server
+# still decides whether to restart; if it does not, the stream goes on and the audio comes back with its next segment).
+SILENCE = "document.querySelectorAll('audio').forEach(a => { a.pause(); });"
+JS_PLAY = "(...a) => { %s window.tensixinetPlaying = JSON.stringify(a); return a; }" % SILENCE
+JS_CHANGE = ("(...a) => { if (window.tensixinetPlaying && window.tensixinetPlaying !== JSON.stringify(a)) "
+             "{ %s window.tensixinetPlaying = JSON.stringify(a); } return a; }" % SILENCE)
+JS_STOP = "() => { %s window.tensixinetPlaying = null; }" % SILENCE
+
+player = Player()  # which session the page shows (see ui/player.py); the audio, chart and log below all belong to it
 
 
-def _stop_current() -> None:
-    global _current
-    with _lock:
-        old, _current = _current, None
-    if old is not None:
-        old.stop()
+def _config(source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables):
+    return (source, style, int(seed or 0), int(chips), float(load_s), patch_name, kernels, bool(stereo), bool(evict), bool(cables))
 
 
-def play(source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables):
-    """Start a session and stream it: each step yields the next segment's audio with the chart and the log as they stand."""
-    global _current
-    _stop_current()
-    try:
-        session, patch = new_session(source, style, int(seed), int(chips), float(load_s), patch_name, PATCH_DIRS, time.sleep,
-                                     stereo=stereo, evict=evict, cables=cables, kernels=kernels)
-    except ValueError as e:
-        yield gr.skip(), WAITING, log_html([]), f"could not start: {e}"
+STOPPED_FRAME = (None, STOPPED, gr.skip(), "stopped")
+
+
+def _ended(token):
+    """What a stream that is no longer the current one says last. After a Stop it puts the page in the stopped state itself: a frame it sent
+    just before can reach the browser after Stop's own result, and Gradio's cancel cannot recall it. After a newer Play it says nothing."""
+    if not player.active and not player.is_current(token):
+        yield STOPPED_FRAME
+
+
+def _chart(snap):
+    """The flow chart of the segment that is playing; before the first one, the steps of the start (so a slow start is not a blank page)."""
+    if snap.state is not None:
+        return flow_svg(snap.state)
+    return progress_html(snap.progress) if snap.progress is not None else gr.skip()
+
+
+def _status(snap, playing):
+    """The status line: the step the start is on while it starts, then what is playing."""
+    if snap.state is None and snap.progress is not None:
+        step = next(s for s in snap.progress.steps if s.state == ACTIVE)
+        return f"starting: {step.label}, {step.seconds:.0f} s"
+    return playing
+
+
+def _stream(config, only_if_changed):
+    """Claim the page for `config`, show that it is starting, end the session that was playing, then play. The claim comes first and is
+    one step with the check that a change really is one: a Stop after it is honoured, because everything below asks the player if it is
+    still current. Starting clears the page, so nothing of the old session is mistaken for the new one."""
+    source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables = config
+    token, old = player.claim(config, only_if_changed)
+    if token is None:
+        yield gr.skip(), gr.skip(), gr.skip(), gr.skip()
         return
-    with _lock:
-        _current = session
+    yield None, STARTING, log_html([]), "starting"  # None empties the audio player, which would otherwise play on what it had buffered
+    if old is not None:
+        old.stop()  # can take seconds: it waits for a segment that is being rendered
+    try:
+        session, patch = new_session(source, style, seed, chips, load_s, patch_name, PATCH_DIRS, time.sleep,
+                                     stereo=stereo, evict=evict, cables=cables, kernels=kernels, lead_s=PREROLL_S)
+    except ValueError as e:
+        if player.is_current(token):
+            player.finish(token)
+            yield gr.skip(), WAITING, log_html([]), f"could not start: {e}"
+        return
+    if not player.attach(token, session):  # a Stop or a newer Play came while it was being built
+        yield from _ended(token)
+        return
     session.start()
     status = f"playing {patch.style or 'a plain patch'} (seed {patch.seed}) from {source}"
     try:
-        while True:
+        while player.is_current(token):
             chunk = session.next_audio(timeout=0.5)
+            if not player.is_current(token):
+                yield from _ended(token)  # the page belongs to a newer session or to Stop
+                return
             snap = session.snapshot()
             if snap.error:
+                player.finish(token)
                 yield gr.skip(), flow_svg(snap.state) if snap.state else WAITING, log_html(snap.records), f"stopped: {snap.error}"
                 return
             audio = gr.skip() if chunk is None else (session.sample_rate, (np.clip(chunk, -1, 1) * 32767).astype(np.int16))
-            yield audio, flow_svg(snap.state) if snap.state else WAITING, log_html(snap.records), status
+            yield audio, _chart(snap), log_html(snap.records), _status(snap, status)
             if not snap.running and chunk is None:
+                player.finish(token)
                 return
+        yield from _ended(token)  # the loop ended because the page moved on
     finally:
         session.stop()
 
 
+def play(*settings):
+    """Play with the page's settings, ending whatever was playing."""
+    yield from _stream(_config(*settings), only_if_changed=False)
+
+
+def restart(*settings):
+    """A setting changed. While something is playing and the settings differ, play again with them; otherwise leave the page as it is until Play."""
+    yield from _stream(_config(*settings), only_if_changed=True)
+
+
 def stop():
-    _stop_current()
-    return "stopped"
+    """Stop, and empty the audio player: the browser would go on playing what it had already buffered."""
+    player.stop()
+    return None, STOPPED, "stopped"
 
 
 def build() -> gr.Blocks:
@@ -106,9 +168,16 @@ def build() -> gr.Blocks:
             with gr.Column(scale=2):
                 log = gr.HTML(log_html([]), label="Log")
         inputs = [source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables]
-        # No concurrency limit: a new Play must be able to start and end the one that is running, and Stop cancels the stream.
-        playing = play_btn.click(play, inputs, [audio, chart, log, status], concurrency_limit=None)
-        stop_btn.click(stop, None, status, cancels=[playing])
+        outputs = [audio, chart, log, status]
+        # trigger_mode "multiple": Gradio holds an input event back while the last one is still running, and these never finish (they stream),
+        # so a second change would wait for ever and the page would keep the first.
+        # No concurrency limit: a new Play must be able to start and end the one that is running, and every stream ends when it is no longer
+        # the current one. Stop ends them all by moving the player on. A change of setting while playing plays again with it (Player.should_restart decides).
+        streams = [play_btn.click(play, inputs, outputs, concurrency_limit=None, trigger_mode="multiple", js=JS_PLAY)]
+        for control, event in ((source, "input"), (style, "input"), (patch_name, "input"), (kernels, "input"), (stereo, "input"),
+                               (evict, "input"), (cables, "input"), (chips, "release"), (load_s, "release"), (seed, "blur"), (seed, "submit")):
+            streams.append(getattr(control, event)(restart, inputs, outputs, concurrency_limit=None, trigger_mode="multiple", js=JS_CHANGE))
+        stop_btn.click(stop, None, [audio, chart, status], js=JS_STOP)  # every stream ends itself within half a second of the player moving on
     return demo
 
 

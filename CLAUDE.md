@@ -38,7 +38,7 @@ tensixinet/
   music/       mapping, synth, devices, ttrolzer, ttrax, ttquantussy, ttsteam, lead, events, loudness, turns, patch, chorus, live
   narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
   media/       llm (OpenAI-compatible endpoint), mux (WAV under a video), player (live audio out)
-  ui/          flow (what is playing as data), chart (it as animated SVG), logview, session (the live loop on a thread), forms
+  ui/          flow (what is playing as data), chart (it as animated SVG), logview, session (the live loop on a thread), progress (the steps of a start), player (which session the page shows), forms
   run.py live.py cli.py __main__.py     wiring (offline and live) and the command line
 tests/         mirrors the package: tests/music/test_devices.py tests the music/devices.py module
 app/           the Gradio page that draws what is playing (needs .venv-app; see README), with .disco/app.yaml for tt-discolike
@@ -540,4 +540,27 @@ legacy/        first prototype scripts, kept for reference
   * Built the image (1.8 GB), ran it, and played the simulator mode through `gradio_client`: the log names the simulator and 120 updates streamed. The first run failed on the
     container's log, not in the page: Gradio's streaming audio needs `ffmpeg`, which `python:3.12-slim` lacks. The Dockerfile installs it, with a test.
   * Full suite 2171 passed, 2 skipped, with `TT_LANG_SIM` set (without it the sim tests skip).
+* **2026-10-20, "the play/stop and change patch behavior on both gradio and space need some work ... easy to change things and try to start or stop but not have what you changed reflected":**
+  `ui/player.py` (which session the page shows) and a rewrite of the app's Play, Stop and change handling. A change of any setting while playing now plays again with it; Stop empties the chart and the
+  audio; Stop during a start sticks; the last of several quick changes wins.
+  * Found only in a real browser (Playwright, Chrome), in this order: Gradio holds an `input` event back while the previous one is still running, and these streams never finish, so a second
+    change waited for ever (`trigger_mode="multiple"` on every stream); a Stop pressed just after a change was undone because the restart checked "is something playing" and then began, with the Stop
+    in between (the check and the claim are now one step, `Player.claim`); a frame a stream had sent just before Stop reached the browser after Stop's own result, and `cancels` cannot recall it (each
+    stream now ends the page itself, as stopped after a Stop and silently after a newer Play, and Stop no longer cancels); the browser went on playing about ten seconds of audio it had buffered (a `pause()`
+    in the page on Stop, Play and a real change; removing the element's `src` made Gradio's HLS player start it again from 0).
+  * My first browser run tested the old code: the app on port 7880 was still the instance started before the edits, and the new one could not bind. Check what answers on the port.
+  * Mutation run: the first battery left two survivors (the loop's own check and the check after the wait; each needs a test that supersedes the stream at that moment) and one test that hung when its
+    mutant removed the restart check (streams never end), so every pull in those tests is bounded (`_take`).
+* **2026-10-20, "can we buffer a little more before playing/starting? we get about 2-4s of generated audio before needing to wait for more":** the sink used to wait out each segment before handing
+  over the next, so the browser's player was never more than one segment ahead. `Session(lead_s=...)` (the app passes `PREROLL_S` = 10 s) hands audio over until it is that far ahead of the listener, timed from the
+  first write on the clock, so render time counts as listening time. The chart and log follow the sound: a segment's state shows when the listener reaches its offset (`_pending`, `_advance`, also run by every snapshot).
+  A lead of 0 is the old behaviour, which the command line and most tests use.
+  * Measured in headless Chrome over 70 s of play: without the lead the player's buffer fell to 0.1 to 0.5 s each segment and stalled 3 times; with it the buffer stayed at 5 to 9 s and stalled once (the start).
+  * Cost: the sound is ten seconds behind the chips. Mutation run: 11 mutants, all caught on the first run.
+* **2026-10-20, "the cpu only mode seems to work but when i use tt-lang kernels i don't hear sound or see the connections display or logs starting" (then "it just takes a long time ... maybe we need more progress bars"):**
+  it worked, and was slow to start with nothing on the page. Timed on the Space with `gradio_client`: CPU only had the first chart at 4 s; the simulator at 18 s, then a segment about every 5 s. My first guess (a bug) was wrong, and
+  the user's own reading ("it just takes a long time") was right. `ui/progress.py` and `Session.progress()` give the steps (start the simulator, render the first segment, fill the buffer, the last with a real bar against the lead);
+  the chart area shows them until the first segment plays, the status line names the active step with its seconds, and the log says when the simulator starts and when it is ready.
+  * Mutation run: 15 mutants; one survivor (a buffer step listed with no lead), now tested. Looked at in headless Chrome: the checklist and bar show, and the log lines arrive.
+  * Not known: how long the Space's own start takes now; the timings above are from before this change, and only the 18 s was measured.
 

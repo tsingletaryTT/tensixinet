@@ -176,6 +176,15 @@ harder they push. The stereo field shows every voice at its azimuth and depth, a
 coloured by jack. You pick the source (synthetic chips, with an optional load cycle so a chip unloads, or the real chips read with `tt-smi`), a style
 or a saved `*.patch.json`, and a seed. It needs no gozer lease.
 
+Play starts a session. While it plays, changing any setting plays again with the change, and a change that leaves the settings as they were does nothing. Stop ends it,
+empties the chart and stops the audio at once. Pressing Stop while a session is still starting also stops it.
+
+The page's audio player is kept about ten seconds ahead (`PREROLL_S` in `ui/session.py`), so it does not run dry between segments. That puts the sound ten seconds behind the chips;
+the chart and the log follow the sound, and change segment when you reach it.
+
+Before the first segment plays, the chart area shows the steps of the start with the time each has taken: start the TT-Lang simulator (when you chose it; about 15 s on a laptop,
+more on a small machine such as a Space), render the first segment, and fill the buffer (a real bar, against the ten-second lead). The log says when the simulator starts and when it is ready.
+
 ```bash
 uv venv .venv-app && uv pip install --python .venv-app/bin/python "gradio>=5" numpy soundfile -e .
 .venv-app/bin/python app/gradio_app.py        # http://localhost:7880
