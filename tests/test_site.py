@@ -175,3 +175,16 @@ def test_the_styles_section_carries_every_styles_name_and_description_from_the_c
 def test_the_kernels_section_says_the_whole_soundtrack_can_run_on_all_four_chips():
     section = HTML[HTML.index('id="kernels"'): HTML.index('id="hardware"')]
     assert "<code>--kernels chips</code>" in section and "one gozer lease" in section and "0.0034" in section
+
+
+def test_the_space_section_states_the_stereo_and_evict_numbers_the_code_uses():
+    from tensixinet.music import evict, space, stereo
+    section = HTML[HTML.index('id="space"'): HTML.index('id="band"')]
+    assert 'href="#space"' in HTML
+    for text in (f"{space.SPREAD}", f"{evict.LOAD_SURGE_FACTOR}", f"{evict.EVICT_MARGIN}", f"{evict.POWER_IDLE_W:g} W",
+                 f"{evict.EVICT_SECONDS:g} s", f"{round(evict.RUN_TDP_FRACTION * 100)}%", f"{stereo.TURN_DEPTH}",
+                 "<code>--mono</code>", "<code>--mock-load</code>", "<code>--no-evict</code>"):
+        assert text in section, text
+    assert 'src="assets/stereo.mp4"' in section and (SITE / "assets" / "stereo.mp4").is_file()
+    assert 'poster="assets/stereo-frame.png"' in section and (SITE / "assets" / "stereo-frame.png").is_file()
+    assert 'src="assets/audio/stereo.mp3"' in section and (SITE / "assets" / "audio" / "stereo.mp3").is_file()

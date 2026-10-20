@@ -30,3 +30,12 @@ scenes:
     split_ratio: 45
     duration: 110s
     caption: "tensixinet --live --kernels chips: one gozer lease on both boards, and each chip runs its own gong, shimmer, drone ripple, AVDog and ttcoco mix, plus the final mixer, as TT-Lang kernels. The rest of the band stays on the CPU. The run log is coloured by the Ciat-Lonbarde jack colours (blue readings, green who plays, purple patch and cables, white audio, orange discovery, red events) and each chip and device keeps its own colour. tt-toplike --rotate cycles through every view of the same four chips."
+
+  - id: stereo
+    title: "The band in a stereo field, and a chip's eviction changing the music, beside tt-toplike"
+    layout: split
+    left:  { run: "demo/left_pane_stereo.sh", wait_for: "played .*s in" }
+    right: { run: "tt-toplike {backend} --rotate" }
+    split_ratio: 45
+    duration: 110s
+    caption: "tensixinet --live on four synthetic chips that cycle through load every 60 s (the real ones are idle, and an idle chip never evicts). Each voice sits at its own place in a stereo field, some fixed and some travelling, and the log says where. When a chip falls back from a load it evicts, as in tt-toplike's defrag view: its voices dissolve right to left, it goes quiet, and they fill back left to right when the load returns. The right pane is tt-toplike --rotate on the real, idle chips, so the two panes do not show the same chips."

@@ -120,7 +120,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 
 <nav><div class="wrap">
   <b>tensixinet</b>
-  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#colour">Colour</a><a href="#rhythm">Rhythm</a><a href="#styles">Styles</a><a href="#band">The band</a>
+  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#colour">Colour</a><a href="#rhythm">Rhythm</a><a href="#styles">Styles</a><a href="#space">Space</a><a href="#band">The band</a>
   <a href="#listen">Listen</a><a href="#new">Is it new?</a><a href="#kernels">On the chip</a><a href="#hardware">Get hardware</a><a href="#credits">Credits</a>
 </div></nav>
 
@@ -292,6 +292,32 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3><code>--style aphex</code></h3><p>Restless and odd-metered: eight-note scales, motifs of seven, nine or ten notes with big leaps, short turns, fast metallic gongs, every steam route on, and the rolls, the snare, the AVDog and the delay taps doing the talking.</p><span class="tag">scales: octatonic, augmented, whole tone, hungarian minor, double harmonic, prometheus</span></div>
   </div>
   <p class="src" style="margin-top:10px">Try <code>tensixinet --live --style enya</code>. A saved patch keeps its style and its balance, and replays with <code>--patch</code>.</p>
+</div></section>
+
+<section id="space"><div class="wrap">
+  <div class="kicker">Space</div>
+  <h2>A field of sound, and a chip that empties its room</h2>
+  <p>The output is stereo, and it is more than a left and a right. Every voice has an azimuth (left to right), a width and a depth (near to far). Depth makes a voice quieter and darker and adds a small early reflection. Wear headphones. <code>--mono</code> gives the older sound exactly.</p>
+  <div class="grid">
+    <div class="card"><h3>Places that stay</h3><p>Each chip has a home spread across the field, out to 0.75 of the way to either side, nudged a little by the chip's identity. Each device has its own offset, width and depth: the shimmer is wide and far, and the lead is near and narrow.</p><span class="tag">fixed</span></div>
+    <div class="card"><h3>Places that travel</h3><p>Every voice orbits its place. The size of the orbit comes from the chip's chaos and its speed from the chip's clock, so a calm chip sits still and a restless one wanders. The voice that has the floor comes forward by 0.35 of the depth range and the others fall back.</p><span class="tag">from the chip's readings</span></div>
+    <div class="card"><h3>Motion from inside the devices</h3><p>The AVDog's white and red voices swing between the two ears. The shimmer pans at its own beat. Each gong strike lands somewhere new and settles. ttquantus pans with its pitch, ttrollz hops lane to lane, the snare alternates sides and the drone comes forward as it ripples.</p><span class="tag">the devices' own signals</span></div>
+  </div>
+  <h3 style="margin-top:30px">Evict: when a chip's model unloads</h3>
+  <p>tt-toplike's defrag view marks a chip EVICT when it has been running, has seen a load, and falls back to rest. tensixinet follows the same rule on each chip's power, and the moment it fires the band changes. A chip has seen a load when its power rose above 1.5 times its learned rest, or above 30% of its TDP. It evicts when the power falls back to 1.2 times rest or less, with rest never counted below 8 W. A chip that only ever idles never evicts.</p>
+  <ul class="plain">
+    <li><b>Dissolve.</b> The chip's voices fade out one after another, right to left across the field, each at its own prime-multiplied rate, over 8 s, with a falling noise sweep that travels the same way.</li>
+    <li><b>Quiet.</b> The empty chip goes silent and almost never has the floor, so the others take its turns.</li>
+    <li><b>Fill.</b> When load returns the voices come back left to right over 8 s with a rising sweep. A load that returns during an eviction turns it around.</li>
+  </ul>
+  <div class="diagram" style="margin-top:20px">
+    <video controls preload="none" poster="assets/stereo-frame.png" src="assets/stereo.mp4" style="width:100%;border-radius:8px"></video>
+    <p class="caption">Four synthetic chips that cycle through load with <code>--mock-load</code> (the real chips are idle, so they never evict), with the log naming each placement and each eviction. The right pane is tt-toplike on the real chips and does not show the same chips.</p>
+  </div>
+  <div class="players" style="margin-top:16px">
+    <div class="card"><h3>Stereo and evictions</h3><p>Sixty seconds from that run, with chips evicting and filling in turn. Best on headphones.</p><audio controls preload="none" src="assets/audio/stereo.mp3"></audio></div>
+  </div>
+  <p class="src" style="margin-top:10px">Try <code>tensixinet --live --mock-chips 4 --mock-load 60</code>. <code>--no-evict</code> turns the eviction off. Measured, not yet judged by ear: over 20 s on four chips the two channels correlate at 0.27 and the left-right balance moves between -3 and +7 dB.</p>
 </div></section>
 
 <section id="band"><div class="wrap">

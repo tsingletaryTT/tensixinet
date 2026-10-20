@@ -498,3 +498,5 @@ legacy/        first prototype scripts, kept for reference
   * My first scenario for a load interrupting an eviction was wrong: four readings back at rest had not yet taken the smoothed power under the threshold, so there was
     nothing to interrupt. The rest baseline is learned only from steady readings, so the edge of a fall is not taken for rest.
 
+* **2026-10-20, "commit and push and update site and recordings":** the stereo and evict code is `ee38da8`. New scene `stereo` (`demo/left_pane_stereo.sh`, `demo/build_stereo.sh`): four synthetic chips on `--mock-load 60` beside `tt-toplike --rotate` on the real chips, 100 s, with the log showing evictions and fills. The site has a `#space` section with the video and a 60 s stereo clip, and `tests/test_site.py` ties its numbers to the code.
+  * The first recording used `--mock-load 30` and had no evictions: a loaded stretch of 15 s is too short for the 10 s "ran long enough" rule plus the smoothing. 60 s works (chips evict at 41.6 s, 47.5 s, 70.9 s and 82.6 s in the recording).
