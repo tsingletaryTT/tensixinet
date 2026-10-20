@@ -71,7 +71,7 @@ def test_the_styles_really_sound_different_in_what_they_draw():
     assert mean("enya", "bars_per_turn") > 4 > mean("aphex", "bars_per_turn") and mean("chiptune", "bars_per_turn") < 2.1
     assert mean("enya", "floor") > mean("aphex", "floor") + 0.15
     assert mean("aphex", "gong_beat_hz") > mean("enya", "gong_beat_hz") + 1.0
-    assert set(STYLES["aphex"].routes) == set(STEAM_ROUTES) and len(STYLES["enya"].routes) <= 1
+    assert len(STYLES["aphex"].routes) == 2 and len(STYLES["enya"].routes) <= 1
     assert "blues" in STYLES["blues"].scales and "octatonic" in STYLES["aphex"].scales and "dorian" in STYLES["enya"].scales
     emphasis = {n: dict(STYLES[n].emphasis) for n in STYLES}
     assert emphasis["enya"]["ttchoir"] > emphasis["enya"]["ttsteam"] and emphasis["aphex"]["ttsteam"] > emphasis["aphex"]["ttchoir"]
@@ -138,3 +138,9 @@ def test_a_broken_emphasis_is_refused(tmp_path, bad):
 
 def test_a_plain_draw_is_untouched_by_styles_existing():
     assert draw_patch(11, CHIPS).style == "" and draw_patch(11, CHIPS).emphasis == ()
+
+
+def test_no_style_turns_on_more_than_two_steam_routes_and_none_gives_the_snare_a_boost_above_one():
+    for name, style in STYLES.items():
+        assert len(style.routes) <= 2, name
+        assert dict(style.emphasis)["ttsteam"] <= 1.0, name

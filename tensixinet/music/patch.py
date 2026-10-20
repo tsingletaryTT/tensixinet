@@ -83,7 +83,8 @@ RAX_BAR_COUNTS = (4, 7, 14)
 #   pitch    the register holds one note of the patch's scale per step, drawn from the seed, and steers the
 #            AVDog's dogtone with them
 STEAM_ROUTES = ("strikes", "avdog", "accent", "pitch")
-STEAM_ROUTE_ODDS = 0.6  # each route is on in a drawn patch with this chance, and a patch always has at least one
+STEAM_ROUTE_COUNT_ODDS = (0.25, 0.5, 0.25)  # a drawn patch has no route, one or two (the snare was everywhere when each was on 60% of the time)
+STEAM_ROUTE_WEIGHTS = (0.5, 1.0, 1.0, 1.0)  # in STEAM_ROUTES order: "strikes" makes the whole band follow the snare, so it is drawn half as often
 
 MOTIF_LENGTHS = (6, 7, 8, 9, 10, 12)  # eighth notes; the lead's bar is as long as its motif
 MOTIF_LOW_RANGE = (-5, -2)  # the lowest degree a motif may reach is drawn from here ...
@@ -185,13 +186,13 @@ def _draw_motif(rng: np.random.Generator, lengths: Sequence[int] = MOTIF_LENGTHS
 
 
 def _draw_steam_routes(seed: int) -> Tuple[str, ...]:
-    """A non-empty subset of STEAM_ROUTES, in their listed order. It has its own random stream, so adding routes
-    did not move any other drawn field for an existing seed."""
+    """No route, one or two of STEAM_ROUTES (see STEAM_ROUTE_COUNT_ODDS), in their listed order. It has its own random stream, so
+    changing the routes did not move any other drawn field for an existing seed."""
     rng = np.random.default_rng([seed, 0x57EA])
-    on = [bool(x) for x in rng.random(len(STEAM_ROUTES)) < STEAM_ROUTE_ODDS]
-    if not any(on):
-        on[int(rng.integers(len(STEAM_ROUTES)))] = True
-    return tuple(r for r, o in zip(STEAM_ROUTES, on) if o)
+    count = int(rng.choice(len(STEAM_ROUTE_COUNT_ODDS), p=STEAM_ROUTE_COUNT_ODDS))
+    weights = np.asarray(STEAM_ROUTE_WEIGHTS, dtype=float)
+    picked = set(int(i) for i in rng.choice(len(STEAM_ROUTES), size=count, replace=False, p=weights / weights.sum()))
+    return tuple(r for i, r in enumerate(STEAM_ROUTES) if i in picked)
 
 
 def _draw_gong(rng: np.random.Generator, tuning: str) -> Tuple[Tuple[float, ...], Tuple[float, ...]]:

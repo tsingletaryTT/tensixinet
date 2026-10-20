@@ -189,3 +189,12 @@ def test_the_space_section_states_the_stereo_and_evict_numbers_the_code_uses():
     assert 'poster="assets/stereo-frame.png"' in section and (SITE / "assets" / "stereo-frame.png").is_file()
     assert 'src="assets/audio/stereo.mp3"' in section and (SITE / "assets" / "audio" / "stereo.mp3").is_file()
     assert "Qwen3-Coder-Next" in section and "real chips" in section  # the recording is of real load; a synthetic one must not take its place
+
+
+def test_the_app_section_shows_the_screenshot_gives_the_commands_and_says_it_does_not_run_on_the_page():
+    import re as _re
+    section = HTML[HTML.index('id="app"'): HTML.index('id="band"')]
+    assert 'href="#app"' in HTML and 'src="assets/app.png"' in section and (SITE / "assets" / "app.png").is_file()
+    port = _re.search(r"^port:\s*(\d+)", (SITE.parent / ".disco" / "app.yaml").read_text(), _re.M).group(1)
+    assert f"localhost:{port}" in section and ".venv-app/bin/python app/gradio_app.py" in section
+    assert "does not run on this page" in section and "tt-discolike" in section

@@ -1,0 +1,4 @@
+name: tensixinet
+description: What is playing - a live flow chart of the chip-driven band (chips, devices, patch cables, stereo field) beside the run log
+port: 7880
+launch: .venv-app/bin/python app/gradio_app.py

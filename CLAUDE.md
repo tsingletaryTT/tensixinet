@@ -38,8 +38,10 @@ tensixinet/
   music/       mapping, synth, devices, ttrolzer, ttrax, ttquantussy, ttsteam, lead, events, loudness, turns, patch, chorus, live
   narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
   media/       llm (OpenAI-compatible endpoint), mux (WAV under a video), player (live audio out)
+  ui/          flow (what is playing as data), chart (it as animated SVG), logview, session (the live loop on a thread), forms
   run.py live.py cli.py __main__.py     wiring (offline and live) and the command line
 tests/         mirrors the package: tests/music/test_devices.py tests the music/devices.py module
+app/           the Gradio page that draws what is playing (needs .venv-app; see README), with .disco/app.yaml for tt-discolike
 demo/          tt-demo manifest, left-pane script, build.sh
 docs/          architecture, sound design, decisions, contributing, roadmap
 legacy/        first prototype scripts, kept for reference
@@ -510,3 +512,25 @@ legacy/        first prototype scripts, kept for reference
     5, stereo), three on-chip clips and a new on-chip video. `kernels/cycle.py` passed 12 of 12. Both `gozer run --chips 2` runs were granted board 0, so chips 2 and 3
     were not cycled; the on-chip video is chip 0.
   * Two slips: `pkill -f` matched its own shell and killed the command; `gozer run --exact 0,1` is not a valid form and queued two stray tickets (cancelled).
+* **2026-10-20, "we are way overusing the snare still":** measured first, not guessed. On the four real chips the snare is about 1% of the mix's energy and
+  fires 0.5 to 0.65 times a second on the one chip that plays it, and no device had the floor too often (ttsteam had 2 to 7 of 40 to 60 segments in the demo logs).
+  What spread it was the steam routes: each was on 60% of the time, a patch always had one, so a patch averaged 2.4 routes, 63% had three or four, and `strikes`
+  (the whole band follows the snare) was on in 60%. A patch now has no route (25%), one (50%) or two (25%), `strikes` is drawn half as often as the others, no
+  style turns on more than two, and the snare's emphasis in the styles is at most 1.0 (it was 1.2 chiptune and 1.5 aphex). Saved patches keep their routes.
+  * Not changed: the snare's own level, hit rate and dust. If it still stands out by ear, those are the next dials.
+* **2026-10-20, "a tt-discolike enabled gradio app ... an alive illustrated flow chart of what music is happening right now and how it's constructed ... selection of
+  the presets/patches ... maybe with the log beside it":** `tensixinet/ui/` and `app/gradio_app.py` (port 7880, `.disco/app.yaml`, its own `.venv-app` because the
+  TT venv's gradio does not import). `flow.build_flow` works the state out with the chorus's own functions (device slots, space tables, `draw_cables`, `strength`) so
+  the picture cannot drift from the sound; `chart.flow_svg` draws it (CSS-animated wires that run faster with power, cables thicker with push, a glowing soloist, a
+  stereo field, evicting chips faded by the mix's own `PRESENCE` table); `session.Session` runs `run_live` on a thread with a paced sink; `forms` turns the form into a
+  session. Not a synth panel: nothing changes the sound while it plays.
+  * The chart follows the segment that is playing, not the one just rendered. The loop renders up to two segments ahead, so each segment's state waits until the sink
+    begins that segment's audio (one write per segment).
+  * Found in a browser, not by tests: Gradio's default concurrency limit of 1 queued a new Play behind the running one for ever (now `concurrency_limit=None`, and Stop
+    cancels the stream); the log's own text colour was dark under Gradio's theme (each row now sets its colour); `ultrasonic_shimmer` ran into its chip label.
+  * Mutation run: 23 mutants; the first run had 6 survivors (the azimuth clamp, dropping played segments, fill events, the sink refusing audio once stopped, the load cycle
+    reaching the synthetic source), each now has a test. A second Play takes about 7 s to start because it ends the first session cleanly.
+  * Checked by hand in headless Chrome (Playwright, in a scratch venv): the page loads, Play streams audio, chart and log, and the CSS animation runs inside Gradio's HTML.
+* **2026-10-20, "can the log stay color coded in the gradio UI":** the app's log had only the coloured left bar. The terminal log also colours each device, each chip and each number with a unit
+  inside the line, so the app's log (`ui/logview.decorate_html`) now uses the same token rules (`narrate/color._TOKEN`) and the same colours. Checked by screenshot in Chrome and in Playwright's Firefox
+  after 14 s of play, so the colours hold as the log updates. Mutation run: three mutants (number colour, chip colour, no decoration), all caught.

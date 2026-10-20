@@ -166,6 +166,24 @@ records what was played. `--player none` keeps time with no sound. `--duration 0
 telemetry only, so like the offline run it needs no lease. The limits are in [docs/DECISIONS.md](docs/DECISIONS.md):
 each turn restarts the devices' clocks, so a ringing gong fades at the end of its turn.
 
+## See what is playing
+
+![The app: an animated chart of the chips, the devices dealt to them, the patch cables and the stereo field, with the run log beside it](docs/media/app.png)
+
+`app/gradio_app.py` is a Gradio page that draws the music as it plays and does not change it. Each chip shows its temperature, power, pressure and
+chaos and is wired to the devices it plays. A device carries a bar for its share of the floor. The patch cables arc between devices, thicker the
+harder they push. The stereo field shows every voice at its azimuth and depth, and a chip that is evicting fades its voices. The run log is beside it,
+coloured by jack. You pick the source (synthetic chips, with an optional load cycle so a chip unloads, or the real chips read with `tt-smi`), a style
+or a saved `*.patch.json`, and a seed. It needs no gozer lease.
+
+```bash
+uv venv .venv-app && uv pip install --python .venv-app/bin/python "gradio>=5" numpy soundfile -e .
+.venv-app/bin/python app/gradio_app.py        # http://localhost:7880
+```
+
+It is also a [tt-discolike](https://github.com/tsingletaryTT/tt-discolike) app (`.disco/app.yaml`), so the catalog can start and stop it. The chart,
+the log panel and the session are in `tensixinet/ui/` and are tested without Gradio.
+
 ## What the readings do
 
 | Reading | Becomes | Range |

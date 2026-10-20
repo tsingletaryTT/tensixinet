@@ -227,8 +227,9 @@ envelope that falls to a third in 0.75 s at no pressure and 75 ms at full pressu
 a second for each step of PCIe usage.
 
 The register is in `music/register.py`, apart from the snare, because other devices read it too. Four **steam routes**
-patch it into them. A patch lists the routes that are on. The default patch has none, and a drawn patch turns each on with
-a 60% chance and always has at least one. Together with ttrollz, the gong and the AVDog they make a rhythm section:
+patch it into them. A patch lists the routes that are on. The default patch has none, and a drawn patch has no route
+(25%), one (50%) or two (25%), with `strikes`, the route that makes the whole band follow the snare, drawn half as often as
+the others (it was every route at 60% each, which put the snare everywhere). Together with ttrollz, the gong and the AVDog they make a rhythm section:
 
 | Route | What it does |
 |---|---|

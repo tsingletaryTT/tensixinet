@@ -292,13 +292,27 @@ def test_the_four_routes_and_the_default_patch_having_none():
     assert DEFAULT_PATCH.steam_routes == ()  # the sound from before routes existed
 
 
-def test_every_route_is_drawn_somewhere_every_patch_has_one_and_they_come_in_order():
+def test_every_route_is_drawn_somewhere_no_patch_has_more_than_two_and_they_come_in_order():
     from tensixinet.music.patch import STEAM_ROUTES
-    ps = [draw_patch(s, UNEVEN) for s in range(200)]
+    ps = [draw_patch(s, UNEVEN) for s in range(400)]
     assert {r for p in ps for r in p.steam_routes} == set(STEAM_ROUTES)
-    assert all(len(p.steam_routes) >= 1 for p in ps)
+    assert max(len(p.steam_routes) for p in ps) == 2 and min(len(p.steam_routes) for p in ps) == 0
     assert all(list(p.steam_routes) == [r for r in STEAM_ROUTES if r in p.steam_routes] for p in ps)
-    assert len({p.steam_routes for p in ps}) >= 8
+    assert len({p.steam_routes for p in ps}) >= 7
+
+
+def test_the_snare_is_kept_off_most_of_the_band_most_of_the_time():
+    """The user's ear said the snare was still everywhere: with 60% odds each, 63% of patches had three or four routes and the strikes
+    route, which makes the gong, shimmer, drone and AVDog follow the snare, was on in 60%."""
+    import collections
+    from tensixinet.music.patch import _draw_steam_routes
+    seeds = range(3000)
+    drawn = [_draw_steam_routes(s) for s in seeds]
+    counts = collections.Counter(len(r) for r in drawn)
+    assert 0.20 < counts[0] / len(drawn) < 0.30 and 0.45 < counts[1] / len(drawn) < 0.55 and 0.20 < counts[2] / len(drawn) < 0.30
+    on = collections.Counter(r for d in drawn for r in d)
+    assert on["strikes"] < 0.7 * min(on["avdog"], on["accent"], on["pitch"])  # strikes is the rarest, by a clear margin
+    assert on["strikes"] / len(drawn) < 0.25
 
 
 def test_drawing_routes_leaves_every_other_drawn_field_where_it_was():

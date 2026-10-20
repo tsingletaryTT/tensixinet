@@ -120,7 +120,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 
 <nav><div class="wrap">
   <b>tensixinet</b>
-  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#colour">Colour</a><a href="#rhythm">Rhythm</a><a href="#styles">Styles</a><a href="#space">Space</a><a href="#band">The band</a>
+  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#colour">Colour</a><a href="#rhythm">Rhythm</a><a href="#styles">Styles</a><a href="#space">Space</a><a href="#app">The app</a><a href="#band">The band</a>
   <a href="#listen">Listen</a><a href="#new">Is it new?</a><a href="#kernels">On the chip</a><a href="#hardware">Get hardware</a><a href="#credits">Credits</a>
 </div></nav>
 
@@ -266,7 +266,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3>Hexagon and square differ</h3><p>The square swings long and short. The hexagon swings far less and carries two threes interleaved, so it feels in triplets. These are the guide's geometries, not one pattern with a different count.</p><span class="tag">3, 4, 5 and 6 sides</span></div>
   </div>
   <h3 style="margin-top:30px">A snare that does more than sound</h3>
-  <p>ttsteam, after Man With The Red Steam, is a shift register with one step per Tensix column. A step fires where its column is harvested, so every chip has its own pattern. Four routes patch that register into other devices. A patch turns each on with a 60% chance and always has at least one.</p>
+  <p>ttsteam, after Man With The Red Steam, is a shift register with one step per Tensix column. A step fires where its column is harvested, so every chip has its own pattern. Four routes patch that register into other devices. A patch has no route (25%), one (50%) or two (25%), and <code>strikes</code>, the one that makes the whole band follow the snare, is drawn half as often as the others.</p>
   <table>
     <thead><tr><th>route</th><th>what the register does</th></tr></thead>
     <tbody>
@@ -289,7 +289,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3><code>--style chiptune</code></h3><p>Square-ish and quick: short turns, bright bells, a small four-barre ttrax, and the 8-bit ttquantus and the lead out in front with the rolls and the snare keeping it snappy.</p><span class="tag">scales: major pentatonic, mixolydian, minor pentatonic, dorian</span></div>
     <div class="card"><h3><code>--style enya</code></h3><p>Slow, modal and spacious: long turns, singing bowls and glass, the choir and the drone in front, the delay taps filling the room, and hardly any snare.</p><span class="tag">scales: dorian, lydian, major pentatonic, mixolydian</span></div>
     <div class="card"><h3><code>--style blues</code></h3><p>A twelve-note phrase over the blues scales, four bars to a turn so three turns make twelve bars, the ttrax organ and the lead up front, and the snare on the back beat.</p><span class="tag">scales: blues, mixolydian, minor pentatonic, dorian</span></div>
-    <div class="card"><h3><code>--style aphex</code></h3><p>Restless and odd-metered: eight-note scales, motifs of seven, nine or ten notes with big leaps, short turns, fast metallic gongs, every steam route on, and the rolls, the snare, the AVDog and the delay taps doing the talking.</p><span class="tag">scales: octatonic, augmented, whole tone, hungarian minor, double harmonic, prometheus</span></div>
+    <div class="card"><h3><code>--style aphex</code></h3><p>Restless and odd-metered: eight-note scales, motifs of seven, nine or ten notes with big leaps, short turns, fast metallic gongs, two steam routes on, and the rolls, the AVDog and the delay taps doing the talking with the snare in the mix.</p><span class="tag">scales: octatonic, augmented, whole tone, hungarian minor, double harmonic, prometheus</span></div>
   </div>
   <p class="src" style="margin-top:10px">Try <code>tensixinet --live --style enya</code>. A saved patch keeps its style and its balance, and replays with <code>--patch</code>.</p>
 </div></section>
@@ -318,6 +318,17 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3>Stereo and evictions</h3><p>Sixty seconds from that run, with chip 1's eviction and fill in the middle. Best on headphones.</p><audio controls preload="none" src="assets/audio/stereo.mp3"></audio></div>
   </div>
   <p class="src" style="margin-top:10px">Try <code>tensixinet --live --mock-chips 4 --mock-load 60</code> to hear an eviction without a model (<code>--mock-load</code> is the cycle length in seconds). <code>--no-evict</code> turns the eviction off. Measured, not yet judged by ear: over 20 s on four chips the two channels correlate at 0.27 and the left-right balance moves between -3 and +7 dB.</p>
+</div></section>
+
+<section id="app"><div class="wrap">
+  <div class="kicker">The app</div>
+  <h2>A live picture of what is playing</h2>
+  <p>A Gradio page draws the music as it plays and leaves the sound alone. Each chip shows its temperature, power, pressure and chaos and is wired to the devices it plays. Each device carries a bar for its share of the floor, the patch cables arc between devices, and a stereo field shows where every voice sits. The run log is beside it. You choose the source (synthetic chips with an optional load cycle, or the real chips read with <code>tt-smi</code>), a style or a saved patch, and a seed.</p>
+  <div class="diagram"><img src="assets/app.png" alt="The app: an animated chart of the chips, the devices dealt to them, the patch cables and the stereo field, with the run log beside it" style="width:100%;border-radius:8px"></div>
+  <p>The app does not run on this page. It needs Python and the tensixinet code, so it runs on your machine:</p>
+  <pre><code>uv venv .venv-app &amp;&amp; uv pip install --python .venv-app/bin/python "gradio&gt;=5" numpy soundfile -e .
+.venv-app/bin/python app/gradio_app.py</code></pre>
+  <p>Then open <code>http://localhost:7880</code>. It reads the real chips with <code>tt-smi</code> and opens no device, so it needs no gozer lease. It is also a tt-discolike app, so the tt-discolike catalog can start and stop it.</p>
 </div></section>
 
 <section id="band"><div class="wrap">
