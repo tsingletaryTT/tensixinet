@@ -432,3 +432,235 @@ def test_live_mode_passes_the_cable_choice_to_the_loop(tmp_path, monkeypatch, fl
     monkeypatch.setattr(cli, "run_live", lambda *a, **k: seen.update(k) or 0)
     live(tmp_path, *flag)
     assert seen["cables"] is expected
+
+
+# --- --kernels: the soundtrack on the TT-Lang kernels ------------------------------------------------------------
+
+class _Worker:
+    """A host-mode worker that records whether it was started and closed, so a lease would be released."""
+
+    def __init__(self, devices=1):
+        from tensixinet.media.chip import ChipWorker, host_command
+        self.devices = devices
+        self.inner = ChipWorker(host_command(chunk_tiles=16, devices=devices), devices=devices)
+        self.started = self.closed = False
+        self.calls = []
+        self.where = []
+
+    def start(self):
+        self.started = True
+        self.inner.start()
+
+    def run(self, op, inputs, n, device=0):
+        self.calls.append(op)
+        self.where.append((op, device))
+        return self.inner.run(op, inputs, n, device=device)
+
+    def close(self):
+        self.closed = True
+        self.inner.close()
+
+
+def test_kernels_runs_the_kernel_devices_through_the_worker_and_releases_it(tmp_path):
+    import numpy as np
+    import soundfile as sf
+    worker = _Worker()
+    code = main(args(tmp_path, "--mock-chips", "4", "--duration", "3", "--patch-seed", "4", "--kernels", "host"), make_worker=lambda mode, chips: worker)
+    assert code == 0 and worker.started and worker.closed
+    assert {"ttshimmer", "ttshock", "ttavdog", "ttcoco", "ttmix"} <= set(worker.calls)
+    cpu_dir = tmp_path / "cpu"
+    cpu_dir.mkdir()
+    assert main(["--duration", "3", "--sample-rate", "8000", "--out", str(cpu_dir / "o.wav"), "--log-dir", str(cpu_dir / "logs"),
+                 "--mock-chips", "4", "--patch-seed", "4"]) == 0  # the same patch, or the two runs are not comparable
+    on_chip, _ = sf.read(str(tmp_path / "o.wav"))
+    on_cpu, _ = sf.read(str(cpu_dir / "o.wav"))
+    assert np.allclose(on_chip, on_cpu, atol=5e-3)  # the kernels' arithmetic, loudness-normalised, not another sound
+    ev = read_events(tmp_path / "logs")
+    line = next(e for e in ev if e["event"] == "backend")
+    assert "host" in line["what"] and "gong" in line["why"] and "the rest stay on the CPU" in line["why"]
+
+
+def test_kernels_without_a_mode_means_the_chip_and_asks_for_it(tmp_path):
+    modes = []
+
+    def make(mode, chips):
+        modes.append((mode, chips))
+        return _Worker()
+
+    assert main(args(tmp_path, "--mock-chips", "2", "--kernels"), make_worker=make) == 0
+    assert modes == [("chip", 1)]  # one chip, whatever number of chips the run plays
+
+
+def test_a_worker_that_cannot_start_is_a_logged_failure_and_nothing_is_played(tmp_path):
+    from tensixinet.media.chip import ChipError
+
+    class Busy:
+        closed = False
+
+        def start(self):
+            raise ChipError("the chip worker exited before it was ready (exit 10) (gozer queued the request: the chips are busy)")
+
+        def close(self):
+            Busy.closed = True
+
+    code = main(args(tmp_path, "--mock-chips", "2", "--kernels", "chip"), make_worker=lambda mode, chips: Busy())
+    assert code == 3 and not (tmp_path / "o.wav").exists() and Busy.closed
+    ev = read_events(tmp_path / "logs")
+    assert not [e for e in ev if "releasing" in e["what"]]   # nothing was held, so nothing is released
+    line = next(e for e in ev if e["event"] == "backend")
+    assert "chips are busy" in line["what"] and "nothing was played" in line["why"]
+
+
+def test_kernels_with_live_mode_hands_the_backend_to_the_live_loop(tmp_path):
+    seen = {}
+
+    def fake_live(sample, sink, log, sample_rate, **kw):
+        seen.update(kw)
+        return 1
+
+    import tensixinet.cli as cli_module
+    worker = _Worker()
+    real = cli_module.run_live
+    cli_module.run_live = fake_live
+    try:
+        code = main(args(tmp_path, "--mock-chips", "4", "--live", "--player", "none", "--kernels", "host"), make_worker=lambda mode, chips: worker)
+    finally:
+        cli_module.run_live = real
+    assert code == 0 and seen["backend"].worker is worker and worker.closed
+
+
+def test_the_run_log_carries_the_backends_own_notes(tmp_path):
+    from tensixinet.media.chip import ChipError
+
+    class Dies(_Worker):
+        def run(self, op, inputs, n, device=0):
+            raise ChipError("the chip worker is gone")
+
+    assert main(args(tmp_path, "--mock-chips", "4", "--duration", "2", "--kernels", "host"), make_worker=lambda mode, chips: Dies()) == 0
+    notes = [e for e in read_events(tmp_path / "logs") if e["event"] == "backend" and "stopped" in e["what"]]
+    assert len(notes) == 1 and "CPU" in notes[0]["what"] and "chip worker is gone" in notes[0]["what"]
+
+
+def test_kernels_chips_holds_one_chip_for_every_chip_the_run_plays_and_says_where_each_device_runs(tmp_path):
+    calls = []
+
+    def make(mode, chips):
+        calls.append((mode, chips))
+        return _Worker(devices=chips)
+
+    worker = None
+
+    def keep(mode, chips):
+        nonlocal worker
+        worker = make(mode, chips)
+        return worker
+
+    assert main(args(tmp_path, "--mock-chips", "4", "--duration", "4", "--kernels", "chips"), make_worker=keep) == 0
+    assert calls == [("chips", 4)] and worker.devices == 4
+    assert {device for _, device in worker.where} >= {0, 2, 3}          # the kernels ran on several of the chips
+    ev = [e for e in read_events(tmp_path / "logs") if e["event"] == "backend"]
+    head = ev[0]
+    assert "4 leased chips" in head["what"] and "chips mode" in head["what"]
+    per_chip = [e for e in ev if e["what"].startswith("chip ")]
+    assert len(per_chip) == 4
+    assert "ttavdog" in per_chip[0]["what"] and "ultrasonic_shimmer" in per_chip[2]["what"] and "ttdrone" in per_chip[3]["what"]
+    assert "gong" in per_chip[1]["what"] and "the mixer" in per_chip[0]["what"]
+    assert all("kernels" in e["what"] for e in per_chip)
+
+
+def test_a_chip_run_says_it_is_releasing_the_chips_because_that_takes_about_forty_seconds(tmp_path):
+    assert main(args(tmp_path, "--mock-chips", "2", "--kernels", "chip"), make_worker=lambda mode, chips: _Worker()) == 0
+    ev = read_events(tmp_path / "logs")
+    release = [e for e in ev if e["event"] == "backend" and "releasing" in e["what"]]
+    assert len(release) == 1 and "reset" in release[0]["why"] and "40 s" in release[0]["why"]
+    host = tmp_path / "h"
+    host.mkdir()
+    assert main(["--duration", "0.5", "--sample-rate", "8000", "--out", str(host / "o.wav"), "--log-dir", str(host / "logs"),
+                 "--mock-chips", "2", "--kernels", "host"], make_worker=lambda mode, chips: _Worker()) == 0
+    assert not [e for e in read_events(host / "logs") if "releasing" in e["what"]]   # a host worker holds no chip
+
+
+# --- colour and the banner -------------------------------------------------------------------------------------------
+
+def test_a_piped_run_is_plain_text_even_with_the_art(tmp_path, capsys):
+    assert main(args(tmp_path, "--mock-chips", "2")) == 0
+    out = capsys.readouterr().out
+    assert "\x1b[" not in out and "TENSIXINET" not in out and "Ciat-Lonbarde" in out   # the art is blocks; the name is in the tagline text
+    assert "█" in out or "▀" in out
+    assert "● blue" in out and "● grey" in out                                         # the legend of the jack colours
+
+
+def test_color_always_colours_the_screen_but_not_the_text_log_or_the_jsonl(tmp_path, capsys):
+    assert main(args(tmp_path, "--mock-chips", "2", "--color", "always")) == 0
+    out = capsys.readouterr().out
+    assert "\x1b[38;" in out and "\x1b[0m" in out
+    from tensixinet.narrate.color import strip_ansi
+    (txt,) = (tmp_path / "logs").glob("*.txt")
+    assert "\x1b" not in txt.read_text() and strip_ansi(out) == txt.read_text()         # the same words, with and without colour
+    (jsonl,) = (tmp_path / "logs").glob("*.jsonl")
+    assert "\x1b" not in jsonl.read_text()
+
+
+def test_color_never_and_no_color_keep_a_terminal_plain(tmp_path, capsys, monkeypatch):
+    assert main(args(tmp_path, "--mock-chips", "2", "--color", "never")) == 0
+    assert "\x1b[" not in capsys.readouterr().out
+    monkeypatch.setenv("NO_COLOR", "1")
+    other = tmp_path / "n"
+    other.mkdir()
+    assert main(["--duration", "0.5", "--sample-rate", "8000", "--out", str(other / "o.wav"), "--log-dir", str(other / "logs"),
+                 "--mock-chips", "2"]) == 0
+    assert "\x1b[" not in capsys.readouterr().out
+
+
+def test_no_banner_leaves_the_run_log_to_start_at_the_first_line(tmp_path, capsys):
+    assert main(args(tmp_path, "--mock-chips", "2", "--no-banner")) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("║") and "● blue" not in out and "█" not in out
+    (txt,) = (tmp_path / "logs").glob("*.txt")
+    assert txt.read_text().startswith("║")
+
+
+def test_the_banner_adapts_to_the_pane_it_is_in(tmp_path, capsys, monkeypatch):
+    import os
+    monkeypatch.setattr("shutil.get_terminal_size", lambda *a, **k: os.terminal_size((40, 24)))
+    assert main(args(tmp_path, "--mock-chips", "2")) == 0
+    out = capsys.readouterr().out
+    assert all(len(line) <= 40 for line in out.splitlines() if "o.wav" not in line)   # a file path cannot be wrapped
+    assert "█" not in out and "TENSIXINET" in out
+
+
+# --- --style ----------------------------------------------------------------------------------------------------------------------
+
+def test_a_style_draws_a_patch_in_that_style_saves_it_and_says_so(tmp_path, capsys):
+    from tensixinet.music.patch import load_patch
+    assert main(args(tmp_path, "--mock-chips", "4", "--style", "blues", "--patch-seed", "5")) == 0
+    (saved,) = (tmp_path / "logs").glob("patch_*.json")
+    patch = load_patch(saved)
+    from tensixinet.music.styles import STYLES
+    assert patch.style == "blues" and patch.scale_name in STYLES["blues"].scales and patch.seed == 5
+    ev = read_events(tmp_path / "logs")
+    line = next(e for e in ev if e["event"] == "patch" and e["what"].startswith("style blues"))
+    assert STYLES["blues"].blurb in line["why"] and "ttrax" in line["why"]
+    assert any("blues style" in e["why"] for e in ev if e["what"].startswith("patch seed"))
+
+
+def test_every_style_plays_a_run_through(tmp_path):
+    from tensixinet.music.styles import STYLES
+    for name in STYLES:
+        out = tmp_path / name
+        out.mkdir()
+        assert main(["--duration", "1", "--sample-rate", "8000", "--out", str(out / "o.wav"), "--log-dir", str(out / "logs"),
+                     "--mock-chips", "3", "--style", name, "--no-banner"]) == 0 and (out / "o.wav").exists()
+
+
+def test_a_style_cannot_be_combined_with_a_saved_patch(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        main(args(tmp_path, "--mock-chips", "2", "--style", "enya", "--patch", str(tmp_path / "p.json")))
+    err = capsys.readouterr().err
+    assert "--style" in err and "--patch" in err
+
+
+def test_an_unknown_style_is_refused_by_the_parser(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        main(args(tmp_path, "--mock-chips", "2", "--style", "polka"))
+    assert "chiptune" in capsys.readouterr().err

@@ -107,6 +107,8 @@ class Patch:
     floor: float  # volume of everyone who is not soloing
     rax_bars: int  # ttrax's bar count: 4 (Tetrax), 7 (Sidrax) or 14 (Quatrax)
     steam_routes: Tuple[str, ...] = ()  # which of STEAM_ROUTES are on
+    style: str = ""  # the name of the style (styles.py) this patch was drawn in, or "" for a plain draw
+    emphasis: Tuple[Tuple[str, float], ...] = ()  # (device name, factor): its level in the mix and how often it gets the floor
     mode: int = 0  # `scale` is the named scale started from this one of its notes (0 = as listed)
 
 
@@ -161,15 +163,20 @@ def rotate_mode(scale: Sequence[int], mode: int) -> Tuple[int, ...]:
     return tuple(x - notes[0] for x in notes)
 
 
-def _draw_motif(rng: np.random.Generator) -> Tuple[int, ...]:
-    """A motif of 6 to 12 scale degrees from 0, steps of at most 3 (mostly 1 or 2), inside a drawn range, with at least 3 different notes."""
-    lo = int(rng.integers(MOTIF_LOW_RANGE[0], MOTIF_LOW_RANGE[1] + 1))
-    hi = int(rng.integers(MOTIF_HIGH_RANGE[0], MOTIF_HIGH_RANGE[1] + 1))
-    length = int(rng.choice(MOTIF_LENGTHS))
+MOTIF_STEP_ODDS = (1 / 20, 3 / 20, 5 / 20, 2 / 20, 5 / 20, 3 / 20, 1 / 20)  # for steps of -3 to +3 degrees
+
+
+def _draw_motif(rng: np.random.Generator, lengths: Sequence[int] = MOTIF_LENGTHS, step_odds: Sequence[float] = MOTIF_STEP_ODDS,
+                low: Tuple[int, int] = MOTIF_LOW_RANGE, high: Tuple[int, int] = MOTIF_HIGH_RANGE) -> Tuple[int, ...]:
+    """A motif of scale degrees from 0, steps of at most 3 (by default mostly 1 or 2), inside a drawn range, with at least 3
+    different notes. A style passes its own lengths, odds for each step size and range."""
+    lo = int(rng.integers(low[0], low[1] + 1))
+    hi = int(rng.integers(high[0], high[1] + 1))
+    length = int(rng.choice(list(lengths)))
     while True:
         motif = [0]
         for _ in range(length - 1):
-            step = int(rng.choice([-3, -2, -1, 0, 1, 2, 3], p=[1 / 20, 3 / 20, 5 / 20, 2 / 20, 5 / 20, 3 / 20, 1 / 20]))
+            step = int(rng.choice([-3, -2, -1, 0, 1, 2, 3], p=list(step_odds)))
             if not lo <= motif[-1] + step <= hi:
                 step = -step
             motif.append(motif[-1] + step)
@@ -241,6 +248,8 @@ def _validate(p: Patch) -> Patch:
         raise ValueError("gong_beat_hz cannot be negative")
     if not 0 <= p.mode < len(p.scale):
         raise ValueError(f"mode must be between 0 and {len(p.scale) - 1} for a scale of {len(p.scale)} notes")
+    if any(not (isinstance(v, float) and v > 0 and v == v) for _, v in p.emphasis):  # positive, and not NaN
+        raise ValueError("emphasis needs a positive factor for every device it names")
     unknown = [r for r in p.steam_routes if r not in STEAM_ROUTES]
     if unknown:
         raise ValueError(f"unknown steam route {', '.join(unknown)}; the routes are {', '.join(STEAM_ROUTES)}")
@@ -269,6 +278,9 @@ def patch_from_dict(d: dict) -> Patch:
             mode=int(d.get("mode", 0)),
             # a patch saved before routes existed has none
             steam_routes=tuple(str(x) for x in d.get("steam_routes", ())),
+            # a patch saved before styles existed has none
+            style=str(d.get("style", "")),
+            emphasis=tuple((str(name), float(factor)) for name, factor in d.get("emphasis", ())),
         ))
     except (KeyError, TypeError) as e:
         raise ValueError(f"patch is missing or has a malformed field: {e}") from e

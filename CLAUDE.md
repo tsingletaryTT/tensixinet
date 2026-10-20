@@ -457,4 +457,27 @@ legacy/        first prototype scripts, kept for reference
     spectral peak, which jumps between the chord's voices when the ripple changes; it now compares the centre of the spectrum.
   * Mutation run: 31 mutants, 5 survivors (the heard-index filter and the segment in the shimmer, drone and AVDog). Each got a test.
   * Measured only: a 60 s render takes 4.4 s and a live segment 0.4 s. Not listened to.
+* **2026-10-19/20, "restart the soundtrack but with TT hardware kernels instead" (then "show me ... all 4 chips ... with kernels on all of them", and a
+  gozer lease of an hour or two is trusted):** `--kernels {chip,chips,host}`. A chip worker pool (`kernels/pool.py`, `kernels/worker.py`,
+  `tensixinet/media/chip.py`) and a `KernelBackend` (`tensixinet/kernels/backend.py`) run the six kernels' devices on the chips and hand the sound
+  back to the CPU with one log line if a worker fails. Details and the hardware findings are in `kernels/README.md`.
+  * Found on the hardware, in order: one process with several devices hangs on its first kernel launch; showing a worker one chip of a board makes
+    tt-metal call the cluster CUSTOM; four workers that see all chips wait on each other's locks; two processes on one board take turns. The design
+    that works is one process per board with the board's two chips visible, switching chips inside the process (0.1 s).
+  * `gozer run`'s exit resets the chips for about 40 s. My first `ChipWorker.close()` waited 30 s and killed `gozer run`; the leases were reaped as
+    "owning process is dead" and a worker survived holding the chips. Now it waits 180 s and ends the process group on a timeout, and a worker that
+    never becomes ready is ended at once. A queued request's ticket is cancelled. Running `gozer status` while a release was under way made two
+    releases refuse ("device still open"); I stopped polling during releases.
+  * 4 chips, 12 s, `--patch-seed 4`: kernels against CPU max difference 0.0034, correlation 1.00000. Live on four chips for 85 s kept pace (6.7 s segments).
+* **2026-10-20, "make the CLI output very colorful ... use the colored inputs and outputs as inspiration ... a little bit of ascii art":** `narrate/color.py`.
+  The Plumbutter guide's jack colours (blue modulates the main parameters, green receives a trigger, purple reaches into the innards, white is audio,
+  orange is slow control voltages, red is triggering pulses, yellow is modular-level audio, brown is pulses, grey is dust) colour each kind of log line;
+  each device and each chip keeps one colour; numbers with units are lifted out; a live segment's bar takes its soloist's colour and has a bar as long as the
+  segment. A half-block `TENSIXINET` banner, a patch-cable line and a colour legend open a run. Screen only: the `.txt` log, the JSONL and non-terminals
+  are plain, `NO_COLOR` is respected, `--color always` forces it for a recording, `--no-banner` removes the art. No right-hand borders (the global rule).
+  * `RunLog.close()` had been closing the terminal's stream through a `_Tee` that refused to; it now never closes stdout or stderr.
+* **2026-10-20, "a couple of patches for the 'normies' -- chiptune, enya, blues, aphex":** `music/styles.py` and `--style`. A style narrows the scales, gong
+  tunings, motif length and leaps, turn length, floor, steam routes and ttrax size, and sets an `emphasis` (a factor on each device's level and on how often it
+  gets the floor; `patch.emphasis`, applied in `render_chorus` and `slot_weights`). The system still picks which of the style's scales and tunings from the
+  chips, and the seed draws the rest. A saved patch with no `style` or `emphasis` replays as before. `--only` ignores the balance.
 

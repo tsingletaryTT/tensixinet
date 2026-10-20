@@ -109,6 +109,7 @@ def run(
     eq: bool = True,
     only: Optional[Sequence[str]] = None,
     cables: bool = True,
+    backend=None,
 ) -> np.ndarray:
     if not telemetry:
         log.event("discover", "no chips found, nothing to play",
@@ -119,7 +120,7 @@ def run(
               "all chips are rendered, scaled by power, then mixed by current")
     log_only(log, only)
     log_cables(log, telemetry, patch, cables)
-    audio = render_chorus(telemetry, duration, sample_rate, patch=patch, only=only, cables=None if cables else [])
+    audio = render_chorus(telemetry, duration, sample_rate, patch=patch, only=only, cables=None if cables else [], backend=backend)
     log_eq(log, eq)
     if eq:
         audio = apply_eq(audio, sample_rate)

@@ -461,3 +461,39 @@ def test_cables_are_drawn_from_the_patch_by_default_and_left_out_when_off(tmp_pa
     (tmp_path / "off").mkdir()
     _go(tmp_path / "off", lambda: [FALLBACK], duration=4.0, cables=False)
     assert renders and all(c["cables"] == [] for c in renders)
+
+
+# --- the kernel backend -----------------------------------------------------------------------------------------
+
+class _NullBackend:
+    """Stands in for a KernelBackend: it changes nothing, so the audio is the CPU's."""
+    from tensixinet.music.devices import current_mix as _mix
+    devices = {}
+    mix = staticmethod(_mix)
+    device_for = staticmethod(lambda name, chip=0: None)
+
+
+def test_live_mode_hands_the_backend_to_every_render_and_only_when_there_is_one(tmp_path, monkeypatch):
+    seen = []
+    real = live_module.render_chorus
+
+    def spy(*a, **k):
+        seen.append(k)
+        return real(*a, **k)
+
+    monkeypatch.setattr(live_module, "render_chorus", spy)
+    marker = _NullBackend()
+    _, n = _go(tmp_path, lambda: [FALLBACK], duration=4.0, backend=marker)
+    assert n >= 1 and len(seen) == n and all(k.get("backend") is marker for k in seen)
+    seen.clear()
+    _go(tmp_path, lambda: [FALLBACK], duration=4.0)
+    assert seen and all("backend" not in k for k in seen)
+
+
+def test_live_mode_gives_the_patch_to_the_turn_weights_so_a_styles_balance_picks_who_has_the_floor(tmp_path, monkeypatch):
+    seen = []
+    real = live_module.slot_weights
+    monkeypatch.setattr(live_module, "slot_weights", lambda chips, patch=None: (seen.append(patch), real(chips, patch))[1])
+    patch = dataclasses.replace(ONE_BAR, emphasis=(("ttchoir", 3.0),))
+    _go(tmp_path, lambda: [FALLBACK], duration=4.0, patch=patch)
+    assert seen and all(p is patch for p in seen)

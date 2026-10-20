@@ -77,6 +77,35 @@ numpy reference. Raw results are in `docs/hardware/`.
 | `ttmix` | 2.8e-4 | 6e-8 | 0.2 ms | 1e-3 |
 | `ttcoco` | 8.8e-4 | 1.2e-7 | 0.2 to 0.4 ms | 1e-3 |
 
+## The soundtrack on the chips (`tensixinet --live --kernels chips`)
+
+`--kernels` runs the six kernels' devices (the gong, shimmer, drone ripple, AVDog, the ttcoco mix and the mixer) on chips for the whole
+of a live or offline run, with the rest of the band on the CPU. Each chip's devices run on that chip, so on four chips all four work.
+On the four chips of this box the audio matched the CPU render to 0.0034 at the worst (correlation 1.00000, 12 s, `--patch-seed 4`).
+
+How it is built, and what it cost to find out:
+
+* `tensixinet/media/chip.py` (the client) starts `gozer run --chips N ... kernels/pool.py` and talks to it over a pipe. The package never
+  imports `ttnn`. `kernels/pool.py` starts one `kernels/worker.py` per board; a worker keeps the kernels compiled and runs each request
+  in fixed-size chunks (448 tiles, 10.4 s at 44.1 kHz) so each kernel compiles once. `tensixinet/kernels/backend.py` packs the inputs the
+  way the kernel scripts do, calls the worker, and falls back to the CPU, with one log line, if the worker fails.
+* **A board's two chips cannot be worked at once.** With both devices open in one process the first kernel launch hung (an
+  experiment, under `timeout`). A second process on the same board waited until the first had closed it. Switching from one chip to
+  the other inside a process costs about 0.1 s once the kernels are compiled. So a worker keeps one chip open and switches when a
+  request names the other.
+* **A worker must be shown exactly its board.** Four workers that each saw all four chips waited on each other's locks
+  ("CHIP_IN_USE_0_PCIe"). One worker shown one chip of a two-chip board made tt-metal call the cluster CUSTOM and refuse to start.
+  One worker per board, shown that board's two chips, runs in parallel with the other board.
+* **Closing takes about 40 s.** `gozer run` resets and re-initialises the chips before it releases the lease. A first version gave up
+  after 30 s and killed `gozer run`, which left its worker holding the chips and the lease to be reaped as "owning process is dead".
+  The client now waits up to 180 s, and if it must end a worker it ends the whole process group.
+* **Do not run `gozer status` while a lease is being released.** It probes the devices and can make the release refuse with
+  "device still open", which leaves the lease stale until `gozer reconcile`. A live run's own `tt-smi -s` reads, made by another
+  process, can do the same.
+* A request that gozer queues (exit 10) leaves a ticket behind; the client cancels its own ticket.
+* A live segment renders in about 0.5 s on the chips against 0.4 s on the CPU: the chips are not faster for this work, the transfer
+  costs more than the 0.2 ms of arithmetic. The point is that the sound is made by the kernels.
+
 What the chip taught us that the simulator did not:
 
 * **The compiler refuses an input buffer that feeds both `sin` (a vector-unit op) and an addition (a matrix-unit op).** `ttgong` added

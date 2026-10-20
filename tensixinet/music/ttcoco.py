@@ -88,14 +88,20 @@ def tap_feedback(t: Telemetry) -> float:
     return FEEDBACK_MAX * chip_pressure(t)
 
 
-def ttcoco(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
-    """Eight parallel delay taps, one per GDDR channel, echoing the ttquantussy's own tone."""
+def coco_taps(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> list:
+    """The eight delay taps, one per GDDR channel, each an echo of the ttquantussy's own tone. The device adds them; the
+    kernel's host side hands them to the chip, which adds them and applies `tanh`."""
     tone = quantussy_tone(t, duration, sample_rate, seed, patch)
     feedback = tap_feedback(t)
-    total = np.zeros_like(tone)
+    taps = []
     for ch in range(N_TAPS):
         delay_ms = tap_delay_ms(t.gddr_temps[ch % len(t.gddr_temps)])
-        bits = tap_bits(delay_ms)
         delay_samples = int(round(delay_ms / 1000.0 * sample_rate))
-        total += echo_tap(tone, delay_samples, feedback, bits)
+        taps.append(echo_tap(tone, delay_samples, feedback, tap_bits(delay_ms)))
+    return taps
+
+
+def ttcoco(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """Eight parallel delay taps, one per GDDR channel, echoing the ttquantussy's own tone."""
+    total = sum(coco_taps(t, duration, sample_rate, seed, patch))
     return np.tanh(LEVEL / np.sqrt(N_TAPS) * total).astype(np.float32)

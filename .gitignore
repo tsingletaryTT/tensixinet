@@ -22,6 +22,8 @@ demo/assets/*
 !demo/assets/chorus.sheet.png
 !demo/assets/features.final.mp4
 !demo/assets/features.sheet.png
+!demo/assets/kernels.final.mp4
+!demo/assets/kernels.sheet.png
 !demo/assets/hardware/
 !demo/assets/hardware/kernels_on_chip2.mp4
 !demo/assets/hardware/kernels_on_chip2.sheet.png

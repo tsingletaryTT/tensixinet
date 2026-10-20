@@ -274,12 +274,27 @@ DRONE_SETTLED = 0.6  # the drone's level when no shock wave is passing; each str
 
 def ttdrone(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """A chord drone whose level ripples after every gong strike, as an AVDog rings in sympathy with a Gongue."""
+    since, rate_hz, decay_s = drone_ripple_inputs(t, duration, sample_rate, patch, seed // SEGMENT_SEED_STRIDE)
+    return drone_with_ripple(drone_chord(t, duration, sample_rate), shock_wave(since, rate_hz, decay_s))
+
+
+def drone_chord(t: Telemetry, duration: float, sample_rate: int) -> np.ndarray:
+    """The drone's steady chord, before the ripple."""
     f_low = temp_to_pitch_hz(t.asic_temperature) / 2 * 2 ** (voltage_to_cents(t.voltage) / 1200)
     voices = build_voices(1, voices_per_chip=drone_voices(t.pcie_usage), f_low=f_low)
+    return render(voices, [t], duration, sample_rate)
+
+
+def drone_ripple_inputs(t: Telemetry, duration: float, sample_rate: int, patch: Patch, segment: int):
+    """(seconds since the latest gong strike for each sample, the ripple's rate in Hz, its decay time in s)."""
     beat = 60.0 / aiclk_to_bpm(t.aiclk)
-    since = seconds_since(strike_times(t, duration, patch, seed // SEGMENT_SEED_STRIDE), int(duration * sample_rate), sample_rate)
-    ripple = shock_wave(since, SHOCK_RATE_BEATS / beat, SHOCK_DECAY_BEATS * beat)
-    return (render(voices, [t], duration, sample_rate) * (DRONE_SETTLED + (1 - DRONE_SETTLED) * ripple)).astype(np.float32)
+    since = seconds_since(strike_times(t, duration, patch, segment), int(duration * sample_rate), sample_rate)
+    return since, SHOCK_RATE_BEATS / beat, SHOCK_DECAY_BEATS * beat
+
+
+def drone_with_ripple(chord: np.ndarray, ripple: np.ndarray) -> np.ndarray:
+    """The chord's level follows the ripple, settling to DRONE_SETTLED between strikes."""
+    return (chord * (DRONE_SETTLED + (1 - DRONE_SETTLED) * ripple)).astype(np.float32)
 
 
 # --- Gong: inharmonic, long-ringing strikes ---------------------------------------

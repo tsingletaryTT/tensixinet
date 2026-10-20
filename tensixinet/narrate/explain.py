@@ -468,6 +468,17 @@ def _steam_routes_decision(patch: Patch) -> Decision:
     )
 
 
+def _style_decision(patch: Patch) -> List[Decision]:
+    """A line for a patch drawn in a style: what the style is and the balance it sets for the band."""
+    if not patch.style:
+        return []
+    from ..music.styles import STYLES
+    blurb = STYLES[patch.style].blurb if patch.style in STYLES else "a style this version does not know"
+    balance = ", ".join(f"{name} x{factor:g}" for name, factor in sorted(patch.emphasis, key=lambda p: -p[1]))
+    return [Decision(f"style {patch.style}",
+                     f"{blurb} Its balance, as a factor on each device's level and on how often it gets the floor: {balance or 'none'}")]
+
+
 def explain_patch(patch: Patch, telemetry: Sequence[Telemetry], source: str) -> List[Decision]:
     """Every choice a patch makes, with the reading or the seed that decided it."""
     bars = f"{patch.bars_per_turn} bar{'' if patch.bars_per_turn == 1 else 's'}"
@@ -503,4 +514,4 @@ def explain_patch(patch: Patch, telemetry: Sequence[Telemetry], source: str) -> 
             "drawn from the seed: 1 to 6 bars per turn, and a floor between 20% and 50%",
         ),
         _steam_routes_decision(patch),
-    ]
+    ] + _style_decision(patch)

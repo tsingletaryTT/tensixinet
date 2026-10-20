@@ -5,20 +5,20 @@
 [![tests](https://github.com/tsingletaryTT/tensixinet/actions/workflows/test.yml/badge.svg)](https://github.com/tsingletaryTT/tensixinet/actions/workflows/test.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-[![The demo: the run log on the left, tt-toplike on the right](docs/media/demo-frame.png)](demo/assets/chorus.final.mp4)
+[![The demo: the colour-coded run log on the left, tt-toplike on the right, the soundtrack made by TT-Lang kernels on four chips](docs/media/demo-frame.png)](demo/assets/kernels.final.mp4)
 
-*Click the picture for the 50-second demo with sound (`demo/assets/chorus.final.mp4`). Left: the prompt
-and the run log. Right: [tt-toplike](https://github.com/tenstorrent/tt-toplike) watching the same chips.
-The soundtrack is what the chips played.*
+*Click the picture for the 100-second demo with sound (`demo/assets/kernels.final.mp4`, also on the
+[site](https://tsingletaryTT.github.io/tensixinet/)). Left: the run log, coloured like the Ciat-Lonbarde jacks, while each of four
+chips runs its own gong, shimmer, drone ripple, AVDog and delay mix as TT-Lang kernels (`--kernels chips`). Right:
+[tt-toplike](https://github.com/tenstorrent/tt-toplike) watching the same chips. The soundtrack is what the chips made.*
 
-There's also a 2-minute demo of every feature at once (`demo/assets/features.final.mp4`, also on
-the [site](https://tsingletaryTT.github.io/tensixinet/)): `--live` mode reading all eleven devices
-from four real chips, read-only, next to `tt-toplike --rotate` cycling unattended through every one
-of its views.
+Two earlier demos are in the repo: a 50-second one that starts from a prompt to the language model
+(`demo/assets/chorus.final.mp4`), and a 2-minute one of every feature at once on the CPU
+(`demo/assets/features.final.mp4`).
 
 Every chip reports its temperature, clock, power, current, memory temperatures, DDR status, harvesting and
 more. tensixinet turns those readings into music. Each chip joins a small band of synthesizers inspired by
-[Ciat-Lonbarde](https://www.ciat-lonbarde.net/) instruments (see [Credits](#credits)), and the band trades solos. A cool chip and a hot chip
+[Ciat-Lonbarde](https://pblasser.github.io/) instruments (see [Credits](#credits)), and the band trades solos. A cool chip and a hot chip
 sound different, a busy chip gets more solos, and uneven memory temperatures make the melody wander.
 
 You can prompt a local language model first. Its work heats the chips, so you can hear the model
@@ -203,6 +203,10 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--live` | Read the chips every turn and play as it goes (see [Live mode](#live-mode)) |
 | `--player NAME` | With `--live`: `auto` (the default), `none`, `paplay`, `aplay` or `ffplay` |
 | `--only DEVICES` | Audition: play only these devices (comma separated, for example `--only ttchoir,ttavdog`). The others are silent and there is no turn-taking, so you hear each device as it is |
+| `--kernels [MODE]` | Run the devices that have TT-Lang kernels (the gong, shimmer, drone ripple, AVDog, ttcoco mix and the mixer) on chips. `chip` (the default when no mode is given) takes a gozer lease on one board, `chips` on as many chips as the run plays with each chip's devices on that chip, `host` runs the same kernels' formulas in numpy with no chip. The rest of the band stays on the CPU. See [kernels/README.md](kernels/README.md) |
+| `--style NAME` | Draw the patch in a style: `chiptune`, `enya`, `blues` or `aphex`. A style narrows the scales, gong tunings, motif and turn length and sets the band's balance. The system and the seed still decide the rest, so no two runs match |
+| `--color MODE` | `auto` (the default) colours a terminal with the Ciat-Lonbarde jack colours unless `NO_COLOR` is set, `always` colours a recording that is not a terminal, `never` turns it off. The text log and the JSONL are never coloured |
+| `--no-banner` | Start with the first log line instead of the opening art and the colour legend |
 | `--no-cables` | Leave out the patch cables. By default five to eight cables, drawn from the patch seed, let one device's sound bend (`fm`), crunch, swell or fold another's, driven harder by chips under pressure |
 | `--no-eq` | Leave the final mix unshaped. By default an EQ lifts the lows (70 to 250 Hz, up to +4 dB), cuts rumble below 35 Hz and takes the shimmer down (-14 dB at 14 kHz, -33 dB at 20 kHz) |
 | `--no-normalise` | Keep the level the chips' power gives. By default one gain brings the render (or, live, each turn) toward -18 dBFS RMS |
@@ -265,8 +269,8 @@ The instrument works and is still growing.
 
 ## Credits
 
-tensixinet is inspired by the instruments of [Ciat-Lonbarde](https://www.ciat-lonbarde.net/), Peter Blasser's
-workshop, and owes them its ideas. It is not a recreation of them and does not simulate their circuits. The devices carry
+tensixinet is inspired by the instruments of [Ciat-Lonbarde](https://pblasser.github.io/), Peter Blasser's
+workshop (the instruments are sold by [Patch Point](https://patch-point.com/), and Blasser's own page links the old manuals), and owes them its ideas. It is not a recreation of them and does not simulate their circuits. The devices carry
 a `tt` prefix to say so: ttrollz and ttrolzer follow the Plumbutter and Rolzer, ttrax the Sidrax, ttquantus and
 ttquantussy the Cocoquantus and its Quantussy, ttsteam the Man With The Red Steam, and tthorn (not built yet) would follow the
 Deerhorn. The behaviour comes from three guides by Josh Singer (the Sidrax Guide, the Cocoquantus Tasting Guide and the

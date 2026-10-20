@@ -276,3 +276,25 @@ def test_without_only_the_log_has_no_only_line(tmp_path):
     run(mock_telemetry(2), duration=0.5, out_path=tmp_path / "o.wav", log=log, sample_rate=8000)
     log.close()
     assert '"event": "only"' not in (tmp_path / "run.jsonl").read_text()
+
+
+def test_a_backend_is_handed_to_the_render_and_the_run_is_the_cpus_when_it_changes_nothing(tmp_path, monkeypatch):
+    import numpy as np
+    from tensixinet import run as run_module
+    from tensixinet.music.devices import current_mix
+
+    class Null:
+        devices = {}
+        mix = staticmethod(current_mix)
+        device_for = staticmethod(lambda name, chip=0: None)
+
+    seen = []
+    real = run_module.render_chorus
+    monkeypatch.setattr(run_module, "render_chorus", lambda *a, **k: (seen.append(k.get("backend")), real(*a, **k))[1])
+    chips = mock_telemetry(2)
+    log = _log(tmp_path)
+    marker = Null()
+    with_backend = run(chips, 1.0, tmp_path / "a.wav", log, 8000, backend=marker)
+    without = run(chips, 1.0, tmp_path / "b.wav", log, 8000)
+    log.close()
+    assert seen == [marker, None] and np.array_equal(with_backend, without)

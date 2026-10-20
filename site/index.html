@@ -120,7 +120,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 
 <nav><div class="wrap">
   <b>tensixinet</b>
-  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#rhythm">Rhythm</a><a href="#band">The band</a>
+  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#colour">Colour</a><a href="#rhythm">Rhythm</a><a href="#styles">Styles</a><a href="#band">The band</a>
   <a href="#listen">Listen</a><a href="#new">Is it new?</a><a href="#kernels">On the chip</a><a href="#hardware">Get hardware</a><a href="#credits">Credits</a>
 </div></nav>
 
@@ -133,10 +133,10 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <a class="btn alt" href="#routing">See the signal paths</a>
     <a class="btn alt" href="https://github.com/tsingletaryTT/tensixinet">Source on GitHub</a>
   </p>
-  <video controls preload="metadata" poster="assets/features-frame.png" src="assets/features.mp4" width="1920" height="1080" style="max-width:100%;height:auto;border-radius:8px">
-    Your browser does not play this video. <a href="assets/features.mp4">Download the mp4</a> instead.
+  <video controls preload="metadata" poster="assets/kernels-frame.png" src="assets/kernels.mp4" width="1920" height="1080" style="max-width:100%;height:auto;border-radius:8px">
+    Your browser does not play this video. <a href="assets/kernels.mp4">Download the mp4</a> instead.
   </video>
-  <p class="caption">All eleven devices at once, read live from four real chips, with tt-toplike cycling through every view on the right (<code>--rotate</code>).</p>
+  <p class="caption">The soundtrack made on four real chips: each chip runs its own gong, shimmer, drone ripple, AVDog and delay mix as TT-Lang kernels (<code>--kernels chips</code>), and the log is colour-coded like the Ciat-Lonbarde jacks. tt-toplike cycles through every view of the same four chips on the right (<code>--rotate</code>).</p>
 </div></header>
 
 <section id="idea"><div class="wrap">
@@ -233,6 +233,27 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   <p class="src" style="margin-top:10px">A silent source, or a depth of zero, leaves the target exactly as it was. Cables act on finished voices. Reaching into a device's own parameters (a clock, a chaos knob, the choir's vowel) is the next step.</p>
 </div></section>
 
+<section id="colour"><div class="wrap">
+  <div class="kicker">The colours</div>
+  <h2>The run log is colour-coded like the jacks</h2>
+  <p>The Plumbutter guide colours its banana jacks by the kind of signal they carry. The run log borrows the colours: each kind of line takes the colour of the jack that fits it, every device keeps one colour, and every chip keeps another, so a line can be read by its colours. A live segment takes the colour of the device that has the floor and draws a bar as long as the segment.</p>
+  <table>
+    <thead><tr><th>jack</th><th>in the guide</th><th>in the run log</th></tr></thead>
+    <tbody>
+      <tr><td><span class="k" style="background:#4EA8F0"></span><code>blue</code></td><td>Blue modulates the main controlling parameters</td><td>readings</td></tr>
+      <tr><td><span class="k" style="background:#5FD38D"></span><code>green</code></td><td>Green receives a trigger signal to activate the circuit</td><td>who plays</td></tr>
+      <tr><td><span class="k" style="background:#B98CFF"></span><code>purple</code></td><td>Purple modulates the innards of the circuit</td><td>patch + cables</td></tr>
+      <tr><td><span class="k" style="background:#E9F1F0"></span><code>white</code></td><td>White is line level audio</td><td>audio</td></tr>
+      <tr><td><span class="k" style="background:#FF9A3D"></span><code>orange</code></td><td>Orange is slower rate control voltages</td><td>discovery</td></tr>
+      <tr><td><span class="k" style="background:#FF6B6B"></span><code>red</code></td><td>Red is triggering pulses, CV or audio</td><td>events</td></tr>
+      <tr><td><span class="k" style="background:#F6D04A"></span><code>yellow</code></td><td>Yellow is modular level audio</td><td>output</td></tr>
+      <tr><td><span class="k" style="background:#C58B5A"></span><code>brown</code></td><td>Brown is pulses</td><td>the LLM</td></tr>
+      <tr><td><span class="k" style="background:#8C9A9B"></span><code>grey</code></td><td>Grey is dust</td><td>dust</td></tr>
+    </tbody>
+  </table>
+  <p class="src" style="margin-top:10px">Colour goes to the screen only. The text log and the JSONL stay plain, <code>NO_COLOR</code> is respected, <code>--color always</code> colours a recording that is not a terminal, and <code>--no-banner</code> drops the opening art.</p>
+</div></section>
+
 <section id="rhythm"><div class="wrap">
   <div class="kicker">The rhythm section</div>
   <h2>Rolls that pull each other, and a snare that sets off the band</h2>
@@ -260,6 +281,19 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   <p class="src" style="margin-top:10px">Measured, not yet judged by ear. The chip's own clock is still a plain long-short pulse train and not one of the rolls. A gong that is not patched to a roll follows it. The guide's positive-voltage case, which slows a roll, is not modelled.</p>
 </div></section>
 
+<section id="styles"><div class="wrap">
+  <div class="kicker">Styles</div>
+  <h2>Four ways in, for listeners who want a genre first</h2>
+  <p>A style is a named patch. It narrows what a run may draw (the scales, the gong tunings, how long and how leaping the lead's motif is, how long a turn lasts, which steam routes are on) and sets a balance for the band, a factor on each device's level and on how often it gets the floor. The system still picks which of the style's scales and tunings from the chips' readings, and the seed draws the rest, so no two runs of a style match. These are sketches of a sound, not imitations: the devices are the devices.</p>
+  <div class="grid">
+    <div class="card"><h3><code>--style chiptune</code></h3><p>Square-ish and quick: short turns, bright bells, a small four-barre ttrax, and the 8-bit ttquantus and the lead out in front with the rolls and the snare keeping it snappy.</p><span class="tag">scales: major pentatonic, mixolydian, minor pentatonic, dorian</span></div>
+    <div class="card"><h3><code>--style enya</code></h3><p>Slow, modal and spacious: long turns, singing bowls and glass, the choir and the drone in front, the delay taps filling the room, and hardly any snare.</p><span class="tag">scales: dorian, lydian, major pentatonic, mixolydian</span></div>
+    <div class="card"><h3><code>--style blues</code></h3><p>A twelve-note phrase over the blues scales, four bars to a turn so three turns make twelve bars, the ttrax organ and the lead up front, and the snare on the back beat.</p><span class="tag">scales: blues, mixolydian, minor pentatonic, dorian</span></div>
+    <div class="card"><h3><code>--style aphex</code></h3><p>Restless and odd-metered: eight-note scales, motifs of seven, nine or ten notes with big leaps, short turns, fast metallic gongs, every steam route on, and the rolls, the snare, the AVDog and the delay taps doing the talking.</p><span class="tag">scales: octatonic, augmented, whole tone, hungarian minor, double harmonic, prometheus</span></div>
+  </div>
+  <p class="src" style="margin-top:10px">Try <code>tensixinet --live --style enya</code>. A saved patch keeps its style and its balance, and replays with <code>--patch</code>.</p>
+</div></section>
+
 <section id="band"><div class="wrap">
   <div class="kicker">The band</div>
   <h2>Eleven devices, each inspired by a different instrument</h2>
@@ -278,6 +312,11 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3>ttavdog</h3><p>A shock wave that undulates, with a second voice answering on the other half with the opposite slope.</p><audio controls preload="none" src="assets/audio/avdog.mp3"></audio></div>
     <div class="card"><h3>gong</h3><p>Inharmonic partials that beat against detuned copies, struck on the chip's own clock.</p><audio controls preload="none" src="assets/audio/gong.mp3"></audio></div>
     <div class="card"><h3>ttrax</h3><p>4, 7 or 14 barres (Tetrax, Sidrax or Quatrax), each an oscillator bouncing between walls the readings set.</p><audio controls preload="none" src="assets/audio/trax.mp3"></audio></div>
+  </div>
+  <div class="diagram" style="margin-top:24px">
+    <h3 style="margin-bottom:12px">The earlier recording</h3>
+    <video controls preload="none" poster="assets/features-frame.png" src="assets/features.mp4" style="width:100%;border-radius:8px"></video>
+    <p class="caption">All eleven devices at once on the CPU, read live from four real chips, with tt-toplike cycling through every view on the right.</p>
   </div>
   <div class="note">The author of the code cannot hear. Every level, spectrum and timing here was measured, and the sound was judged by an owner of the real instruments, who found it in the right spirit. The EQ curve and the loudness target are starting points.</div>
 </div></section>
@@ -323,6 +362,8 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   </table>
   <p>The larger differences are the chip's multiplies, not its <code>sin</code> or <code>exp</code>: both stay inside 1e-7 on every kernel. <code>tanh</code> and a chain of multiplies carry about ten bits less precision than the simulator's, which models them exactly. That is far below hearing.</p>
   <p>The chip taught us two things the simulator did not. Its compiler refuses one input buffer that feeds both <code>sin</code> (the vector unit) and an addition (the matrix unit), so <code>ttgong</code> now gives each partial's detuned copy its own phase instead of computing it with an add. And a kernel has four working registers, so <code>ttavdog</code>'s one long expression, <code>ttgong</code>'s sum of five partials and <code>ttcoco</code>'s sum of eight taps are all built in stages, each passed to the next through its own buffer. Below: what chip 2 of board 1 computed for every kernel, its waveform against the numpy reference above it, and its own spectrogram, with the chip's own audio as the soundtrack.</p>
+  <p>The whole soundtrack can run this way. <code>--kernels chips</code> takes one gozer lease on every chip the run plays (both boards here) and runs each chip's gong, shimmer, drone ripple, AVDog and delay mix, and the final mixer, on that chip's own kernels. The rest of the band stays on the CPU. On the four chips the audio matched the CPU render to 0.0034 at the worst (correlation 1.00000, twelve seconds). The chips are not faster for this work: a live segment renders in about 0.5 s on them against 0.4 s on the CPU, because moving the samples costs more than the 0.2 ms of arithmetic. The point is that the sound is made by the kernels.</p>
+  <p>Getting there taught us how a board behaves. The two chips of a board cannot be worked at once: with both open in one process the first kernel launch hung, and a second process waited until the first had closed the board. So each board gets one worker process that keeps one chip open and switches to the other in about 0.1 s, and the two boards run in parallel. Closing takes about 40 s, because <code>gozer</code> resets the chips before it releases the lease.</p>
   <div class="diagram">
     <video controls preload="none" poster="assets/hardware/kernels_on_chip2.sheet.png" style="width:100%;border-radius:8px" src="assets/hardware/kernels_on_chip2.mp4"></video>
   </div>
@@ -351,7 +392,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 <section id="credits"><div class="wrap">
   <div class="kicker">Credits and the code</div>
   <h2>With thanks</h2>
-  <p>Every device here is inspired by instruments from <a href="https://www.ciat-lonbarde.net/">Ciat-Lonbarde</a> and its founder Peter Blasser, and by the guides Josh Singer wrote for the Sidrax, the Cocoquantus, and the Plumbutter and Rolz. The originals are the Rolz, Sidrax, Cocoquantus, Plumbutter, Gongue, Ultrasound, the Man with the Red Steam and the AVDog. Buy the real ones from Ciat-Lonbarde or <a href="https://patch-point.com">Patch Point</a>. tensixinet is an unaffiliated project and does not claim to recreate any of them.</p>
+  <p>Every device here is inspired by instruments from <a href="https://pblasser.github.io/">Ciat-Lonbarde</a> and its founder Peter Blasser, and by the guides Josh Singer wrote for the Sidrax, the Cocoquantus, and the Plumbutter and Rolz. The originals are the Rolz, Sidrax, Cocoquantus, Plumbutter, Gongue, Ultrasound, the Man with the Red Steam and the AVDog. Buy the real ones from <a href="https://patch-point.com">Patch Point</a>, the official home of Ciat-Lonbarde. tensixinet is an unaffiliated project and does not claim to recreate any of them.</p>
   <pre>git clone https://github.com/tsingletaryTT/tensixinet &amp;&amp; cd tensixinet
 pip install .
 tensixinet --mock-chips 4 --duration 20          # four synthetic chips, no hardware

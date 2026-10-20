@@ -69,6 +69,7 @@ def run_live(
     eq: bool = True,
     only: Optional[Sequence[str]] = None,
     cables: bool = True,
+    backend=None,
 ) -> int:
     """Play the chips live for `duration` seconds (until Ctrl-C when `None`). Returns the number of segments.
 
@@ -140,9 +141,11 @@ def run_live(
                 log_cables(log, chips, patch, cables)
             else:
                 _log_changes(log, chips, segment, patch)
-            weights = slot_weights(chips)
+            weights = slot_weights(chips, patch)
             soloist = pick_soloist(weights, segment, soloist)
-            audio = render_chorus(chips, seconds + XFADE_S, sample_rate, patch, segment, [soloist], only=only, cables=None if cables else [])
+            extra = {} if backend is None else {"backend": backend}  # the kernel backend, when there is one (see kernels/backend.py)
+            audio = render_chorus(chips, seconds + XFADE_S, sample_rate, patch, segment, [soloist], only=only,
+                                  cables=None if cables else [], **extra)
             ready = _finish(stitcher.push(audio), equaliser)
             level = None
             if gain is not None:

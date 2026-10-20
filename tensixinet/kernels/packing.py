@@ -14,7 +14,7 @@ This module is plain numpy. The kernels themselves live in `kernels/` at the top
 from __future__ import annotations
 
 import math
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -199,7 +199,8 @@ def gong_combine(runs: Sequence[np.ndarray]) -> np.ndarray:
 
 
 def avdog_inputs(
-    since: np.ndarray, rate_hz: float, decay_s: float, pitch_hz: float, shape: float, n: int, sample_rate: int
+    since: np.ndarray, rate_hz: float, decay_s: float, pitch_hz: float, shape: float, n: int, sample_rate: int,
+    phase: Optional[np.ndarray] = None,
 ) -> List[np.ndarray]:
     """What the chip needs for the AVDog voices, ten packed tiles: the dogtone's phase in cycles `x` and `1 - x`, the two
     slopes `ip = 1 / peak` and `iq = 1 / (1 - peak)` that skew the triangle, the undulation's phase and decay exponent, and
@@ -210,7 +211,8 @@ def avdog_inputs(
     since = np.asarray(since, dtype=np.float64)
     live = np.isfinite(since)
     tau = np.where(live, since, 0.0)
-    x = np.mod(pitch_hz * np.arange(n) / sample_rate, 1.0)
+    # `phase` (in cycles) replaces the steady pitch when the dogtone's pitch moves, as it does with the `pitch` steam route
+    x = np.mod(pitch_hz * np.arange(n) / sample_rate if phase is None else np.asarray(phase, dtype=np.float64)[:n], 1.0)
     peak = (1 + float(np.clip(shape, -SHAPE_LIMIT, SHAPE_LIMIT))) / 2
     const = lambda value: pack(np.full(n, value))
     return [

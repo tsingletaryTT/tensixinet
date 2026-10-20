@@ -130,3 +130,48 @@ def test_the_rhythm_section_states_the_roll_model_with_the_codes_ranges():
     from tensixinet.music.ttrolzer import BARRE_GEOMETRY, GONG_ROLL_ODDS
     assert "a 40-roll chip gets 6 to 12" in section and f"the real Rolzer has {len(BARRE_GEOMETRY) * 7}" in section
     assert GONG_ROLL_ODDS == 0.75 and "three chips in four" in section.lower()  # the gong is patched to a roll this often
+
+
+def test_no_page_links_to_the_lapsed_ciat_lonbarde_domain():
+    """ciat-lonbarde.net expired and now serves an unrelated football-streaming site. Peter Blasser's own page and Patch Point,
+    which calls itself the official home of Ciat-Lonbarde, are where the links go."""
+    readme = (SITE.parent / "README.md").read_text()
+    for name, text in (("site/index.html", HTML), ("README.md", readme)):
+        assert "ciat-lonbarde.net" not in text, name
+    assert 'href="https://pblasser.github.io/"' in HTML and "(https://pblasser.github.io/)" in readme
+    assert 'href="https://patch-point.com"' in HTML
+
+
+# --- the kernels recording, the colour, and the styles -------------------------------------------------------------------------
+
+def test_the_hero_is_the_kernels_recording_and_the_older_every_feature_video_is_still_on_the_page():
+    hero = HTML[HTML.index('<header class="hero">'): HTML.index("</header>")]
+    assert 'src="assets/kernels.mp4"' in hero and 'poster="assets/kernels-frame.png"' in hero
+    for name in ("kernels.mp4", "kernels-frame.png", "features.mp4"):
+        assert (SITE / "assets" / name).is_file(), name
+    assert 'src="assets/features.mp4"' in HTML and "assets/features.mp4" not in hero
+    caption = re.search(r'<p class="caption">(.*?)</p>', hero, re.S).group(1)
+    assert "four chips" in caption and "kernels" in caption and "colour" in caption
+
+
+def test_the_page_explains_the_jack_colours_with_the_guides_own_meanings():
+    from tensixinet.narrate.color import JACK_MEANING, LOG_MEANING
+    section = HTML[HTML.index('id="colour"'): HTML.index('id="rhythm"')]
+    for name in ("blue", "green", "purple", "white", "orange", "red", "yellow", "brown", "grey"):
+        assert f"<code>{name}</code>" in section and LOG_MEANING[name] in section, name
+    assert JACK_MEANING["purple"] in section or "innards" in section
+
+
+def test_the_styles_section_carries_every_styles_name_and_description_from_the_code():
+    from html import escape
+    from tensixinet.music.styles import STYLES
+    section = HTML[HTML.index('id="styles"'): HTML.index('id="band"')]
+    assert 'href="#styles"' in HTML
+    for name, style in STYLES.items():
+        assert f"<code>--style {name}</code>" in section, name
+        assert escape(style.blurb, quote=False) in section or style.blurb in section, name
+
+
+def test_the_kernels_section_says_the_whole_soundtrack_can_run_on_all_four_chips():
+    section = HTML[HTML.index('id="kernels"'): HTML.index('id="hardware"')]
+    assert "<code>--kernels chips</code>" in section and "one gozer lease" in section and "0.0034" in section

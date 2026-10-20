@@ -21,3 +21,12 @@ scenes:
     split_ratio: 45
     duration: 120s
     caption: "tensixinet --live reads the real chips every turn: all eleven devices (ttrollz through ttcoco), the patch's cross-modulation cables, turn-taking, EQ and loudness, read-only. tt-toplike --rotate cycles unattended through every view of the same four chips: the table, the starfield, memory castle, memory flow, arcade, HivemindSweeper and the training monitor."
+
+  - id: kernels
+    title: "The soundtrack on the chips: TT-Lang kernels on all four chips, and the colour-coded run log beside tt-toplike"
+    layout: split
+    left:  { run: "demo/left_pane_kernels.sh", wait_for: "played .*s in" }
+    right: { run: "tt-toplike {backend} --rotate" }
+    split_ratio: 45
+    duration: 110s
+    caption: "tensixinet --live --kernels chips: one gozer lease on both boards, and each chip runs its own gong, shimmer, drone ripple, AVDog and ttcoco mix, plus the final mixer, as TT-Lang kernels. The rest of the band stays on the CPU. The run log is coloured by the Ciat-Lonbarde jack colours (blue readings, green who plays, purple patch and cables, white audio, orange discovery, red events) and each chip and device keeps its own colour. tt-toplike --rotate cycles through every view of the same four chips."

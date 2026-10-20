@@ -56,23 +56,34 @@ def avdog_parameters(t: Telemetry) -> Tuple[float, float, float, float]:
     return temp_to_pitch_hz(t.asic_temperature), chip_pressure(t), SHOCK_RATE_BEATS / beat, SHOCK_DECAY_BEATS * beat
 
 
+def avdog_pings(t: Telemetry, duration: float, patch: Patch = DEFAULT_PATCH, segment: int = 0) -> np.ndarray:
+    """When the AVDog's filter is pinged: every gong strike, and with the patch's `avdog` route every hit of the chip's
+    ttsteam register as well."""
+    pings = strike_times(t, duration, patch, segment)
+    if "avdog" in patch.steam_routes:
+        pings = np.sort(np.concatenate([pings, step_times(t, duration)]))
+    return pings
+
+
+def avdog_phase(t: Telemetry, n: int, sample_rate: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """The dogtone's phase in cycles for each of `n` samples (not reduced to one turn). It runs at the chip's pitch, or with
+    the patch's `pitch` route at that pitch moved by the note the ttsteam register holds."""
+    pitch = avdog_parameters(t)[0]
+    if "pitch" in patch.steam_routes:
+        freq = pitch * 2.0 ** (held_semitones(t, n, sample_rate, patch) / 12.0)
+        return (np.cumsum(freq) - freq) / sample_rate  # a sample's phase is the sum of the frequencies before it
+    return pitch * np.arange(n) / sample_rate
+
+
 def avdog_voices(t: Telemetry, duration: float, sample_rate: int, patch: Patch = DEFAULT_PATCH, segment: int = 0) -> Tuple[np.ndarray, np.ndarray]:
     """(the white voice, the red voice). Each is the dogtone under the envelope of one half of the undulation, so they
     never sound together. The red voice has the inverse wave shape.
 
-    Two of the patch's steam routes reach in here. `avdog`: every hit of the chip's ttsteam register pings the filter, as
-    well as every gong strike. `pitch`: the dogtone runs at the chip's pitch moved by the note the register holds."""
+    Two of the patch's steam routes reach in here (see `avdog_pings` and `avdog_phase`)."""
     n = int(duration * sample_rate)
-    pitch, shape, rate_hz, decay_s = avdog_parameters(t)
-    pings = strike_times(t, duration, patch, segment)
-    if "avdog" in patch.steam_routes:
-        pings = np.sort(np.concatenate([pings, step_times(t, duration)]))
-    u = undulation(seconds_since(pings, n, sample_rate), rate_hz, decay_s)
-    if "pitch" in patch.steam_routes:
-        freq = pitch * 2.0 ** (held_semitones(t, n, sample_rate, patch) / 12.0)
-        phase = (np.cumsum(freq) - freq) / sample_rate  # a sample's phase is the sum of the frequencies before it
-    else:
-        phase = pitch * np.arange(n) / sample_rate
+    _, shape, rate_hz, decay_s = avdog_parameters(t)
+    u = undulation(seconds_since(avdog_pings(t, duration, patch, segment), n, sample_rate), rate_hz, decay_s)
+    phase = avdog_phase(t, n, sample_rate, patch)
     white = skewed_triangle(phase, shape) * np.maximum(u, 0.0)
     red = skewed_triangle(phase, -shape) * np.maximum(-u, 0.0)
     return white, red
