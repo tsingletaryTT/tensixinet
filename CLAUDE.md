@@ -573,3 +573,20 @@ legacy/        first prototype scripts, kept for reference
   * Mutation run: 15 mutants, all caught. The run itself found a flaw in the tests: one mutant (`pick_python` always None) made a test run the real `setup_env`, which built an 88 MB `.venv` in the repo with a
     network install. The tests now pass a `run` that raises, and use a root that does not exist for `--doctor`. `.venv/` is gitignored.
   * Run for real: on this box (real chips, 8 s, no sound), on the same box with `tt-smi` off the PATH (synthetic fallback), and from a copy of the repo with a system Python that lacks soundfile (it built `.venv`, then played, 10 s in all). Not tried: macOS or Windows (the venv path is `bin/python`).
+* **2026-10-20, "it seems like all our patches involve that snare. the shift register can be used on anything and everything. let's use the snare seldom and rely more on gongues for beats":**
+  `Patch.snare` (0 to 1) is the share of ttsteam's hits that play, and scales its dust. A drawn patch has 0 (40%), 0.2 (30%), 0.5 (20%) or 1 (10%), from its own random stream; the default patch and
+  old saved patches are 1, so they replay as before. The register keeps stepping at any level, so the routes still work with a silent snare. Routes: none 10%, one 35%, two 35%, three 20%, and `strikes`
+  (the gong follows the register) is drawn 1.5 times as often as the others, where it was half as often. Styles set the snare (chiptune 0.5, enya 0.1, blues 0.5, aphex 0.6) and raise the gong's balance
+  (chiptune 1.0, blues 1.0, aphex 1.3; a test says the gong is never below the snare in any style).
+  * The cause, from the code: ttsteam is one of eleven devices dealt to the chips at full level whatever the patch, and its dust ran all the time, so every patch had a snare. The earlier fix only cut the routes.
+  * Mutation run: 16 mutants; one survivor was real (the snare draw sharing the routes' random stream, so the two would correlate) and has a test; `snare <= 0` against `< 0` is equivalent.
+  * Not changed: how often the gong strikes (its trigger clock and rolls). If the beat is still thin by ear, that is the next dial.
+* **2026-10-20, "cocoquantus' is also not just a generator of looping sounds... it takes sound inputs and puts them in a delay influenced by the petals ... maybe even adding some reverb":** `music/cocobus.py`. Each chip's voices
+  (after the turn gain, balance and an eviction's fade) are summed at per-device send levels, scaled by `Patch.coco_send`, and run through four 8-bit taps (every second GDDR channel; delay from temperature, bits from delay, feedback
+  from pressure, 0.25 to 0.8). A petal's castle, glided over 10 ms, sways each tap's delay by up to 35%. The echoes plus the dry send go through a convolution reverb (`reverb_s`, `coco_reverb`; noise decaying 60 dB over the time, rolled off at 4 kHz, a room per ear).
+  Three new patch fields from their own random stream; the default patch and old saved patches send nothing; styles carry `bus`. `--only` skips it. The log has a "coco bus" line, and a "snare" line that was missing.
+  * Measured only: a 20 s stereo render on four mock chips went from 2.6 s to 4.1 s, the bus adds about 37% of the dry level (rms), a 3 s live segment takes 0.5 s. Not listened to. The reverb is an addition: the real unit has none. The bus is CPU only (no kernel).
+  * Mutation run (31 mutants): 14 survivors the first time, all constants and wiring (the number of taps, sway depth and glide, feedback floor, tap level, reverb cutoff and decay, the reverb's input and share, which channels the taps read,
+    each ear's room, the tap bits, the seeds); each got a test, mostly through a spy on `swayed_tap` that checks what the bus hands each tap. One more survivor is equivalent (the early stop in `swayed_tap` that `np.interp` already makes harmless).
+  * A test caught a real bug on the first run: the send was taken before an eviction's fade, so an idle chip still echoed.
+  * Also fixed: the patch log still said each steam route was on 60% of the time.

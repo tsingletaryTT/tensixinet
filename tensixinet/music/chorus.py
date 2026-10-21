@@ -22,6 +22,7 @@ from .lead import lead
 from .ttavdog import ttavdog
 from .ttchoir import ttchoir
 from .ttcoco import ttcoco
+from .cocobus import coco_bus, send_level
 from .ttsteam import ttsteam
 from .mapping import aiclk_to_bpm, chip_chaos, chip_pressure, power_to_volume, turn_weight
 from .patch import DEFAULT_PATCH, Patch
@@ -130,6 +131,9 @@ def render_chorus(
     `stereo` places every voice in the field (`space.py`, `spatial.py`, `stereo.py`) and returns shape (n, 2) instead of (n,). The cables
     and the turn gains act on the mono voices exactly as before; placing comes after, so the same sound is spread out and not changed.
 
+    The coco bus (`cocobus.py`): when the patch has a `coco_send`, each chip's voices, as heard, are also sent through the Cocoquantus's delay (the
+    petals sway its echoes) and a room, and the result is added to that chip's mix. A patch with no send is rendered as it was before the bus existed.
+
     `defrag` is one `ChipDefrag` per chip (`evict.py`): a chip that is evicting dissolves its voices right to left, one that is idle is silent,
     one that is filling brings them back left to right, and a sweep travels with the change. Left as None, or with every chip running, nothing
     changes. Auditioning with `only` ignores it."""
@@ -152,6 +156,8 @@ def render_chorus(
     if only is not None:
         gains = np.ones_like(gains)
     per_chip = [np.zeros((n_samples, 2) if stereo else n_samples) for _ in range(n)]
+    bus_on = patch.coco_send > 0 and only is None  # auditioning plays a device as it is
+    sends = [np.zeros(n_samples) for _ in range(n)] if bus_on else None  # what each chip's voices put into its Cocoquantus
     slots = range(n_slots(n))
     def device_for(slot: int) -> Callable:
         """The device this slot plays: the chip's own kernels' version when a backend has one, else the numpy device."""
@@ -178,6 +184,8 @@ def render_chorus(
                 rank, count, prime = voice_order(s, n)
                 dissolve = drain_progress(defrag[chip].phase, defrag[chip].elapsed, n_samples, sample_rate, rank, count, prime)
                 balance = balance * (1.0 - dissolve) ** 2  # an evicting voice fades as it goes, an idle one is gone
+            if bus_on:  # the send is what is heard (the turn gain, the balance and an eviction's fade), before the voice is placed
+                sends[chip] += send_level(assign_device(s).__name__) * balance * gains[s] * voices[s]
             if stereo:
                 back = turn_depth(gains[s], patch.floor) if only is None else np.zeros(n_samples)  # the voice with the floor comes forward
                 placed = place_voice(assign_device(s).__name__, chip, n, telemetry[chip], voices[s], duration, sample_rate, seed_base + s,
@@ -185,6 +193,9 @@ def render_chorus(
                 per_chip[chip] += (balance * gains[s])[:, None] * placed
             else:
                 per_chip[chip] += balance * gains[s] * voices[s]
+    if bus_on:
+        for chip, t in enumerate(telemetry):
+            per_chip[chip] += coco_bus(sends[chip], t, sample_rate, seed_base + 3000 + chip, patch, stereo)
     signals = []
     for chip, t in enumerate(telemetry):
         voices = len(chip_devices(chip, n))

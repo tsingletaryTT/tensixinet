@@ -487,13 +487,38 @@ STEAM_ROUTE_WHY = {
 }
 
 
+def _snare_decision(patch: Patch) -> Decision:
+    """How much of ttsteam's snare plays in this patch."""
+    if patch.snare <= 0.0:
+        what = "snare: silent"
+    elif patch.snare >= 1.0:
+        what = "snare: every hit plays"
+    else:
+        what = f"snare: {patch.snare:.0%} of the register's hits play"
+    where = f"set by the {patch.style} style" if patch.style else (
+        "drawn from the seed: silent 40% of the time, one hit in five 30%, one in two 20%, every hit 10%")
+    return Decision(what, f"{where}; the register keeps stepping whatever the level, so its steam routes still work")
+
+
+def _bus_decision(patch: Patch) -> Decision:
+    """How much of the band goes through the Cocoquantus's delay, and the room."""
+    if patch.coco_send <= 0.0:
+        return Decision("coco bus: off", "this patch sends nothing through the Cocoquantus's delay, so its devices are heard dry")
+    where = f"set by the {patch.style} style" if patch.style else "drawn from the seed: a send of 25 to 80%, a room of 15 to 50% for 0.8 to 3.5 s"
+    return Decision(
+        f"coco bus: {patch.coco_send:.0%} of the band through the delay, then a {patch.reverb_s:.1f} s room at {patch.coco_reverb:.0%}",
+        f"{where}; each chip's voices, as heard, go into four crunchy 8-bit taps whose echo times the petals' castles sway (a hotter GDDR channel echoes sooner, "
+        "a longer delay holds fewer bits, pressure feeds the repeats back), and the echoes and the dry send go through the room",
+    )
+
+
 def _steam_routes_decision(patch: Patch) -> Decision:
     """Which of ttsteam's register routes are on: the snare's hits and held notes used as triggers, accents and pitch."""
     if not patch.steam_routes:
         return Decision("steam routes: none", "this patch does not patch ttsteam's register into any other device, so the snare is only a sound")
     return Decision(
         f"steam routes: {', '.join(patch.steam_routes)}",
-        "drawn from the seed (each route is on 60% of the time, and at least one always is); "
+        "drawn from the seed (none 10%, one 35%, two 35%, three 20%; the strikes route a half more often than the others); "
         + "; ".join(f"{r}: {STEAM_ROUTE_WHY[r]}" for r in patch.steam_routes),
     )
 
@@ -544,4 +569,6 @@ def explain_patch(patch: Patch, telemetry: Sequence[Telemetry], source: str) -> 
             "drawn from the seed: 1 to 6 bars per turn, and a floor between 20% and 50%",
         ),
         _steam_routes_decision(patch),
+        _snare_decision(patch),
+        _bus_decision(patch),
     ] + _style_decision(patch)

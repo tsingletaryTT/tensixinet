@@ -178,6 +178,11 @@ records what was played. `--player none` keeps time with no sound. `--duration 0
 telemetry only, so like the offline run it needs no lease. The limits are in [docs/DECISIONS.md](docs/DECISIONS.md):
 each turn restarts the devices' clocks, so a ringing gong fades at the end of its turn.
 
+## The Cocoquantus as an effects unit
+
+Beyond its own voices (`ttquantus` and `ttcoco`), the Cocoquantus takes the rest of the band as its audio input, as the real one does: each chip's voices are sent through four
+crunchy 8-bit delay taps whose echo times the petals' castles sway, then through a room. A patch sets how much is sent and how big the room is (`docs/SOUND.md`, "The coco bus").
+
 ## See what is playing
 
 ![The app: an animated chart of the chips, the devices dealt to them, the patch cables and the stereo field, with the run log beside it](docs/media/app.png)

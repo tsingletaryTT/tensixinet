@@ -83,8 +83,18 @@ RAX_BAR_COUNTS = (4, 7, 14)
 #   pitch    the register holds one note of the patch's scale per step, drawn from the seed, and steers the
 #            AVDog's dogtone with them
 STEAM_ROUTES = ("strikes", "avdog", "accent", "pitch")
-STEAM_ROUTE_COUNT_ODDS = (0.25, 0.5, 0.25)  # a drawn patch has no route, one or two (the snare was everywhere when each was on 60% of the time)
-STEAM_ROUTE_WEIGHTS = (0.5, 1.0, 1.0, 1.0)  # in STEAM_ROUTES order: "strikes" makes the whole band follow the snare, so it is drawn half as often
+STEAM_ROUTE_COUNT_ODDS = (0.10, 0.35, 0.35, 0.20)  # a drawn patch has no route, one, two or three: the register drives the band more than it sounds itself
+STEAM_ROUTE_WEIGHTS = (1.5, 1.0, 1.0, 1.0)  # in STEAM_ROUTES order: "strikes" puts the register's beat on the gongs, which is where the beat should come from
+
+# How much of ttsteam's snare plays: each hit is kept with this probability and the dust is scaled by it. The register keeps running at any
+# level, so the routes above work with a silent snare. A drawn patch has no snare 40% of the time (SNARE_ODDS is in SNARE_LEVELS order).
+SNARE_LEVELS = (0.0, 0.2, 0.5, 1.0)
+SNARE_ODDS = (0.4, 0.3, 0.2, 0.1)
+
+# The coco bus a drawn patch has (see cocobus.py): the band's send, the room's share and the room's time.
+COCO_SEND_RANGE = (0.25, 0.8)
+COCO_REVERB_RANGE = (0.15, 0.5)
+REVERB_S_RANGE = (0.8, 3.5)
 
 MOTIF_LENGTHS = (6, 7, 8, 9, 10, 12)  # eighth notes; the lead's bar is as long as its motif
 MOTIF_LOW_RANGE = (-5, -2)  # the lowest degree a motif may reach is drawn from here ...
@@ -111,6 +121,10 @@ class Patch:
     style: str = ""  # the name of the style (styles.py) this patch was drawn in, or "" for a plain draw
     emphasis: Tuple[Tuple[str, float], ...] = ()  # (device name, factor): its level in the mix and how often it gets the floor
     mode: int = 0  # `scale` is the named scale started from this one of its notes (0 = as listed)
+    snare: float = 1.0  # the share of ttsteam's snare hits that play (and of its dust): 0 is silent, 1 is every hit
+    coco_send: float = 0.0  # how much of the band is sent into the Cocoquantus's delay (cocobus.py); 0 is none, and the sound from before the bus
+    coco_reverb: float = 0.0  # how much of the room (reverb) is mixed in with the echoes
+    reverb_s: float = 1.5  # the room's decay time: seconds to fall by 60 dB
 
 
 DEFAULT_PATCH = Patch(
@@ -205,6 +219,17 @@ def _draw_gong(rng: np.random.Generator, tuning: str) -> Tuple[Tuple[float, ...]
     return new_partials, new_amps
 
 
+def _draw_snare(seed: int) -> float:
+    """One of SNARE_LEVELS by SNARE_ODDS. It has its own random stream, so no other drawn field moved when it was added."""
+    return SNARE_LEVELS[int(np.random.default_rng([seed, 0x54A2E]).choice(len(SNARE_LEVELS), p=SNARE_ODDS))]
+
+
+def _draw_bus(seed: int) -> Tuple[float, float, float]:
+    """(send, reverb share, reverb seconds), from their own random stream, so no other drawn field moved when the bus was added."""
+    rng = np.random.default_rng([seed, 0xC0C0])
+    return tuple(round(float(rng.uniform(*r)), 3) for r in (COCO_SEND_RANGE, COCO_REVERB_RANGE, REVERB_S_RANGE))
+
+
 def draw_patch(seed: int, telemetry: Sequence[Telemetry]) -> Patch:
     rng = np.random.default_rng(seed)
     scale_name = scale_for(telemetry)
@@ -214,6 +239,7 @@ def draw_patch(seed: int, telemetry: Sequence[Telemetry]) -> Patch:
     partials, amps = _draw_gong(rng, tuning)
     lo = float(rng.uniform(8000, 15000))
     width = float(rng.uniform(3000, 9000))
+    send, room, room_s = _draw_bus(seed)
     return Patch(
         seed=seed,
         scale_name=scale_name,
@@ -229,6 +255,10 @@ def draw_patch(seed: int, telemetry: Sequence[Telemetry]) -> Patch:
         rax_bars=int(rng.choice(RAX_BAR_COUNTS)),
         mode=mode,
         steam_routes=_draw_steam_routes(seed),
+        snare=_draw_snare(seed),
+        coco_send=send,
+        coco_reverb=room,
+        reverb_s=room_s,
     )
 
 
@@ -251,6 +281,14 @@ def _validate(p: Patch) -> Patch:
         raise ValueError(f"mode must be between 0 and {len(p.scale) - 1} for a scale of {len(p.scale)} notes")
     if any(not (isinstance(v, float) and v > 0 and v == v) for _, v in p.emphasis):  # positive, and not NaN
         raise ValueError("emphasis needs a positive factor for every device it names")
+    if not 0.0 <= p.snare <= 1.0:  # also false for NaN
+        raise ValueError("snare must be between 0 and 1")
+    if not 0.0 <= p.coco_send <= 1.0:
+        raise ValueError("coco_send must be between 0 and 1")
+    if not 0.0 <= p.coco_reverb <= 1.0:
+        raise ValueError("coco_reverb must be between 0 and 1")
+    if not p.reverb_s > 0.0:
+        raise ValueError("reverb_s must be above 0")
     unknown = [r for r in p.steam_routes if r not in STEAM_ROUTES]
     if unknown:
         raise ValueError(f"unknown steam route {', '.join(unknown)}; the routes are {', '.join(STEAM_ROUTES)}")
@@ -279,6 +317,12 @@ def patch_from_dict(d: dict) -> Patch:
             mode=int(d.get("mode", 0)),
             # a patch saved before routes existed has none
             steam_routes=tuple(str(x) for x in d.get("steam_routes", ())),
+            # a patch saved before the snare level existed played every hit
+            snare=float(d.get("snare", 1.0)),
+            # a patch saved before the coco bus existed had no send and no room
+            coco_send=float(d.get("coco_send", 0.0)),
+            coco_reverb=float(d.get("coco_reverb", 0.0)),
+            reverb_s=float(d.get("reverb_s", 1.5)),
             # a patch saved before styles existed has none
             style=str(d.get("style", "")),
             emphasis=tuple((str(name), float(factor)) for name, factor in d.get("emphasis", ())),

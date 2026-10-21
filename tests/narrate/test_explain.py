@@ -482,3 +482,28 @@ def test_the_log_says_where_each_chip_sits_how_far_it_orbits_and_what_the_field_
 def mock_telemetry_for_space():
     from tensixinet.telemetry.mock import mock_telemetry
     return mock_telemetry(4, 3)
+
+
+def test_the_patch_log_says_how_much_of_the_snare_plays_and_why():
+    quiet = [d for d in explain_patch(dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, snare=0.0), UNEVEN, "s") if d.what.startswith("snare")]
+    some = [d for d in explain_patch(dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, snare=0.2), UNEVEN, "s") if d.what.startswith("snare")]
+    full = [d for d in explain_patch(DEFAULT_PATCH_FOR_ROUTES, UNEVEN, "s") if d.what.startswith("snare")]
+    assert len(quiet) == len(some) == len(full) == 1
+    assert "silent" in quiet[0].what and "20%" in some[0].what and "every hit" in full[0].what
+    assert "40%" in some[0].why                       # the odds a drawn patch has no snare
+
+
+def test_the_patch_log_says_how_much_goes_through_the_coco_and_how_big_the_room_is():
+    p = dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, coco_send=0.6, coco_reverb=0.3, reverb_s=2.5)
+    lines = [d for d in explain_patch(p, UNEVEN, "s") if d.what.startswith("coco bus")]
+    assert len(lines) == 1
+    assert "60%" in lines[0].what and "2.5 s" in lines[0].what and "30%" in lines[0].what
+    assert "petals" in lines[0].why and "8-bit" in lines[0].why
+    off = [d for d in explain_patch(DEFAULT_PATCH_FOR_ROUTES, UNEVEN, "s") if d.what.startswith("coco bus")]
+    assert len(off) == 1 and "off" in off[0].what
+
+
+def test_the_steam_route_reason_gives_the_odds_the_seed_used():
+    why = [d.why for d in explain_patch(dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, steam_routes=("strikes",)), UNEVEN, "s")
+           if d.what.startswith("steam routes")][0]
+    assert "60%" not in why and "none 10%" in why and "three 20%" in why

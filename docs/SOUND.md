@@ -218,6 +218,19 @@ own frequency (`formant_response`).
 Not yet: consonants (fricatives as shaped noise, plosives as a closure and a burst, nasals with an antiresonance), words, breath
 noise and a kernel for it. The numbers are textbook values and a first guess at phrasing. None of it has been heard.
 
+## The coco bus
+
+The Cocoquantus is also an effects unit: it takes audio in, puts it through its delay chips, and the petals' castles set the delay clocks, so the echoes bend. `ttquantus`
+and `ttcoco` are its own voices. `music/cocobus.py` is the input side. Each chip's voices go in at their own send level (`SEND_LEVELS`: the gong 0.8, the lead 0.7, the choir 0.6, the rolls 0.5, the AVDog 0.5, the
+snare 0.4, ttrax 0.4, the drone 0.3, the shimmer 0.3, and none from the two coco devices), after the turn gain and the style's balance, so what is echoed is what is heard. The patch's `coco_send` scales the
+whole send. Four taps, one for every second GDDR channel, echo it: a hotter channel echoes sooner, a longer delay holds fewer bits (4 to 8), and the chip's pressure feeds the repeats back (0.25 on a cool chip up to 0.8).
+A castle (one of the five petals' sample-and-holds, glided over 10 ms) moves each tap's delay time by up to 35% either way, so repeats land early or late as the castles step. The echoes and the dry send then
+go through a room: decaying, rolled-off noise convolved in, `reverb_s` seconds to fall by 60 dB, mixed in at `coco_reverb`. In stereo alternate taps sit in alternate ears and each ear has its own room.
+
+A drawn patch sends 25 to 80% of the band, with a room of 15 to 50% lasting 0.8 to 3.5 s. The styles set them (chiptune 0.4, 0.1, 0.6 s; enya 0.8, 0.5, 3.5 s; blues 0.3, 0.3, 1.4 s; aphex 0.7, 0.25, 1.0 s). The default patch and a patch saved before the
+bus existed send nothing, so they sound as before. Auditioning with `--only` skips the bus. Each segment starts with an empty buffer, so in live mode a tail that rings past the end of a segment is cut.
+The reverb is not part of the real instrument. The bus runs on the CPU: the kernels do not have it.
+
 ## ttsteam and Snare
 
 A 14-step register, one step per Tensix column, stepped at eighth notes. A step fires where its column is
@@ -226,10 +239,14 @@ fourteen and a chip with every column enabled is silent. A hit is white noise ro
 envelope that falls to a third in 0.75 s at no pressure and 75 ms at full pressure. Under it, dust pops 15 times
 a second for each step of PCIe usage.
 
-The register is in `music/register.py`, apart from the snare, because other devices read it too. Four **steam routes**
-patch it into them. A patch lists the routes that are on. The default patch has none, and a drawn patch has no route
-(25%), one (50%) or two (25%), with `strikes`, the route that makes the whole band follow the snare, drawn half as often as
-the others (it was every route at 60% each, which put the snare everywhere). Together with ttrollz, the gong and the AVDog they make a rhythm section:
+A patch also sets how much of the snare plays (`snare`, 0 to 1). Each hit is kept with that probability and the dust is scaled by it, so 0 is
+silent and 1 is every hit. A drawn patch has no snare 40% of the time, one hit in five 30%, one in two 20% and every hit 10%. The default patch and any patch saved before
+this field existed play every hit. The styles set it too: chiptune 0.5, enya 0.1, blues 0.5, aphex 0.6.
+
+The register keeps stepping when the snare is quiet, so it is mostly a clock for the other devices. It is in `music/register.py`, apart from the snare, because they read
+it too. Four **steam routes** patch it into them. A patch lists the routes that are on. The default patch has none, and a drawn patch has no route (10%), one (35%), two (35%)
+or three (20%), with `strikes` drawn one and a half times as often as the others: it puts the register's beat on the gongs, which is where the beat should come from.
+The gong is also at least as loud as the snare in every style's balance. Together with ttrollz, the gong and the AVDog they make a rhythm section:
 
 | Route | What it does |
 |---|---|

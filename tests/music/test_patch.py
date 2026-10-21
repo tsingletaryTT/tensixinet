@@ -292,27 +292,78 @@ def test_the_four_routes_and_the_default_patch_having_none():
     assert DEFAULT_PATCH.steam_routes == ()  # the sound from before routes existed
 
 
-def test_every_route_is_drawn_somewhere_no_patch_has_more_than_two_and_they_come_in_order():
+def test_every_route_is_drawn_somewhere_no_patch_has_more_than_three_and_they_come_in_order():
     from tensixinet.music.patch import STEAM_ROUTES
     ps = [draw_patch(s, UNEVEN) for s in range(400)]
     assert {r for p in ps for r in p.steam_routes} == set(STEAM_ROUTES)
-    assert max(len(p.steam_routes) for p in ps) == 2 and min(len(p.steam_routes) for p in ps) == 0
+    assert max(len(p.steam_routes) for p in ps) == 3 and min(len(p.steam_routes) for p in ps) == 0
     assert all(list(p.steam_routes) == [r for r in STEAM_ROUTES if r in p.steam_routes] for p in ps)
-    assert len({p.steam_routes for p in ps}) >= 7
+    assert len({p.steam_routes for p in ps}) >= 10
 
 
-def test_the_snare_is_kept_off_most_of_the_band_most_of_the_time():
-    """The user's ear said the snare was still everywhere: with 60% odds each, 63% of patches had three or four routes and the strikes
-    route, which makes the gong, shimmer, drone and AVDog follow the snare, was on in 60%."""
+def test_the_register_is_patched_into_something_in_most_patches_and_the_gong_strikes_route_is_the_commonest():
+    """The snare is quiet now (see `snare`), so the register's own job is to drive the rest: the gong, shimmer, drone and AVDog follow it
+    on the `strikes` route, and a patch has more routes than it did."""
     import collections
     from tensixinet.music.patch import _draw_steam_routes
-    seeds = range(3000)
-    drawn = [_draw_steam_routes(s) for s in seeds]
+    drawn = [_draw_steam_routes(s) for s in range(3000)]
     counts = collections.Counter(len(r) for r in drawn)
-    assert 0.20 < counts[0] / len(drawn) < 0.30 and 0.45 < counts[1] / len(drawn) < 0.55 and 0.20 < counts[2] / len(drawn) < 0.30
+    for n, want in enumerate((0.10, 0.35, 0.35, 0.20)):
+        assert abs(counts[n] / len(drawn) - want) < 0.04, (n, counts)
     on = collections.Counter(r for d in drawn for r in d)
-    assert on["strikes"] < 0.7 * min(on["avdog"], on["accent"], on["pitch"])  # strikes is the rarest, by a clear margin
-    assert on["strikes"] / len(drawn) < 0.25
+    assert on["strikes"] > 1.2 * max(on["avdog"], on["accent"], on["pitch"])
+    assert on["strikes"] / len(drawn) > 0.45
+
+
+# --- the snare: how often ttsteam's snare plays at all ------------------------------------------------
+
+def test_the_default_patch_keeps_the_snare_as_it_was():
+    assert DEFAULT_PATCH.snare == 1.0
+
+
+def test_a_drawn_patch_mostly_has_a_silent_or_sparse_snare():
+    """The user's ear: every patch had the snare. Now 40% have none, 30% one hit in five, 20% one in two, and 10% all of them."""
+    import collections
+    from tensixinet.music.patch import SNARE_LEVELS
+    levels = collections.Counter(draw_patch(s, UNEVEN).snare for s in range(3000))
+    assert set(levels) == set(SNARE_LEVELS) == {0.0, 0.2, 0.5, 1.0}
+    for level, want in ((0.0, 0.4), (0.2, 0.3), (0.5, 0.2), (1.0, 0.1)):
+        assert abs(levels[level] / 3000 - want) < 0.04, (level, levels)
+
+
+def test_the_snare_level_is_drawn_independently_of_the_steam_routes():
+    ps = [draw_patch(s, UNEVEN) for s in range(3000)]
+    no_route = [p for p in ps if not p.steam_routes]
+    three = [p for p in ps if len(p.steam_routes) == 3]
+    for group in (no_route, three):
+        assert abs(sum(p.snare == 0.0 for p in group) / len(group) - 0.4) < 0.1
+
+
+def test_drawing_the_snare_leaves_every_other_drawn_field_where_it_was():
+    a = draw_patch(11, UNEVEN)
+    assert dataclasses.replace(a, snare=1.0) == dataclasses.replace(draw_patch(11, UNEVEN), snare=1.0)
+    assert any(draw_patch(s, UNEVEN).snare != a.snare for s in range(12, 40))  # and it does vary
+
+
+def test_a_patch_saved_before_the_snare_level_played_every_hit(tmp_path):
+    path = tmp_path / "p.json"
+    save_patch(DEFAULT_PATCH, path)
+    d = json.loads(path.read_text())
+    del d["snare"]
+    path.write_text(json.dumps(d))
+    assert load_patch(path).snare == 1.0
+
+
+def test_the_snare_level_round_trips_and_one_outside_zero_to_one_is_refused(tmp_path):
+    path = tmp_path / "p.json"
+    save_patch(dataclasses.replace(DEFAULT_PATCH, snare=0.2), path)
+    assert load_patch(path).snare == 0.2
+    for bad in (-0.1, 1.5, float("nan")):
+        d = json.loads(path.read_text())
+        d["snare"] = bad
+        path.write_text(json.dumps(d))
+        with pytest.raises(ValueError, match="snare"):
+            load_patch(path)
 
 
 def test_drawing_routes_leaves_every_other_drawn_field_where_it_was():
@@ -339,3 +390,58 @@ def test_routes_round_trip_and_an_unknown_one_is_refused(tmp_path):
     (tmp_path / "bad.json").write_text(json.dumps(d))
     with pytest.raises(ValueError):
         load_patch(tmp_path / "bad.json")
+
+
+# --- the coco bus: how much of the band is sent through the Cocoquantus's delay, and its room ------------
+
+def test_the_default_patch_has_no_send_so_it_sounds_as_it_did():
+    assert DEFAULT_PATCH.coco_send == 0.0 and DEFAULT_PATCH.coco_reverb == 0.0 and DEFAULT_PATCH.reverb_s == 1.5
+
+
+def test_a_drawn_patch_always_sends_some_of_the_band_through_the_coco_and_has_a_room():
+    ps = [draw_patch(s, UNEVEN) for s in range(400)]
+    assert all(0.25 <= p.coco_send <= 0.8 and 0.15 <= p.coco_reverb <= 0.5 and 0.8 <= p.reverb_s <= 3.5 for p in ps)
+    assert min(p.coco_send for p in ps) < 0.3 and max(p.coco_send for p in ps) > 0.75
+    assert min(p.reverb_s for p in ps) < 1.1 and max(p.reverb_s for p in ps) > 3.2
+    assert len({p.coco_reverb for p in ps}) > 100
+
+
+def test_drawing_the_bus_leaves_every_other_drawn_field_where_it_was():
+    a, b = draw_patch(11, UNEVEN), draw_patch(11, UNEVEN)
+    z = dict(coco_send=0.0, coco_reverb=0.0, reverb_s=1.5)
+    assert dataclasses.replace(a, **z) == dataclasses.replace(b, **z)
+    assert dataclasses.replace(a, **z) == dataclasses.replace(draw_patch(11, UNEVEN), **z)
+    assert any(draw_patch(s, UNEVEN).coco_send != a.coco_send for s in range(12, 30))
+
+
+def test_a_patch_saved_before_the_bus_existed_has_no_send(tmp_path):
+    path = tmp_path / "p.json"
+    save_patch(draw_patch(5, UNEVEN), path)
+    d = json.loads(path.read_text())
+    for k in ("coco_send", "coco_reverb", "reverb_s"):
+        del d[k]
+    path.write_text(json.dumps(d))
+    p = load_patch(path)
+    assert (p.coco_send, p.coco_reverb, p.reverb_s) == (0.0, 0.0, 1.5)
+
+
+def test_the_bus_fields_round_trip_and_values_out_of_range_are_refused(tmp_path):
+    path = tmp_path / "p.json"
+    save_patch(dataclasses.replace(DEFAULT_PATCH, coco_send=0.4, coco_reverb=0.2, reverb_s=2.5), path)
+    p = load_patch(path)
+    assert (p.coco_send, p.coco_reverb, p.reverb_s) == (0.4, 0.2, 2.5)
+    for key, bad in (("coco_send", -0.1), ("coco_send", 1.1), ("coco_reverb", -0.1), ("coco_reverb", 1.1), ("reverb_s", 0.0),
+                     ("reverb_s", -1.0), ("reverb_s", float("nan")), ("coco_send", float("nan"))):
+        d = json.loads(path.read_text())
+        d[key] = bad
+        path.write_text(json.dumps(d))
+        with pytest.raises(ValueError, match=key.split("_")[0]):
+            load_patch(path)
+        save_patch(p, path)
+
+
+def test_the_bus_is_drawn_independently_of_the_routes_and_the_snare():
+    ps = [draw_patch(s, UNEVEN) for s in range(3000)]
+    mean = lambda group: sum(p.coco_send for p in group) / len(group)
+    assert abs(mean([p for p in ps if not p.steam_routes]) - mean([p for p in ps if len(p.steam_routes) == 3])) < 0.04
+    assert abs(mean([p for p in ps if p.snare == 0.0]) - mean([p for p in ps if p.snare == 1.0])) < 0.04

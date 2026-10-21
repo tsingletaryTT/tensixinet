@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from tensixinet.music.mapping import aiclk_to_bpm
+from tensixinet.music.patch import DEFAULT_PATCH
 from tensixinet.music.ttsteam import STEPS, dust_per_second, ttsteam, snare_decay, step_pattern
 from tensixinet.telemetry import FALLBACK
 
@@ -146,3 +147,40 @@ def test_the_dust_stays_sharp_and_is_not_rolled_off():
 def test_the_roll_off_passes_a_steady_level_unchanged():
     from tensixinet.music.ttsteam import lowpass
     assert np.allclose(lowpass(np.ones(500), 4000.0, 44100)[100:], 1.0, atol=0.01)
+
+
+# --- the patch's snare level: how many hits play, and how much dust ------------------------------------------
+
+def _hits_energy(snare, seed=1):
+    t = tel(tensix_mask=0x37F7, pcie_usage=0)
+    return float(np.sum(ttsteam(t, 20.0, SR, seed, dataclasses.replace(DEFAULT_PATCH, snare=snare)) ** 2))
+
+
+def test_a_snare_level_of_zero_is_silent_dust_and_all():
+    t = tel(tensix_mask=0x37F7, pcie_usage=6)
+    assert not np.any(ttsteam(t, 4.0, SR, 3, dataclasses.replace(DEFAULT_PATCH, snare=0.0)))
+
+
+def test_the_default_patch_plays_every_hit_as_before():
+    t = tel(tensix_mask=0x37F7, pcie_usage=3)
+    assert np.array_equal(ttsteam(t, 4.0, SR, 3), ttsteam(t, 4.0, SR, 3, dataclasses.replace(DEFAULT_PATCH, snare=1.0)))
+
+
+def test_a_snare_level_is_the_share_of_hits_that_play():
+    full = _hits_energy(1.0)
+    for level in (0.2, 0.5):
+        share = np.mean([_hits_energy(level, seed) for seed in range(6)]) / full
+        assert abs(share - level) < 0.1, (level, share)
+
+
+def test_the_hits_that_play_are_as_loud_as_ever():
+    t = tel(tensix_mask=0x37F7, pcie_usage=0)
+    peak = np.abs(ttsteam(t, 20.0, SR, 1, dataclasses.replace(DEFAULT_PATCH, snare=0.2))).max()
+    assert peak > 0.6 * np.abs(ttsteam(t, 20.0, SR, 1)).max()
+
+
+def test_the_dust_fades_with_the_snare_level():
+    t = tel(tensix_mask=0xFFFF, pcie_usage=6)  # every column enabled: no hits, only dust
+    full = np.abs(ttsteam(t, 4.0, SR, 3)).max()
+    half = np.abs(ttsteam(t, 4.0, SR, 3, dataclasses.replace(DEFAULT_PATCH, snare=0.5))).max()
+    assert full > 0.2 and half < 0.55 * full

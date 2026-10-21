@@ -48,7 +48,7 @@ def test_a_styled_patch_stays_inside_its_style_and_is_playable(name, seed):
     assert s.floor[0] <= p.floor <= s.floor[1] and s.beat[0] <= p.gong_beat_hz <= s.beat[1]
     lo, hi = p.shimmer_band
     assert s.band_low[0] <= lo <= s.band_low[1] and lo < hi <= 20500
-    assert set(p.steam_routes) == set(s.routes) and dict(p.emphasis) == dict(s.emphasis)
+    assert set(p.steam_routes) == set(s.routes) and dict(p.emphasis) == dict(s.emphasis) and p.snare == s.snare
     assert p.gong_partials[0] == 1.0 and len(p.gong_partials) <= 5
 
 
@@ -144,3 +144,23 @@ def test_no_style_turns_on_more_than_two_steam_routes_and_none_gives_the_snare_a
     for name, style in STYLES.items():
         assert len(style.routes) <= 2, name
         assert dict(style.emphasis)["ttsteam"] <= 1.0, name
+
+
+def test_each_style_sets_how_much_of_the_snare_plays_and_only_aphex_and_blues_keep_much_of_it():
+    assert {n: s.snare for n, s in STYLES.items()} == {"chiptune": 0.5, "enya": 0.1, "blues": 0.5, "aphex": 0.6}
+
+
+def test_the_gong_carries_the_beat_in_every_style_as_much_as_the_snare_does():
+    for name, style in STYLES.items():
+        e = dict(style.emphasis)
+        assert e["gong"] >= e["ttsteam"], name
+    for name in ("chiptune", "blues", "aphex"):
+        assert dict(STYLES[name].emphasis)["gong"] >= 1.0, name
+
+
+def test_each_style_sets_how_much_goes_through_the_coco_and_how_big_the_room_is():
+    assert {n: s.bus for n, s in STYLES.items()} == {
+        "chiptune": (0.4, 0.1, 0.6), "enya": (0.8, 0.5, 3.5), "blues": (0.3, 0.3, 1.4), "aphex": (0.7, 0.25, 1.0)}
+    for name in STYLES:
+        p = draw_styled_patch(3, CHIPS, name)
+        assert (p.coco_send, p.coco_reverb, p.reverb_s) == STYLES[name].bus

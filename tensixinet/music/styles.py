@@ -44,6 +44,8 @@ class Style:
     routes: Tuple[str, ...]  # steam routes that are on
     rax_bars: Tuple[int, ...]  # 4 (Tetrax), 7 (Sidrax) or 14 (Quatrax)
     emphasis: Tuple[Tuple[str, float], ...]
+    snare: float  # the share of ttsteam's snare hits that play (patch.snare)
+    bus: Tuple[float, float, float]  # (patch.coco_send, patch.coco_reverb, patch.reverb_s)
 
 
 def _odds(*weights: float) -> Tuple[float, ...]:
@@ -61,7 +63,9 @@ STYLES: Dict[str, Style] = {
         bars=(1, 2), floor=(0.4, 0.5), motif_lengths=(8, 12), motif_steps=_odds(0.5, 3, 4, 1, 4, 3, 0.5),
         routes=("accent", "avdog"), rax_bars=(4,),
         emphasis=(("lead", 1.5), ("ttquantus", 1.6), ("ttrollz", 1.3), ("ttsteam", 0.9), ("ttavdog", 0.9), ("ttrax", 1.0),
-                  ("ultrasonic_shimmer", 0.5), ("gong", 0.5), ("ttcoco", 0.6), ("ttdrone", 0.4), ("ttchoir", 0.2)),
+                  ("ultrasonic_shimmer", 0.5), ("gong", 1.0), ("ttcoco", 0.6), ("ttdrone", 0.4), ("ttchoir", 0.2)),
+        snare=0.5,
+        bus=(0.4, 0.1, 0.6),
     ),
     "enya": Style(
         "enya",
@@ -73,6 +77,8 @@ STYLES: Dict[str, Style] = {
         routes=("pitch",), rax_bars=(7, 14),
         emphasis=(("ttchoir", 1.8), ("ttdrone", 1.5), ("ultrasonic_shimmer", 1.3), ("ttcoco", 1.2), ("ttrax", 1.2), ("lead", 1.0),
                   ("gong", 1.0), ("ttquantus", 0.7), ("ttavdog", 0.4), ("ttrollz", 0.3), ("ttsteam", 0.15)),
+        snare=0.1,
+        bus=(0.8, 0.5, 3.5),
     ),
     "blues": Style(
         "blues",
@@ -83,7 +89,9 @@ STYLES: Dict[str, Style] = {
         bars=(4,), floor=(0.3, 0.4), motif_lengths=(12,), motif_steps=_odds(0.5, 2, 5, 3, 5, 2, 0.5),
         routes=("accent",), rax_bars=(7,),
         emphasis=(("lead", 1.5), ("ttrax", 1.4), ("ttrollz", 1.0), ("ttsteam", 0.7), ("ttavdog", 0.8), ("ttcoco", 0.8),
-                  ("ttdrone", 0.7), ("gong", 0.6), ("ttquantus", 0.5), ("ultrasonic_shimmer", 0.4), ("ttchoir", 0.3)),
+                  ("ttdrone", 0.7), ("gong", 1.0), ("ttquantus", 0.5), ("ultrasonic_shimmer", 0.4), ("ttchoir", 0.3)),
+        snare=0.5,
+        bus=(0.3, 0.3, 1.4),
     ),
     "aphex": Style(
         "aphex",
@@ -94,7 +102,9 @@ STYLES: Dict[str, Style] = {
         bars=(1, 2), floor=(0.2, 0.3), motif_lengths=(7, 9, 10, 12), motif_steps=_odds(2, 3, 3, 1, 3, 3, 2),
         routes=("avdog", "pitch"), rax_bars=(14,),
         emphasis=(("ttrollz", 1.5), ("ttsteam", 1.0), ("ttavdog", 1.3), ("ttcoco", 1.3), ("ttquantus", 1.1), ("ultrasonic_shimmer", 1.0),
-                  ("lead", 0.9), ("gong", 0.8), ("ttrax", 0.8), ("ttchoir", 0.7), ("ttdrone", 0.6)),
+                  ("lead", 0.9), ("gong", 1.3), ("ttrax", 0.8), ("ttchoir", 0.7), ("ttdrone", 0.6)),
+        snare=0.6,
+        bus=(0.7, 0.25, 1.0),
     ),
 }
 
@@ -130,4 +140,8 @@ def draw_styled_patch(seed: int, telemetry: Sequence[Telemetry], style: str) -> 
         steam_routes=tuple(r for r in STEAM_ROUTES if r in s.routes),
         style=style,
         emphasis=tuple((name, float(factor)) for name, factor in s.emphasis),
+        snare=s.snare,
+        coco_send=s.bus[0],
+        coco_reverb=s.bus[1],
+        reverb_s=s.bus[2],
     )
