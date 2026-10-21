@@ -120,7 +120,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 
 <nav><div class="wrap">
   <b>tensixinet</b>
-  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#colour">Colour</a><a href="#rhythm">Rhythm</a><a href="#bus">Delay and rests</a><a href="#styles">Styles</a><a href="#space">Space</a><a href="#app">The app</a><a href="#band">The band</a>
+  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#colour">Colour</a><a href="#rhythm">Rhythm</a><a href="#bus">Delay and rests</a><a href="#styles">Styles</a><a href="#space">Space</a><a href="#bio">With tt-bio</a><a href="#app">The app</a><a href="#band">The band</a>
   <a href="#listen">Listen</a><a href="#new">Is it new?</a><a href="#kernels">On the chip</a><a href="#hardware">Get hardware</a><a href="#credits">Credits</a>
 </div></nav>
 
@@ -340,6 +340,21 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3>Stereo and evictions</h3><p>Sixty seconds from that run, with chip 1's eviction and fill and chip 2's blip. Best on headphones.</p><audio controls preload="none" src="assets/audio/stereo.mp3"></audio></div>
   </div>
   <p class="src" style="margin-top:10px">Try <code>tensixinet --live --mock-chips 4 --mock-load 60</code> to hear an eviction without a model (<code>--mock-load</code> is the cycle length in seconds). <code>--no-evict</code> turns the eviction off. Measured, not yet judged by ear: over 20 s on four chips the two channels correlate at 0.27 and the left-right balance moves between -3 and +7 dB.</p>
+</div></section>
+
+<section id="bio"><div class="wrap">
+  <div class="kicker">With a real workload</div>
+  <h2>Proteins folding on all four chips, and what the chips sound like while they do it</h2>
+  <p>tt-bio-demo is a booth that folds proteins on Tenstorrent Blackhole chips with tt-bio and shows each fold as it condenses out of noise. Here it runs full screen on all four chips of the box, one fold on each, with no questions mode. <code>tensixinet --live</code> reads the same four chips with <code>tt-smi</code> as the folds run and plays what they report. The music is on the CPU, because the booth holds the chips and the kernel devices need them.</p>
+  <div class="diagram" style="margin-top:20px">
+    <video controls preload="none" poster="assets/bio-frame.png" src="assets/bio.mp4" style="width:100%;border-radius:8px"></video>
+    <p class="caption">Four minutes of tt-bio-demo (tt-bio 0.21.0, Protenix v1) on all four chips. In the six minutes the booth was up, 169 folds started and 165 finished, 3.6 to 18.2 s each, with no errors in the booth's log. The soundtrack is the band's own recording of the same four minutes: 37 segments, and no chip evicted. The music and the picture are not matched frame by frame. A fold starting or finishing reaches the music as a change in the chips' power and temperature, which the loop reads about once a turn.</p>
+  </div>
+  <div class="grid" style="margin-top:20px">
+    <div class="card"><h3>The patch</h3><p>Replay it with <code>tensixinet --live --patch demo/bio.patch.json</code>. It is the patch drawn for this run: the hirajoshi scale, a singing bowl gong, the snare at 0.2, steam routes <code>avdog</code> and <code>pitch</code>, 29% of the band through the coco bus, rests on 21% of the coco's notes, and pitch movement 0.881. The readings differ every time, so a replay plays the same instruments on different chips' numbers.</p><span class="tag">demo/bio.patch.json</span></div>
+    <div class="card"><h3>What you are hearing</h3><p>Load on the chips is what changes the music. A chip folding draws more power and runs hotter, and its pressure raises the lead's brightness, the delay's feedback and how often it gets the floor. Four chips folding all the time keep the box busy, so there are no evictions.</p><span class="tag">power, temperature, pressure</span></div>
+  </div>
+  <p class="src" style="margin-top:10px">The booth is <a href="https://github.com/tsingletaryTT/tt-bio-demo">tt-bio-demo</a>, built on <a href="https://github.com/moritztng/tt-bio">tt-bio</a>. Made with <code>demo/bio_record.sh</code>. Measured, not yet judged by ear in this form. The affinity-question mode of the booth is not shown because it was not working on this version.</p>
 </div></section>
 
 <section id="app"><div class="wrap">

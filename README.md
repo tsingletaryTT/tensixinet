@@ -14,7 +14,7 @@ chips runs its own gong, shimmer, drone ripple, AVDog and delay mix as TT-Lang k
 
 Two earlier demos are in the repo: a 50-second one that starts from a prompt to the language model
 (`demo/assets/chorus.final.mp4`), and a 2-minute one of every feature at once, with the kernel devices on the chips
-(`demo/assets/features.final.mp4`). The site also has the stereo and evict recording, the style samples and a recording of a chip reset.
+(`demo/assets/features.final.mp4`). The site also has the stereo and evict recording, the style samples, a recording of a chip reset, and tt-bio-demo folding proteins on all four chips with the band playing the chips.
 
 Every chip reports its temperature, clock, power, current, memory temperatures, DDR status, harvesting and
 more. tensixinet turns those readings into music. Each chip joins a small band of synthesizers inspired by
