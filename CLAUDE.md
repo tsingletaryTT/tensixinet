@@ -590,3 +590,11 @@ legacy/        first prototype scripts, kept for reference
     each ear's room, the tap bits, the seeds); each got a test, mostly through a spy on `swayed_tap` that checks what the bus hands each tap. One more survivor is equivalent (the early stop in `swayed_tap` that `np.interp` already makes harmless).
   * A test caught a real bug on the first run: the send was taken before an eviction's fade, so an idle chip still echoed.
   * Also fixed: the patch log still said each steam route was on 60% of the time.
+* **2026-10-20, "build per-visitor session state":** the app had one global `Player`, so two visitors on the public Space stopped each other's audio. `ui/player.py` gained `Visitors` (a `Player` for each Gradio session hash, `Busy`
+  when `limit` visitors are already playing, `drop` and `reset`); the app's handlers take a `gr.Request`, `demo.unload(leave)` ends a visitor's session when they close the page, and `TENSIXINET_MAX_PLAYERS` (default 3) sets the limit. The count and the claim are one step
+  under the registry's lock. Only visitors who are playing count towards the limit.
+  * Mutation run: 14 mutants; one survivor (the registry lock removed), because the race window was too small to hit. The test now makes the count stale on purpose (a sleep after it), and the lock-less version fails it.
+  * Found only with real clients (`gradio_client`, three of them against a running app): every visitor was the same one, because `def play(*settings, request=None)` gets no request from Gradio (it does not look past a *args), so each Play ended the last.
+    The unit tests passed `request=` themselves and could not see it. The handlers now name every setting, and a test asks Gradio's own `special_args` whether it would fill `request` (the old form turns it red). With the fix: two play at once, a third is told the places are taken,
+    the first's Stop leaves the second going, and the third gets in once a place is free; two new visitors both get in after earlier ones disconnected.
+  * Not tried yet: the limit on the Space under real load (cpu-basic, two vCPUs). 3 is a guess from a 3 s segment taking about 0.5 s to render.

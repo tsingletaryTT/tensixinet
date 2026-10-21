@@ -74,3 +74,57 @@ class Player:
         with self._lock:
             if token == self._epoch:
                 self._active, self._config, self._session = False, None, None
+
+
+class Busy(Exception):
+    """Every place is taken: `playing` visitors are playing and the limit is `limit`."""
+
+    def __init__(self, playing: int, limit: int):
+        super().__init__(f"{playing} of {limit} places are taken")
+        self.playing, self.limit = playing, limit
+
+
+class Visitors:
+    """One `Player` for each person on the page, so one person's Play, Stop and changes never touch another's session.
+
+    Every session runs a render thread (and, in the simulator mode, chip workers), so only `limit` visitors may be playing at once; a visitor who
+    would be the next is refused with `Busy`. Only visitors that are playing count, not everyone who has the page open. The count and the claim are
+    one step under the registry's lock, so a crowd pressing Play together still ends up with `limit` sessions and no more. A visitor who is already
+    playing can always play again or change a setting: that replaces their own session and takes no further place."""
+
+    def __init__(self, limit: int):
+        if limit < 1:
+            raise ValueError("a limit of at least one visitor is needed")
+        self.limit = limit
+        self._lock = threading.Lock()
+        self._players: dict = {}
+
+    def __len__(self) -> int:
+        return len(self._players)
+
+    def player(self, key: str) -> Player:
+        with self._lock:
+            return self._players.setdefault(key, Player())
+
+    def playing(self) -> int:
+        return sum(p.active for p in list(self._players.values()))
+
+    def claim(self, key: str, config: Any, only_if_changed: bool = False):
+        """(that visitor's player, token, the session that was playing for them). Raises `Busy` when the visitor is not playing and the places are taken."""
+        with self._lock:
+            p = self._players.setdefault(key, Player())
+            if not only_if_changed and not p.active and self.playing() >= self.limit:
+                raise Busy(self.playing(), self.limit)
+            token, old = p.claim(config, only_if_changed)
+        return p, token, old
+
+    def drop(self, key: str) -> None:
+        """The visitor has left: end their session and forget them."""
+        with self._lock:
+            p = self._players.pop(key, None)
+        if p is not None:
+            p.stop()
+
+    def reset(self) -> None:
+        for key in list(self._players):
+            self.drop(key)

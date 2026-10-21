@@ -61,7 +61,7 @@ def _app():
         import gradio_app
     finally:
         sys.path.pop(0)
-    gradio_app.player.stop()
+    gradio_app.visitors.reset()
     return gradio_app
 
 
@@ -202,7 +202,7 @@ def test_a_stream_superseded_while_it_waits_for_audio_does_not_yield_that_audio(
     g = app.play(*_args())
     next(g), next(g)
     session = made[0][0]
-    session.next_audio = lambda timeout=0.0: (app.player.begin("a newer play"), session.chunk)[1]   # a newer Play arrives during the wait
+    session.next_audio = lambda timeout=0.0: (app.visitors.player(app.LOCAL).begin("a newer play"), session.chunk)[1]   # a newer Play arrives during the wait
     assert _take(g, 3) == []
 
 
@@ -213,7 +213,7 @@ def test_a_stream_superseded_between_steps_asks_for_no_more_audio(monkeypatch):
     next(g), next(g)
     session, asked = made[0][0], []
     session.next_audio = lambda timeout=0.0: asked.append(1) or session.chunk
-    app.player.begin("a newer play")
+    app.visitors.player(app.LOCAL).begin("a newer play")
     assert _take(g, 3) == [] and asked == []
 
 
@@ -225,7 +225,7 @@ def test_a_stop_between_a_changes_claim_and_its_build_is_not_undone_by_the_resta
     g2 = app.restart(*_args(style="blues"))
     assert next(g2)[1] == app.STARTING          # the change has claimed the page and shown that it is starting
     app.stop()                                  # and now the user presses Stop
-    assert _take(g2, 3) == [app.STOPPED_FRAME] and not app.player.active   # the stopped page is the last thing it says
+    assert _take(g2, 3) == [app.STOPPED_FRAME] and not app.visitors.player(app.LOCAL).active   # the stopped page is the last thing it says
     assert all(not s.started for s, kw in made if kw["style"] == "blues")
 
 
@@ -235,7 +235,7 @@ def test_a_stop_while_the_stream_waits_for_audio_ends_the_page_as_stopped_withou
     g = app.play(*_args())
     next(g), next(g)
     session = made[0][0]
-    session.next_audio = lambda timeout=0.0: (app.player.stop(), session.chunk)[1]   # Stop is pressed during the wait
+    session.next_audio = lambda timeout=0.0: (app.visitors.player(app.LOCAL).stop(), session.chunk)[1]   # Stop is pressed during the wait
     assert _take(g, 3) == [app.STOPPED_FRAME]
 
 
@@ -289,3 +289,112 @@ def test_once_the_start_is_over_the_status_says_what_is_playing_and_the_chart_is
     audio, chart, log, status = next(g)   # the stand-in session has no progress and no state
     assert status.startswith("playing enya") and chart == gr.skip()
     g.close()
+
+
+# --- one session for each visitor ---------------------------------------------------------------------------------------------------
+
+class _Req:
+    """Stands in for gradio's Request: all the app reads is the visitor's session hash."""
+    def __init__(self, who):
+        self.session_hash = who
+
+
+def test_two_visitors_play_at_once_and_one_stopping_does_not_stop_the_other(monkeypatch):
+    app, made = _app(), []
+    _fake_new_session(app, monkeypatch, made)
+    a, b = _Req("a"), _Req("b")
+    ga, gb = app.play(*_args(style="enya"), request=a), app.play(*_args(style="blues"), request=b)
+    next(ga), next(ga), next(gb), next(gb)
+    assert len(made) == 2 and made[0][1]["style"] == "enya" and made[1][1]["style"] == "blues"
+    app.stop(request=a)
+    assert made[0][0].stopped >= 1 and made[1][0].stopped == 0
+    audio, chart, log, status = next(gb)
+    assert audio is not None and status.startswith("playing")         # b goes on, untouched
+    assert _take(ga, 3) == [app.STOPPED_FRAME]                              # a's own page says stopped
+    gb.close()
+
+
+def test_a_new_play_by_one_visitor_does_not_end_anothers_session(monkeypatch):
+    app, made = _app(), []
+    _fake_new_session(app, monkeypatch, made)
+    ga = app.play(*_args(), request=_Req("a"))
+    next(ga), next(ga)
+    gb = app.play(*_args(style="enya"), request=_Req("b"))
+    next(gb), next(gb)
+    assert made[0][0].stopped == 0 and next(ga)[0] is not None
+    ga.close(), gb.close()
+
+
+def test_a_change_of_setting_restarts_only_that_visitors_session(monkeypatch):
+    app, made = _app(), []
+    _fake_new_session(app, monkeypatch, made)
+    ga, gb = app.play(*_args(style="enya"), request=_Req("a")), app.play(*_args(style="blues"), request=_Req("b"))
+    next(ga), next(ga), next(gb), next(gb)
+    g2 = app.restart(*_args(style="enya", seed=9), request=_Req("a"))
+    next(g2), next(g2)
+    assert made[0][0].stopped >= 1 and made[1][0].stopped == 0 and len(made) == 3
+    assert made[2][1]["seed"] == 9
+    g2.close(), gb.close()
+
+
+def test_a_visitor_over_the_limit_is_told_the_page_is_busy_and_nothing_is_built_for_them(monkeypatch):
+    app, made = _app(), []
+    _fake_new_session(app, monkeypatch, made)
+    from tensixinet.ui.player import Visitors
+    monkeypatch.setattr(app, "visitors", Visitors(limit=1))
+    ga = app.play(*_args(), request=_Req("a"))
+    next(ga), next(ga)
+    out = _take(app.play(*_args(), request=_Req("b")), 3)
+    assert len(out) == 1 and "busy" in out[0][3] and "1" in out[0][3] and out[0][1] == app.WAITING and len(made) == 1
+    assert next(ga)[0] is not None                                           # the first visitor is untouched
+    app.stop(request=_Req("a"))
+    g = app.play(*_args(), request=_Req("b"))                                # and when they stop, the place is free
+    next(g), next(g)
+    assert len(made) == 2
+    g.close()
+
+
+def test_a_visitor_who_leaves_the_page_has_their_session_ended_and_is_forgotten(monkeypatch):
+    app, made = _app(), []
+    _fake_new_session(app, monkeypatch, made)
+    ga = app.play(*_args(), request=_Req("a"))
+    next(ga), next(ga)
+    app.leave(_Req("a"))
+    assert made[0][0].stopped >= 1 and len(app.visitors) == 0
+    app.leave(_Req("a"))                                                     # leaving twice is harmless
+    ga.close()
+
+
+def test_with_no_request_at_all_the_app_still_works_as_one_local_visitor(monkeypatch):
+    app, made = _app(), []
+    _fake_new_session(app, monkeypatch, made)
+    g = app.play(*_args())
+    next(g), next(g)
+    assert app.visitors.player(app.LOCAL).active
+    app.stop()
+    assert not app.visitors.player(app.LOCAL).active
+    g.close()
+
+
+def test_the_limit_comes_from_the_environment_with_a_default_and_the_page_unloads_a_visitor_when_they_go(monkeypatch):
+    app = _app()
+    assert app.MAX_PLAYERS >= 1 and app.visitors.limit == app.MAX_PLAYERS
+    assert app._limit_from({"TENSIXINET_MAX_PLAYERS": "7"}) == 7
+    assert app._limit_from({}) == 3 and app._limit_from({"TENSIXINET_MAX_PLAYERS": "nonsense"}) == 3
+    assert app._limit_from({"TENSIXINET_MAX_PLAYERS": "0"}) == 3
+    demo = app.build()
+    assert any(t[1] == "unload" for fn in demo.fns.values() for t in fn.targets)
+
+
+def test_gradio_hands_each_handler_the_request_so_visitors_can_be_told_apart():
+    """The unit tests above pass `request=` themselves. This asks Gradio's own argument handling whether it would: a handler that names no
+    `request` parameter, or hides it behind *args, gets every visitor as the same one."""
+    app = _app()
+    from gradio.helpers import special_args
+    values = list(_args())
+    sentinel = _Req("a visitor")
+    for handler in (app.play, app.restart):
+        filled = special_args(handler, list(values), sentinel)[0]
+        assert filled[-1] is sentinel and filled[:-1] == values
+    for handler in (app.stop, app.leave):
+        assert special_args(handler, [], sentinel)[0] == [sentinel]

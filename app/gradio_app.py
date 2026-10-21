@@ -23,7 +23,7 @@ from tensixinet.music.patch import save_patch
 from tensixinet.ui.chart import flow_svg
 from tensixinet.ui.forms import DRAW, SOURCES, kernel_choices, new_session, patch_choices, source_choices, style_choices
 from tensixinet.ui.logview import log_html
-from tensixinet.ui.player import Player
+from tensixinet.ui.player import Busy, Visitors
 from tensixinet.ui.progress import ACTIVE, progress_html
 from tensixinet.ui.session import PREROLL_S
 
@@ -47,7 +47,26 @@ JS_CHANGE = ("(...a) => { if (window.tensixinetPlaying && window.tensixinetPlayi
              "{ %s window.tensixinetPlaying = JSON.stringify(a); } return a; }" % SILENCE)
 JS_STOP = "() => { %s window.tensixinetPlaying = null; }" % SILENCE
 
-player = Player()  # which session the page shows (see ui/player.py); the audio, chart and log below all belong to it
+DEFAULT_MAX_PLAYERS = 3  # a small machine (a Space's two CPUs) can render a few sessions at once
+LOCAL = "local"  # the visitor when there is no request (tests, or a call that did not come through the page)
+
+
+def _limit_from(env) -> int:
+    """How many visitors may play at once: TENSIXINET_MAX_PLAYERS, or the default when it is missing, not a number or below one."""
+    try:
+        limit = int(env.get("TENSIXINET_MAX_PLAYERS", DEFAULT_MAX_PLAYERS))
+    except ValueError:
+        return DEFAULT_MAX_PLAYERS
+    return limit if limit >= 1 else DEFAULT_MAX_PLAYERS
+
+
+MAX_PLAYERS = _limit_from(os.environ)
+visitors = Visitors(MAX_PLAYERS)  # which session each visitor's page shows (see ui/player.py); their audio, chart and log all belong to it
+
+
+def _key(request) -> str:
+    """The visitor: Gradio gives every open page its own session hash."""
+    return getattr(request, "session_hash", None) or LOCAL
 
 
 def _config(source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables):
@@ -57,7 +76,7 @@ def _config(source, style, seed, chips, load_s, patch_name, kernels, stereo, evi
 STOPPED_FRAME = (None, STOPPED, gr.skip(), "stopped")
 
 
-def _ended(token):
+def _ended(player, token):
     """What a stream that is no longer the current one says last. After a Stop it puts the page in the stopped state itself: a frame it sent
     just before can reach the browser after Stop's own result, and Gradio's cancel cannot recall it. After a newer Play it says nothing."""
     if not player.active and not player.is_current(token):
@@ -79,12 +98,17 @@ def _status(snap, playing):
     return playing
 
 
-def _stream(config, only_if_changed):
+def _stream(key, config, only_if_changed):
     """Claim the page for `config`, show that it is starting, end the session that was playing, then play. The claim comes first and is
     one step with the check that a change really is one: a Stop after it is honoured, because everything below asks the player if it is
     still current. Starting clears the page, so nothing of the old session is mistaken for the new one."""
     source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables = config
-    token, old = player.claim(config, only_if_changed)
+    try:
+        player, token, old = visitors.claim(key, config, only_if_changed)
+    except Busy as e:
+        yield gr.skip(), WAITING, gr.skip(), (f"busy: {e.playing} of {e.limit} places are taken by other listeners. "
+                                              "Try again in a minute, or run it yourself (see the README)")
+        return
     if token is None:
         yield gr.skip(), gr.skip(), gr.skip(), gr.skip()
         return
@@ -100,7 +124,7 @@ def _stream(config, only_if_changed):
             yield gr.skip(), WAITING, log_html([]), f"could not start: {e}"
         return
     if not player.attach(token, session):  # a Stop or a newer Play came while it was being built
-        yield from _ended(token)
+        yield from _ended(player, token)
         return
     session.start()
     status = f"playing {patch.style or 'a plain patch'} (seed {patch.seed}) from {source}"
@@ -108,7 +132,7 @@ def _stream(config, only_if_changed):
         while player.is_current(token):
             chunk = session.next_audio(timeout=0.5)
             if not player.is_current(token):
-                yield from _ended(token)  # the page belongs to a newer session or to Stop
+                yield from _ended(player, token)  # the page belongs to a newer session or to Stop
                 return
             snap = session.snapshot()
             if snap.error:
@@ -120,25 +144,32 @@ def _stream(config, only_if_changed):
             if not snap.running and chunk is None:
                 player.finish(token)
                 return
-        yield from _ended(token)  # the loop ended because the page moved on
+        yield from _ended(player, token)  # the loop ended because the page moved on
     finally:
         session.stop()
 
 
-def play(*settings):
-    """Play with the page's settings, ending whatever was playing."""
-    yield from _stream(_config(*settings), only_if_changed=False)
+# The handlers name every setting so that Gradio finds the `request` parameter (it does not look for one after a *args), which is how each
+# visitor is told from the next.
+def play(source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables, request: gr.Request = None):
+    """Play with the page's settings, ending whatever this visitor was playing."""
+    yield from _stream(_key(request), _config(source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables), only_if_changed=False)
 
 
-def restart(*settings):
-    """A setting changed. While something is playing and the settings differ, play again with them; otherwise leave the page as it is until Play."""
-    yield from _stream(_config(*settings), only_if_changed=True)
+def restart(source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables, request: gr.Request = None):
+    """A setting changed. While this visitor is playing and the settings differ, play again with them; otherwise leave the page as it is until Play."""
+    yield from _stream(_key(request), _config(source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables), only_if_changed=True)
 
 
-def stop():
-    """Stop, and empty the audio player: the browser would go on playing what it had already buffered."""
-    player.stop()
+def stop(request: gr.Request = None):
+    """Stop this visitor's session, and empty their audio player: the browser would go on playing what it had already buffered."""
+    visitors.player(_key(request)).stop()
     return None, STOPPED, "stopped"
+
+
+def leave(request: gr.Request = None):
+    """The visitor closed the page or lost the connection: end their session and give the place back."""
+    visitors.drop(_key(request))
 
 
 def build() -> gr.Blocks:
@@ -177,6 +208,7 @@ def build() -> gr.Blocks:
         for control, event in ((source, "input"), (style, "input"), (patch_name, "input"), (kernels, "input"), (stereo, "input"),
                                (evict, "input"), (cables, "input"), (chips, "release"), (load_s, "release"), (seed, "blur"), (seed, "submit")):
             streams.append(getattr(control, event)(restart, inputs, outputs, concurrency_limit=None, trigger_mode="multiple", js=JS_CHANGE))
+        demo.unload(leave)
         stop_btn.click(stop, None, [audio, chart, status], js=JS_STOP)  # every stream ends itself within half a second of the player moving on
     return demo
 

@@ -104,3 +104,118 @@ def test_a_change_after_the_session_ended_or_was_stopped_is_refused():
     p.begin("a")
     p.stop()
     assert p.claim("b", only_if_changed=True) == (None, None)
+
+
+# --- Visitors: one Player for each person on the page ---------------------------------------------------------
+
+import threading
+
+import pytest
+
+from tensixinet.ui.player import Busy, Visitors
+
+
+def test_each_visitor_has_their_own_player_and_the_same_visitor_always_gets_the_same_one():
+    v = Visitors(limit=5)
+    assert v.player("a") is v.player("a") and v.player("a") is not v.player("b")
+
+
+def test_one_visitors_stop_does_not_touch_anothers_session():
+    v, sa, sb = Visitors(5), FakeSession(), FakeSession()
+    pa, ta, _ = v.claim("a", "x")
+    pb, tb, _ = v.claim("b", "y")
+    pa.attach(ta, sa)
+    pb.attach(tb, sb)
+    v.player("a").stop()
+    assert sa.stopped == 1 and sb.stopped == 0 and pb.is_current(tb) and pb.active and pb.config == "y"
+
+
+def test_a_new_play_by_one_visitor_leaves_the_others_playing():
+    v, sb = Visitors(5), FakeSession()
+    pb, tb, _ = v.claim("b", "y")
+    pb.attach(tb, sb)
+    v.claim("a", "x")
+    v.claim("a", "x2")
+    assert sb.stopped == 0 and pb.is_current(tb)
+
+
+def test_a_play_that_would_pass_the_limit_is_refused_with_the_numbers():
+    v = Visitors(limit=2)
+    v.claim("a", 1)
+    v.claim("b", 1)
+    with pytest.raises(Busy) as e:
+        v.claim("c", 1)
+    assert e.value.playing == 2 and e.value.limit == 2 and "2" in str(e.value)
+    assert not v.player("c").active                       # the refused visitor was not made to play
+
+
+def test_a_visitor_who_is_already_playing_can_play_again_at_the_limit_and_a_change_is_not_refused():
+    v = Visitors(limit=1)
+    v.claim("a", 1)
+    assert v.claim("a", 2)[1] is not None                 # Play again
+    assert v.claim("a", 3, only_if_changed=True)[1] is not None   # a change of setting
+
+
+def test_a_place_opens_when_someone_stops_or_leaves_or_their_session_ends():
+    v = Visitors(limit=1)
+    pa, ta, _ = v.claim("a", 1)
+    pa.stop()
+    assert v.claim("b", 1)[1] is not None
+    v.drop("b")
+    assert v.claim("c", 1)[1] is not None
+    v.player("c").finish(v.player("c")._epoch)
+    assert v.claim("d", 1)[1] is not None
+
+
+def test_only_players_that_are_playing_count_towards_the_limit_not_everyone_who_has_the_page_open():
+    v = Visitors(limit=1)
+    for key in "abcde":
+        v.player(key)                                     # five people looking at the page
+    assert v.playing() == 0 and v.claim("a", 1)[1] is not None
+
+
+def test_dropping_a_visitor_stops_their_session_and_forgets_them_and_dropping_a_stranger_is_fine():
+    v, s = Visitors(5), FakeSession()
+    p, t, _ = v.claim("a", 1)
+    p.attach(t, s)
+    v.drop("a")
+    assert s.stopped == 1 and len(v) == 0
+    v.drop("nobody")
+    assert v.player("a") is not p                         # a visitor who comes back starts fresh
+
+
+def test_claiming_hands_back_the_session_that_was_playing_for_that_visitor_only():
+    v, sa, sb = Visitors(5), FakeSession(), FakeSession()
+    pa, ta, _ = v.claim("a", 1)
+    pa.attach(ta, sa)
+    pb, tb, _ = v.claim("b", 1)
+    pb.attach(tb, sb)
+    _, _, old = v.claim("a", 2)
+    assert old is sa and sa.stopped == 0                  # handed over to be stopped by the caller, as Player.claim does
+
+
+def test_the_limit_holds_when_many_visitors_press_play_at_once(monkeypatch):
+    import time
+    v, ok, busy = Visitors(limit=3), [], []
+    count = Visitors.playing
+    monkeypatch.setattr(Visitors, "playing", lambda self: (lambda n: (time.sleep(0.002), n)[1])(count(self)))   # the count goes stale before the claim, unless the registry's lock holds the two together
+    def press(i):
+        try:
+            v.claim(f"v{i}", i)
+            ok.append(i)
+        except Busy:
+            busy.append(i)
+    threads = [threading.Thread(target=press, args=(i,)) for i in range(40)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert len(ok) == 3 and len(busy) == 37 and v.playing() == 3
+
+
+def test_reset_stops_everyone_and_forgets_them_and_a_limit_of_nothing_is_refused():
+    v, s = Visitors(5), FakeSession()
+    p, t, _ = v.claim("a", 1)
+    p.attach(t, s)
+    v.reset()
+    assert s.stopped == 1 and len(v) == 0
+    with pytest.raises(ValueError):
+        Visitors(0)

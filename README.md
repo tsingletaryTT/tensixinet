@@ -196,6 +196,9 @@ or a saved `*.patch.json`, and a seed. It needs no gozer lease.
 Play starts a session. While it plays, changing any setting plays again with the change, and a change that leaves the settings as they were does nothing. Stop ends it,
 empties the chart and stops the audio at once. Pressing Stop while a session is still starting also stops it.
 
+Each person with the page open has their own session: one person's Play, Stop and changes do not touch anyone else's. Every session runs a render thread (and chip workers in the
+simulator mode), so only `TENSIXINET_MAX_PLAYERS` people (default 3) can be playing at once. The next person to press Play is told the places are taken, and a place is free again when someone presses Stop or closes the page.
+
 The page's audio player is kept about ten seconds ahead (`PREROLL_S` in `ui/session.py`), so it does not run dry between segments. That puts the sound ten seconds behind the chips;
 the chart and the log follow the sound, and change segment when you reach it.
 
