@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
-# Left pane of the "every feature" demo: tensixinet --live, reading the real chips every turn.
+# Left pane of the "every feature" demo: tensixinet --live, reading the real chips every turn, with the kernel devices on the chips.
 #
-# Read-only (tt-smi -s each turn), so this needs no gozer lease. --player none paces the
+# `--kernels chips` takes one gozer lease on every chip the run plays, so the chips must be free; tt-toplike on the right only reads them. --player none paces the
 # output at the speed of the music with no sound device, and --out still writes the WAV that
 # demo/build.sh later muxes under the recording as its soundtrack. DEMO_SECONDS must match the
 # scene duration in demos.yaml.
 cd "$(dirname "$0")/.." || exit 1
 clear
 export COLORTERM=truecolor
-echo '$ tensixinet --live --duration 110'
+echo '$ tensixinet --live --kernels chips --duration 110'
 echo
-echo "live: reading the real chips every turn (tt-smi -s, read-only) and playing as it goes."
-echo "all eleven devices, patch-drawn cables between them, turn-taking, EQ, loudness."
+echo "live: reading the real chips every turn (tt-smi -s) and playing as it goes, the kernel devices on the chips themselves."
+echo "all eleven devices, patch-drawn cables, the coco bus, rests, turn-taking, EQ, loudness."
 echo
 python3 -m tensixinet --live \
+  --kernels chips \
   --color always \
   --duration "${DEMO_SECONDS:-110}" \
   --player none \

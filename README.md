@@ -13,8 +13,8 @@ chips runs its own gong, shimmer, drone ripple, AVDog and delay mix as TT-Lang k
 [tt-toplike](https://github.com/tenstorrent/tt-toplike) watching the same chips. The soundtrack is what the chips made.*
 
 Two earlier demos are in the repo: a 50-second one that starts from a prompt to the language model
-(`demo/assets/chorus.final.mp4`), and a 2-minute one of every feature at once on the CPU
-(`demo/assets/features.final.mp4`).
+(`demo/assets/chorus.final.mp4`), and a 2-minute one of every feature at once, with the kernel devices on the chips
+(`demo/assets/features.final.mp4`). The site also has the stereo and evict recording, the style samples and a recording of a chip reset.
 
 Every chip reports its temperature, clock, power, current, memory temperatures, DDR status, harvesting and
 more. tensixinet turns those readings into music. Each chip joins a small band of synthesizers inspired by

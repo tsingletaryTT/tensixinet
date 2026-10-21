@@ -14,28 +14,28 @@ scenes:
     caption: "The prompt drives the chips serving the model (chips 2 and 3 here). Every chip's telemetry becomes a Ciat-Lonbarde-style voice, and the log says why."
 
   - id: features
-    title: "Every feature at once: live mode, all eleven devices, patch cables, tt-toplike rotating through every view"
+    title: "Every feature at once: live mode, all eleven devices, patch cables, the coco bus and rests, beside tt-toplike's arcade"
     layout: split
     left:  { run: "demo/left_pane_features.sh", wait_for: "played .*s in" }
-    right: { run: "tt-toplike {backend} --rotate" }
+    right: { run: "tt-toplike {backend} --mode arcade" }
     split_ratio: 45
     duration: 120s
-    caption: "tensixinet --live reads the real chips every turn: all eleven devices (ttrollz through ttcoco), the patch's cross-modulation cables, turn-taking, EQ and loudness, read-only. tt-toplike --rotate cycles unattended through every view of the same four chips: the table, the starfield, memory castle, memory flow, arcade, HivemindSweeper and the training monitor."
+    caption: "tensixinet --live reads the real chips every turn: all eleven devices (ttrollz through ttcoco), the patch's cross-modulation cables, the coco bus, rests, turn-taking, EQ and loudness. With --kernels chips the gong, shimmer, drone ripple, AVDog and delay mix run as TT-Lang kernels on the chips being read. tt-toplike's arcade view shows the same four chips as they change."
 
   - id: kernels
     title: "The soundtrack on the chips: TT-Lang kernels on all four chips, and the colour-coded run log beside tt-toplike"
     layout: split
     left:  { run: "demo/left_pane_kernels.sh", wait_for: "played .*s in" }
-    right: { run: "tt-toplike {backend} --rotate" }
+    right: { run: "tt-toplike {backend} --mode arcade" }
     split_ratio: 45
     duration: 110s
-    caption: "tensixinet --live --kernels chips: one gozer lease on both boards, and each chip runs its own gong, shimmer, drone ripple, AVDog and ttcoco mix, plus the final mixer, as TT-Lang kernels. The rest of the band stays on the CPU. The run log is coloured by the Ciat-Lonbarde jack colours (blue readings, green who plays, purple patch and cables, white audio, orange discovery, red events) and each chip and device keeps its own colour. tt-toplike --rotate cycles through every view of the same four chips."
+    caption: "tensixinet --live --kernels chips: one gozer lease on both boards, and each chip runs its own gong, shimmer, drone ripple, AVDog and ttcoco mix, plus the final mixer, as TT-Lang kernels. The rest of the band stays on the CPU. The run log is coloured by the Ciat-Lonbarde jack colours (blue readings, green who plays, purple patch and cables, white audio, orange discovery, red events) and each chip and device keeps its own colour. tt-toplike's arcade view shows the same four chips."
 
   - id: stereo
     title: "The band in a stereo field, and a chip's model unloading changing the music, beside tt-toplike"
     layout: split
     left:  { run: "demo/left_pane_stereo.sh", wait_for: "played .*s in" }
-    right: { run: "tt-toplike {backend} --rotate" }
+    right: { run: "tt-toplike {backend} --mode arcade" }
     split_ratio: 45
     duration: 130s
-    caption: "tensixinet --live on the real chips while Qwen3-Coder-Next, on two of them, is prompted in bursts. Each voice sits at its own place in a stereo field, some fixed and some travelling, and the log says where. When a chip falls back from a load it evicts, as in tt-toplike's defrag view: its voices dissolve right to left, it goes quiet, and they fill back left to right when the load returns. Chip 1 evicts after a 173 W prefill burst; chip 2, with no model, evicts on a 27 W blip; chip 0 never crosses the rule, because the live loop reads the chips about once a turn. tt-toplike --rotate shows the same four chips."
+    caption: "tensixinet --live on the real chips while Qwen3-Coder-Next, on two of them, is prompted in bursts. Each voice sits at its own place in a stereo field, some fixed and some travelling, and the log says where. When a chip falls back from a load it evicts, as in tt-toplike's defrag view: its voices dissolve right to left, it goes quiet, and they fill back left to right when the load returns. Chip 1 evicts at 1:08 after a burst that peaked at 113 W and fills again at 1:41 when the next burst arrives; chip 2, with no model, evicts at 1:28 on a 27 W blip; chip 0 never crosses the rule, because the model's draw is spiky and the live loop reads the chips about once a turn. tt-toplike's arcade view shows the same four chips."

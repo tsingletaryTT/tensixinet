@@ -10,7 +10,9 @@
 cd "$(dirname "$0")/.." || exit 1
 clear
 export COLORTERM=truecolor
-python3 demo/load_prompts.py --lead 10 --burst 30 --rest 40 --cycles 2 > /dev/null 2>&1 &
+# three bursts: the model's draw is spiky (120 to 170 W for a moment, 45 to 60 W between), and the loop reads a chip about once a turn,
+# so a recording needs several chances for a read to land in a load and again in the rest after it
+python3 demo/load_prompts.py --lead 6 --burst 24 --rest 20 --cycles 3 > /dev/null 2>&1 &
 LOAD=$!
 trap 'kill $LOAD 2>/dev/null' EXIT
 printf '\033[1;38;2;79;209;197m$\033[0m tensixinet --live --duration %s   \033[2m# a model on two chips, prompted in bursts\033[0m\n\n' "${DEMO_SECONDS:-120}"

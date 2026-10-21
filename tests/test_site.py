@@ -198,3 +198,70 @@ def test_the_app_section_shows_the_screenshot_gives_the_commands_and_says_it_doe
     port = _re.search(r"^port:\s*(\d+)", (SITE.parent / ".disco" / "app.yaml").read_text(), _re.M).group(1)
     assert f"localhost:{port}" in section and ".venv-app/bin/python app/gradio_app.py" in section
     assert "does not run on this page" in section and "tt-discolike" in section
+
+
+# --- the snare's odds, the delay bus and the rests: their numbers must be the code's ---------------------------------------------
+
+def test_the_rhythm_section_gives_the_route_and_snare_odds_the_seed_uses():
+    from tensixinet.music.patch import SNARE_LEVELS, SNARE_ODDS, STEAM_ROUTE_COUNT_ODDS, STEAM_ROUTE_WEIGHTS
+    section = HTML[HTML.index('id="rhythm"'): HTML.index('id="bus"')]
+    names = ("no route", "one", "two", "three")
+    for name, odds in zip(names, STEAM_ROUTE_COUNT_ODDS):
+        assert f"{name} ({odds:.0%})" in section, name
+    assert f"drawn {STEAM_ROUTE_WEIGHTS[0]:g} times as often" in section
+    assert [f"({o:.0%})" for o in SNARE_ODDS] == ["(40%)", "(30%)", "(20%)", "(10%)"]
+    for text in ("none of the register's hits (40%)", "20% of them (30%)", "half of them (20%)", "all of them (10%)"):
+        assert text in section, text
+    assert SNARE_LEVELS == (0.0, 0.2, 0.5, 1.0)
+    assert "25%), one (50%)" not in section and "half as often" not in section   # the old odds are gone
+
+
+def test_the_delay_and_rests_section_states_the_buss_numbers_and_the_rests_ranges_the_code_has():
+    from tensixinet.music import cocobus
+    from tensixinet.music.devices import REST_FADE_S
+    from tensixinet.music.patch import COCO_REVERB_RANGE, COCO_SEND_RANGE, LEAD_RESTS_RANGE, RESTS_RANGE, REVERB_S_RANGE, ROLL_RESTS_RANGE
+    section = HTML[HTML.index('id="bus"'): HTML.index('id="styles"')]
+    assert 'href="#bus"' in HTML
+    pct = lambda r: f"{r[0]:.0%} to {r[1]:.0%}"
+    assert cocobus.BUS_TAPS == 4   # the page says "four"
+    for text in ("four 8-bit delay taps", f"from {cocobus.MIN_FEEDBACK:g} to 0.8", f"up to {cocobus.SWAY_DEPTH:.0%}",
+                 f"{REVERB_S_RANGE[0]:g} to {REVERB_S_RANGE[1]:g} s", f"{cocobus.REVERB_CUTOFF_HZ / 1000:g} kHz",
+                 f"{COCO_SEND_RANGE[0]:.0%} to {COCO_SEND_RANGE[1]:.0%}", pct(COCO_REVERB_RANGE), f"{REST_FADE_S * 1000:g} ms",
+                 f"{RESTS_RANGE[0]:.0%} to {RESTS_RANGE[1]:.0%}", f"{LEAD_RESTS_RANGE[0]:.0%} to {LEAD_RESTS_RANGE[1]:.0%}",
+                 f"{ROLL_RESTS_RANGE[0]:.0%} to {ROLL_RESTS_RANGE[1]:.0%}", ">coco_send, coco_reverb, reverb_s<",
+                 ">rests<", ">lead_rests, roll_rests<", "first note of a phrase"):
+        assert text in section, text
+    assert "the real unit has none" in section   # the reverb is an addition, and the page says so
+
+
+def test_each_style_has_its_own_clip_and_the_styles_table_carries_its_snare_bus_and_rest_values():
+    from tensixinet.music.styles import STYLES
+    section = HTML[HTML.index('id="styles"'): HTML.index('id="space"')]
+    for name, st in STYLES.items():
+        assert f'src="assets/audio/{name}.mp3"' in section and (SITE / "assets" / "audio" / f"{name}.mp3").is_file(), name
+        row = re.search(rf"<tr><td><code>{name}</code></td>(.*?)</tr>", section).group(1)
+        cells = re.findall(r"<td>(.*?)</td>", row)
+        assert cells == [f"{st.snare:g}", f"{st.bus[0]:g}", f"{st.bus[1]:g}", f"{st.bus[2]:g} s", f"{st.rests:g}", f"{st.pulse_rests[0]:g}", f"{st.pulse_rests[1]:g}"], name
+
+
+def test_every_audio_clip_on_the_page_exists():
+    for src in re.findall(r'<audio[^>]*src="(assets/[^"]+)"', HTML):
+        assert (SITE / src).is_file(), src
+
+
+def test_the_app_section_says_how_many_visitors_play_at_once():
+    import importlib.util
+    section = HTML[HTML.index('id="app"'): HTML.index('id="band"')]
+    assert "<code>TENSIXINET_MAX_PLAYERS</code> (3 by default)" in section
+    assert 'DEFAULT_MAX_PLAYERS = 3' in (SITE.parent / "app" / "gradio_app.py").read_text()
+
+
+def test_the_reset_clip_says_how_it_was_made_and_what_the_loop_did_while_the_chips_were_gone():
+    card = HTML[HTML.index("<h3>A chip reset</h3>"): HTML.index("assets/audio/reset.mp3")]
+    assert (SITE / "assets" / "audio" / "reset.mp3").is_file()
+    for text in ("gozer release", "tt-smi -r", "no chips in this reading", "plays the last readings that worked again", "on the CPU"):
+        assert text in card, text
+    # the loop really does say that when a reading fails, and the script that made the clip releases a lease rather than running a reset by hand
+    assert "no chips in this reading" in (SITE.parent / "tensixinet" / "live.py").read_text()
+    script = (SITE.parent / "demo" / "make_reset_clip.sh").read_text()
+    assert 'gozer release "$LEASE"' in script and "tt-smi -r" not in script.replace("the same reset `tt-smi -r` makes", "")

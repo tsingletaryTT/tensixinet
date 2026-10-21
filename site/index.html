@@ -120,7 +120,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 
 <nav><div class="wrap">
   <b>tensixinet</b>
-  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#colour">Colour</a><a href="#rhythm">Rhythm</a><a href="#styles">Styles</a><a href="#space">Space</a><a href="#app">The app</a><a href="#band">The band</a>
+  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#colour">Colour</a><a href="#rhythm">Rhythm</a><a href="#bus">Delay and rests</a><a href="#styles">Styles</a><a href="#space">Space</a><a href="#app">The app</a><a href="#band">The band</a>
   <a href="#listen">Listen</a><a href="#new">Is it new?</a><a href="#kernels">On the chip</a><a href="#hardware">Get hardware</a><a href="#credits">Credits</a>
 </div></nav>
 
@@ -136,7 +136,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   <video controls preload="metadata" poster="assets/kernels-frame.png" src="assets/kernels.mp4" width="1920" height="1080" style="max-width:100%;height:auto;border-radius:8px">
     Your browser does not play this video. <a href="assets/kernels.mp4">Download the mp4</a> instead.
   </video>
-  <p class="caption">The soundtrack made on four real chips: each chip runs its own gong, shimmer, drone ripple, AVDog and delay mix as TT-Lang kernels (<code>--kernels chips</code>), and the log is colour-coded like the Ciat-Lonbarde jacks. tt-toplike cycles through every view of the same four chips on the right (<code>--rotate</code>).</p>
+  <p class="caption">The soundtrack made on four real chips: each chip runs its own gong, shimmer, drone ripple, AVDog and delay mix as TT-Lang kernels (<code>--kernels chips</code>), and the log is colour-coded like the Ciat-Lonbarde jacks. tt-toplike's arcade view shows the same four chips on the right.</p>
 </div></header>
 
 <section id="idea"><div class="wrap">
@@ -266,7 +266,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3>Hexagon and square differ</h3><p>The square swings long and short. The hexagon swings far less and carries two threes interleaved, so it feels in triplets. These are the guide's geometries, not one pattern with a different count.</p><span class="tag">3, 4, 5 and 6 sides</span></div>
   </div>
   <h3 style="margin-top:30px">A snare that does more than sound</h3>
-  <p>ttsteam, after Man With The Red Steam, is a shift register with one step per Tensix column. A step fires where its column is harvested, so every chip has its own pattern. Four routes patch that register into other devices. A patch has no route (25%), one (50%) or two (25%), and <code>strikes</code>, the one that makes the whole band follow the snare, is drawn half as often as the others.</p>
+  <p>ttsteam, after Man With The Red Steam, is a shift register with one step per Tensix column. A step fires where its column is harvested, so every chip has its own pattern. Four routes patch that register into other devices. A patch has no route (10%), one (35%), two (35%) or three (20%), and <code>strikes</code>, the one that makes the whole band follow the register, is drawn 1.5 times as often as the others, so the gongs carry the beat. The snare itself is heard seldom: a drawn patch plays none of the register's hits (40%), 20% of them (30%), half of them (20%) or all of them (10%). The register keeps stepping at any level, so the routes still work with a silent snare.</p>
   <table>
     <thead><tr><th>route</th><th>what the register does</th></tr></thead>
     <tbody>
@@ -281,17 +281,38 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   <p class="src" style="margin-top:10px">Measured, not yet judged by ear. The chip's own clock is still a plain long-short pulse train and not one of the rolls. A gong that is not patched to a roll follows it. The guide's positive-voltage case, which slows a roll, is not modelled.</p>
 </div></section>
 
+<section id="bus"><div class="wrap">
+  <div class="kicker">Delay and rests</div>
+  <h2>A delay the whole band goes through, and silences to play against</h2>
+  <p>The Cocoquantus is two delay chips as well as a looping voice: it takes sound in and puts it through a delay that the petals move. Each chip's voices now go through four 8-bit delay taps, one for every second GDDR channel. Temperature sets a tap's delay, the delay sets its bit depth (a shorter buffer holds more bits), and pressure raises the feedback from 0.25 to 0.8. A petal's castle sways each tap's delay by up to 35%, so the echoes bend. The echoes and the dry send then pass through a convolution reverb (noise that falls 60 dB over 0.8 to 3.5 s, rolled off at 4 kHz, a different room for each ear). The reverb is an addition: the real unit has none. The bus runs on the CPU. The two coco devices send nothing into it, because they are the delay.</p>
+  <div class="grid">
+    <div class="card"><h3>Send, room and time</h3><p>A drawn patch sends 25% to 80% of the band, mixes in 15% to 50% room, and sets the room's time from 0.8 to 3.5 s. The default patch and any patch saved earlier send nothing, so they sound as before.</p><span class="tag">coco_send, coco_reverb, reverb_s</span></div>
+    <div class="card"><h3>Rests in the coco</h3><p>Sample-and-hold makes silences as well as notes. A second castle, reading a different petal than the note castle, is held for each note, and a note under the patch's value is silent, with the edges glided over 5 ms. A drawn patch rests 15% to 45% of the coco's notes, and every <code>ttcoco</code> echo carries the gaps.</p><span class="tag">rests</span></div>
+    <div class="card"><h3>Rests in the lead and the rolls</h3><p>The lead leaves out 10% to 30% of its notes, but always plays the first note of a phrase. ttrollz leaves out 10% to 30% of its clock and lane pulses, each lane on its own pattern. The rolls themselves run whole, so the gong still follows every pulse.</p><span class="tag">lead_rests, roll_rests</span></div>
+  </div>
+  <p class="src" style="margin-top:10px">Heard by the owner of the code, who said the rests sound better. The bus and its levels are measured. A 20 s stereo render on four synthetic chips went from 2.6 s to 4.1 s with the bus on.</p>
+</div></section>
+
 <section id="styles"><div class="wrap">
   <div class="kicker">Styles</div>
   <h2>Four ways in, for listeners who want a genre first</h2>
   <p>A style is a named patch. It narrows what a run may draw (the scales, the gong tunings, how long and how leaping the lead's motif is, how long a turn lasts, which steam routes are on) and sets a balance for the band, a factor on each device's level and on how often it gets the floor. The system still picks which of the style's scales and tunings from the chips' readings, and the seed draws the rest, so no two runs of a style match. These are sketches of a sound, not imitations: the devices are the devices.</p>
   <div class="grid">
-    <div class="card"><h3><code>--style chiptune</code></h3><p>Square-ish and quick: short turns, bright bells, a small four-barre ttrax, and the 8-bit ttquantus and the lead out in front with the rolls and the snare keeping it snappy.</p><span class="tag">scales: major pentatonic, mixolydian, minor pentatonic, dorian</span></div>
-    <div class="card"><h3><code>--style enya</code></h3><p>Slow, modal and spacious: long turns, singing bowls and glass, the choir and the drone in front, the delay taps filling the room, and hardly any snare.</p><span class="tag">scales: dorian, lydian, major pentatonic, mixolydian</span></div>
-    <div class="card"><h3><code>--style blues</code></h3><p>A twelve-note phrase over the blues scales, four bars to a turn so three turns make twelve bars, the ttrax organ and the lead up front, and the snare on the back beat.</p><span class="tag">scales: blues, mixolydian, minor pentatonic, dorian</span></div>
-    <div class="card"><h3><code>--style aphex</code></h3><p>Restless and odd-metered: eight-note scales, motifs of seven, nine or ten notes with big leaps, short turns, fast metallic gongs, two steam routes on, and the rolls, the AVDog and the delay taps doing the talking with the snare in the mix.</p><span class="tag">scales: octatonic, augmented, whole tone, hungarian minor, double harmonic, prometheus</span></div>
+    <div class="card"><h3><code>--style chiptune</code></h3><p>Square-ish and quick: short turns, bright bells, a small four-barre ttrax, and the 8-bit ttquantus and the lead out in front with the rolls and the snare keeping it snappy.</p><span class="tag">scales: major pentatonic, mixolydian, minor pentatonic, dorian</span><audio controls preload="none" src="assets/audio/chiptune.mp3"></audio></div>
+    <div class="card"><h3><code>--style enya</code></h3><p>Slow, modal and spacious: long turns, singing bowls and glass, the choir and the drone in front, the delay taps filling the room, and hardly any snare.</p><span class="tag">scales: dorian, lydian, major pentatonic, mixolydian</span><audio controls preload="none" src="assets/audio/enya.mp3"></audio></div>
+    <div class="card"><h3><code>--style blues</code></h3><p>A twelve-note phrase over the blues scales, four bars to a turn so three turns make twelve bars, the ttrax organ and the lead up front, and the snare on the back beat.</p><span class="tag">scales: blues, mixolydian, minor pentatonic, dorian</span><audio controls preload="none" src="assets/audio/blues.mp3"></audio></div>
+    <div class="card"><h3><code>--style aphex</code></h3><p>Restless and odd-metered: eight-note scales, motifs of seven, nine or ten notes with big leaps, short turns, fast metallic gongs, two steam routes on, and the rolls, the AVDog and the delay taps doing the talking with the snare in the mix.</p><span class="tag">scales: octatonic, augmented, whole tone, hungarian minor, double harmonic, prometheus</span><audio controls preload="none" src="assets/audio/aphex.mp3"></audio></div>
   </div>
-  <p class="src" style="margin-top:10px">Try <code>tensixinet --live --style enya</code>. A saved patch keeps its style and its balance, and replays with <code>--patch</code>.</p>
+  <table>
+    <thead><tr><th>style</th><th>snare</th><th>coco send</th><th>room</th><th>room time</th><th>coco rests</th><th>lead rests</th><th>roll rests</th></tr></thead>
+    <tbody>
+      <tr><td><code>chiptune</code></td><td>0.5</td><td>0.4</td><td>0.1</td><td>0.6 s</td><td>0.25</td><td>0.1</td><td>0.15</td></tr>
+      <tr><td><code>enya</code></td><td>0.1</td><td>0.8</td><td>0.5</td><td>3.5 s</td><td>0.3</td><td>0.2</td><td>0.2</td></tr>
+      <tr><td><code>blues</code></td><td>0.5</td><td>0.3</td><td>0.3</td><td>1.4 s</td><td>0.35</td><td>0.25</td><td>0.2</td></tr>
+      <tr><td><code>aphex</code></td><td>0.6</td><td>0.7</td><td>0.25</td><td>1 s</td><td>0.4</td><td>0.15</td><td>0.3</td></tr>
+    </tbody>
+  </table>
+  <p class="src" style="margin-top:10px">Each clip is forty seconds from the four real chips with patch seed 5, with the kernel devices on the chips. Try <code>tensixinet --live --style enya</code>. A saved patch keeps its style and its balance, and replays with <code>--patch</code>.</p>
 </div></section>
 
 <section id="space"><div class="wrap">
@@ -304,7 +325,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3>Motion from inside the devices</h3><p>The AVDog's white and red voices swing between the two ears. The shimmer pans at its own beat. Each gong strike lands somewhere new and settles. ttquantus pans with its pitch, ttrollz hops lane to lane, the snare alternates sides and the drone comes forward as it ripples.</p><span class="tag">the devices' own signals</span></div>
   </div>
   <h3 style="margin-top:30px">Evict: when a chip's model unloads</h3>
-  <p>tt-toplike's defrag view marks a chip EVICT when it has been running, has seen a load, and falls back to rest. tensixinet follows the same rule on each chip's power, and the moment it fires the band changes. A chip has seen a load when its power rose above 1.5 times its learned rest, or above 30% of its TDP. It evicts when the power falls back to 1.2 times rest or less, with rest never counted below 8 W. A chip that only ever idles never evicts.</p>
+  <p>tt-toplike's defrag view marks a chip EVICT when it has been running, has seen a load, and falls back to rest. tensixinet follows the same rule on each chip's power, and the moment it fires the band changes. A chip has seen a load when its power rose above 1.5 times its learned rest, or, while it has no rest yet, above 30% of its TDP. It evicts when the power falls back to 1.2 times rest or less, with rest never counted below 8 W. A chip that only ever idles never evicts.</p>
   <ul class="plain">
     <li><b>Dissolve.</b> The chip's voices fade out one after another, right to left across the field, each at its own prime-multiplied rate, over 8 s, with a falling noise sweep that travels the same way.</li>
     <li><b>Quiet.</b> The empty chip goes silent and almost never has the floor, so the others take its turns.</li>
@@ -312,10 +333,10 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   </ul>
   <div class="diagram" style="margin-top:20px">
     <video controls preload="none" poster="assets/stereo-frame.png" src="assets/stereo.mp4" style="width:100%;border-radius:8px"></video>
-    <p class="caption">The real chips, with Qwen3-Coder-Next on two of them and long prompts sent to it in bursts, beside tt-toplike on the same four chips. Chip 1 evicts at 1:25, just after a prefill burst that peaked at 173 W, and fills again at 1:33. Chip 2 has no model and evicts twice on a 27 W blip, because the rule counts anything over 1.5 times its 14 W rest. Chip 0 never crosses the rule: the live loop reads the chips about once a turn and misses most of the short spikes.</p>
+    <p class="caption">The real chips, with Qwen3-Coder-Next on two of them and long prompts sent to it in bursts, beside tt-toplike on the same four chips. Chip 1 evicts at 1:08, after a burst that peaked at 113 W, and fills again at 1:41 when the next burst arrives. Chip 2 has no model and evicts at 1:28 on a 27 W blip, because the rule counts anything over 1.5 times its 13 W rest. Chip 0 never crosses the rule: the model's draw is spiky and the live loop reads the chips about once a turn, so it misses most of the spikes.</p>
   </div>
   <div class="players" style="margin-top:16px">
-    <div class="card"><h3>Stereo and evictions</h3><p>Sixty seconds from that run, with chip 1's eviction and fill in the middle. Best on headphones.</p><audio controls preload="none" src="assets/audio/stereo.mp3"></audio></div>
+    <div class="card"><h3>Stereo and evictions</h3><p>Sixty seconds from that run, with chip 1's eviction and fill and chip 2's blip. Best on headphones.</p><audio controls preload="none" src="assets/audio/stereo.mp3"></audio></div>
   </div>
   <p class="src" style="margin-top:10px">Try <code>tensixinet --live --mock-chips 4 --mock-load 60</code> to hear an eviction without a model (<code>--mock-load</code> is the cycle length in seconds). <code>--no-evict</code> turns the eviction off. Measured, not yet judged by ear: over 20 s on four chips the two channels correlate at 0.27 and the left-right balance moves between -3 and +7 dB.</p>
 </div></section>
@@ -323,7 +344,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 <section id="app"><div class="wrap">
   <div class="kicker">The app</div>
   <h2>A live picture of what is playing</h2>
-  <p>A Gradio page draws the music as it plays and leaves the sound alone. Each chip shows its temperature, power, pressure and chaos and is wired to the devices it plays. Each device carries a bar for its share of the floor, the patch cables arc between devices, and a stereo field shows where every voice sits. The run log is beside it. You choose the source (synthetic chips with an optional load cycle, or the real chips read with <code>tt-smi</code>), a style or a saved patch, and a seed.</p>
+  <p>A Gradio page draws the music as it plays and leaves the sound alone. Each chip shows its temperature, power, pressure and chaos and is wired to the devices it plays. Each device carries a bar for its share of the floor, the patch cables arc between devices, and a stereo field shows where every voice sits. The run log is beside it. You choose the source (synthetic chips with an optional load cycle, or the real chips read with <code>tt-smi</code>), a style or a saved patch, and a seed. Each person who opens the page gets a session of their own. Only <code>TENSIXINET_MAX_PLAYERS</code> (3 by default) can be playing at once, and the next to press Play is told the places are taken.</p>
   <div class="diagram"><img src="assets/app.png" alt="The app: an animated chart of the chips, the devices dealt to them, the patch cables and the stereo field, with the run log beside it" style="width:100%;border-radius:8px"></div>
   <p>The app does not run on this page. It needs Python and the tensixinet code, so it runs on your machine:</p>
   <pre><code>uv venv .venv-app &amp;&amp; uv pip install --python .venv-app/bin/python "gradio&gt;=5" numpy soundfile -e .
@@ -341,7 +362,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 <section id="listen"><div class="wrap">
   <div class="kicker">Listen</div>
   <h2>What the chips played</h2>
-  <p>Thirty seconds each, in stereo, from the four real chips with patch seed 5. The readings differ from run to run, so a rerun sounds different. <code>tensixinet --mock-chips 4 --patch-seed 5</code> gives a reproducible version from synthetic chips. The first two are the whole band, with and without cables.</p>
+  <p>Thirty seconds each, in stereo, from the four real chips with patch seed 5 and the kernel devices (gong, shimmer, drone ripple, AVDog and the delay mix) running on the chips (<code>--kernels chips</code>). The four styles are in Styles above. The readings differ from run to run, so a rerun sounds different. <code>tensixinet --mock-chips 4 --patch-seed 5</code> gives a reproducible version from synthetic chips. The first two are the whole band, with and without cables.</p>
   <div class="players">
     <div class="card"><h3>The whole band, cables on</h3><p>All eleven devices, cross-patched, with turn-taking.</p><audio controls preload="none" src="assets/audio/all.mp3"></audio></div>
     <div class="card"><h3>The same patch, no cables</h3><p>The same chips and seed with <code>--no-cables</code>. Play it after the first.</p><audio controls preload="none" src="assets/audio/all_nocables.mp3"></audio></div>
@@ -349,11 +370,12 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3>ttavdog</h3><p>A shock wave that undulates, with a second voice answering on the other half with the opposite slope.</p><audio controls preload="none" src="assets/audio/avdog.mp3"></audio></div>
     <div class="card"><h3>gong</h3><p>Inharmonic partials that beat against detuned copies, struck on the chip's own clock.</p><audio controls preload="none" src="assets/audio/gong.mp3"></audio></div>
     <div class="card"><h3>ttrax</h3><p>4, 7 or 14 barres (Tetrax, Sidrax or Quatrax), each an oscillator bouncing between walls the readings set.</p><audio controls preload="none" src="assets/audio/trax.mp3"></audio></div>
+    <div class="card"><h3>A chip reset</h3><p>The band reading all four chips while <code>gozer release</code> resets them, which is the reset <code>tt-smi -r</code> makes. For about 40 s <code>tt-smi</code> cannot see the chips: the loop logs "no chips in this reading" 19 times in a row and plays the last readings that worked again with no movement. The chips come back cold, at 13 to 15 W, and a few of them evict and fill on blips as they settle. The soundtrack is on the CPU, because the kernels need the chips that are being reset.</p><audio controls preload="none" src="assets/audio/reset.mp3"></audio></div>
   </div>
   <div class="diagram" style="margin-top:24px">
-    <h3 style="margin-bottom:12px">The earlier recording</h3>
+    <h3 style="margin-bottom:12px">The every-feature recording</h3>
     <video controls preload="none" poster="assets/features-frame.png" src="assets/features.mp4" style="width:100%;border-radius:8px"></video>
-    <p class="caption">All eleven devices at once on the CPU, read live from four real chips, with tt-toplike cycling through every view on the right.</p>
+    <p class="caption">All eleven devices at once, read live from four real chips with the kernel devices running on them, the coco bus and the rests in, and tt-toplike's arcade view on the right.</p>
   </div>
   <div class="note">The author of the code cannot hear. Every level, spectrum and timing here was measured, and the sound was judged by an owner of the real instruments, who found it in the right spirit. The EQ curve and the loudness target are starting points.</div>
 </div></section>

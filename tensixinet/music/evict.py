@@ -49,9 +49,11 @@ PRESENCE = {"running": 1.0, "filling": 0.6, "evicting": 0.25, "idle": 0.05}  # a
 
 
 def shows_load(power_ema: float, idle_power: float, tdp_limit: Optional[float]) -> bool:
-    """Whether power says the chip is doing work: against its own learned rest, or (when none has been seen, `idle_power` 0) against its TDP."""
-    if idle_power > 0.0 and power_ema > idle_power * LOAD_SURGE_FACTOR:
-        return True
+    """Whether power says the chip is doing work: against its own learned rest, or (only while none has been seen, `idle_power` 0) against its TDP.
+    Once a rest is known the TDP no longer counts: a chip that rests near 30% of its limit (this box's rest is 36 to 40 W against 37.5 W) would
+    otherwise cross the line at rest, count each crossing as a load and evict every time it fell back."""
+    if idle_power > 0.0:
+        return power_ema > idle_power * LOAD_SURGE_FACTOR
     return bool(tdp_limit and tdp_limit > 0.0 and power_ema > tdp_limit * RUN_TDP_FRACTION)
 
 

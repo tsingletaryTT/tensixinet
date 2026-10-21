@@ -35,6 +35,19 @@ def test_a_chip_shows_a_load_above_one_and_a_half_times_its_rest_or_above_a_thir
     assert not shows_load(60.0, 0.0, None) and not shows_load(60.0, 0.0, 0.0)          # no limit to compare with, and no rest
 
 
+def test_once_a_rest_is_known_only_one_and_a_half_times_it_counts_as_a_load_whatever_the_tdp_says():
+    assert not shows_load(40.0, 36.0, 125.0)      # 40 W is over 30% of 125 W, but it is 1.1 times this chip's own rest
+    assert not shows_load(54.0, 36.0, 125.0) and shows_load(55.0, 36.0, 125.0)   # 1.5 times 36 W is 54 W
+    assert shows_load(30.0, 0.5, 125.0)            # even a tiny known rest is a rest: 30 W is far over it, though under 30% of the limit
+
+
+def test_a_chip_that_rests_near_a_third_of_its_tdp_does_not_evict_as_its_power_wanders_across_that_line():
+    """This box's chips rest at 36 to 40 W, and 30% of a 125 W limit is 37.5 W. Wandering across the line is not a load."""
+    t = EvictTracker()
+    phases = feed(t, [36.0, 36.5, 36.0, 36.2] + [36.0, 39.0, 37.0, 40.0, 36.5, 39.5] * 20)
+    assert {p for p, _ in phases} == {"running"} and not t.take_events()
+
+
 def test_a_chip_evicts_only_after_a_load_when_it_has_fallen_back_near_rest_and_has_run_a_while():
     assert evict_eligible(60.0, 17.0, 15.0, saw_load=True)                              # at most 1.2 times 15 W is 18 W
     assert not evict_eligible(60.0, 19.0, 15.0, saw_load=True)
