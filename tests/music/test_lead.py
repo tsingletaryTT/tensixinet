@@ -180,3 +180,54 @@ def test_degrees_walk_whatever_scale_they_are_given():
     assert degree_to_semitones(6, SCALES["whole_tone"]) == 12      # 6 steps of a 6-note scale is an octave
     assert degree_to_semitones(1, SCALES["dorian"]) == 2
     assert degree_to_semitones(-1, SCALES["dorian"]) == -2         # 10 semitones, one octave down
+
+
+# --- rests: some of the motif's notes are left out ------------------------------------------------------------------
+
+EIGHTH = SR // 4  # an eighth at 120 BPM
+
+
+def _slots(audio, n_phrases, per_phrase):
+    """The audio cut into one slot for each note of each phrase."""
+    return np.array(audio[: n_phrases * per_phrase * EIGHTH]).reshape(n_phrases * per_phrase, EIGHTH)
+
+
+def _played(audio, n_phrases, per_phrase):
+    return np.abs(_slots(audio, n_phrases, per_phrase)).max(axis=1) > 1e-6
+
+
+def test_lead_rests_leave_out_whole_notes_and_play_the_rest_exactly_as_before():
+    t = tel((30.0,) * 4)
+    plain = lead(t, 40.0, SR, 3)
+    rested = lead(t, 40.0, SR, 3, patch=dataclasses.replace(DEFAULT_PATCH, lead_rests=0.4))
+    per = len(DEFAULT_PATCH.motif)
+    n_slots = 40 * SR // EIGHTH // per * per
+    played = _played(rested, n_slots // per, per)
+    assert 0.3 < 1 - played.mean() < 0.5
+    keep = np.repeat(played, EIGHTH)
+    assert np.array_equal(rested[: len(keep)][keep], plain[: len(keep)][keep])
+    assert not rested[: len(keep)][~keep].any()
+
+
+def test_the_first_note_of_every_phrase_plays_however_much_rests():
+    t = tel((30.0,) * 4)
+    per = len(DEFAULT_PATCH.motif)
+    audio = lead(t, 40.0, SR, 3, patch=dataclasses.replace(DEFAULT_PATCH, lead_rests=0.97))
+    played = _played(audio, 40 * SR // EIGHTH // per, per)
+    assert played[::per].all() and 1 - played.mean() > 0.8
+
+
+def test_the_lead_rests_in_a_pattern_of_its_own_seed_and_share():
+    t = tel((30.0,) * 4)
+    per = len(DEFAULT_PATCH.motif)
+    patch = dataclasses.replace(DEFAULT_PATCH, lead_rests=0.4)
+    a, b = lead(t, 20.0, SR, 3, patch=patch), lead(t, 20.0, SR, 4, patch=patch)
+    assert np.array_equal(a, lead(t, 20.0, SR, 3, patch=patch)) and not np.array_equal(_played(a, 10, per), _played(b, 10, per))
+    more = lead(t, 20.0, SR, 3, patch=dataclasses.replace(DEFAULT_PATCH, lead_rests=0.7))
+    assert (_played(more, 10, per) <= _played(a, 10, per)).all() and _played(more, 10, per).sum() < _played(a, 10, per).sum()
+
+
+def test_a_note_that_rests_is_not_replaced_by_its_neighbour_the_phrase_keeps_its_length():
+    t = tel((30.0,) * 4)
+    patch = dataclasses.replace(DEFAULT_PATCH, lead_rests=0.5)
+    assert lead(t, 7.3, SR, 1, patch=patch).shape == (int(7.3 * SR),)

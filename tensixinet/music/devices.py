@@ -29,6 +29,7 @@ from .mapping import (
 from .patch import DEFAULT_PATCH, SCALES, Patch
 from .register import step_times
 from .ttrax import FALLBACK_ARCCLK, barre_bounds, bounce_wave, ttrax  # noqa: F401  (re-exported: the chorus and the log import them from here)
+from .rests import rest_flags
 from .ttquantussy import castle_offset, castle_output, crunch, petal_phases, petal_ratios, rest_offset
 from .ttrolzer import (
     BARRE_GEOMETRY, DDR_LANE_BARRES, DOWNBEAT_GAIN, ETH_LANE_BARRES, ETH_LANE_SIDES, SEGMENT_SEED_STRIDE, Link, Roll,
@@ -102,6 +103,7 @@ def _blips(times: np.ndarray, pitch: float, n: int, sr: int, decay_s: float = 0.
     return out
 
 
+ROLL_REST_TAG = 0x6011  # the clock's rests; lane i's are ROLL_REST_TAG + 1 + i (rests.rest_flags)
 ACCENT_WINDOW_S = 0.005  # a clock pulse this close to a register hit counts as landing on it
 ACCENT_GAIN = 0.7  # the accent adds this much of a clock blip on top of the blip itself
 
@@ -202,6 +204,9 @@ def ttrollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: P
     with the chip. The first step of each lane's cycle is accented an octave up, so an odd roll's 3 or 5 can be heard.
     The segment (read out of `seed`, as the gong reads it) sets the drift, so the gong follows the rolls that are heard.
 
+    The patch's `roll_rests` is the share of the clock's and each lane's pulses that are left out of what is heard (`rests.rest_flags`), so the
+    pattern has silences in it; a lane's downbeat blip goes with its pulse. The rolls themselves run whole, so the gong still follows them.
+
     With the patch's `accent` route on, the clock pulses that land on a hit of the ttsteam register sound louder.
 
     Every lane is a roll on its own ttrolzer barre (see ttrolzer.py), so the lanes drift against each other
@@ -209,13 +214,18 @@ def ttrollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: P
     n = int(duration * sample_rate)
     bpm = aiclk_to_bpm(t.aiclk)
     pitch = temp_to_pitch_hz(t.asic_temperature)
+    seg_seed = seed // SEGMENT_SEED_STRIDE
     clock = ttrollz_pulse_times(bpm, duration)
+    clock = clock[~rest_flags(seed, ROLL_REST_TAG, len(clock), patch.roll_rests)]
     out = _blips(clock, pitch, n, sample_rate)
     if "accent" in patch.steam_routes:
         out += ACCENT_GAIN * _blips(accented_pulses(clock, step_times(t, duration)), pitch, n, sample_rate)
-    pulses = roll_pulses(t, duration, patch, seed // SEGMENT_SEED_STRIDE)
+    pulses = roll_pulses(t, duration, patch, seg_seed)
     for lane in ttrollz_lanes(t):
         times, downbeats = pulses[lane.index]
+        # a pulse that rests is left out of what is heard (the gong still follows the whole roll), and takes its downbeat blip with it
+        heard = ~rest_flags(seed, ROLL_REST_TAG + 1 + lane.index, len(times), patch.roll_rests)
+        times, downbeats = times[heard], downbeats[heard]
         out += lane.level * _blips(times, pitch * lane.pitch, n, sample_rate, lane.decay_s)
         out += DOWNBEAT_GAIN * lane.level * _blips(times[downbeats], pitch * lane.pitch * 2, n, sample_rate, lane.decay_s)
     return (np.tanh(out)).astype(np.float32)

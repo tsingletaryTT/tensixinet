@@ -170,3 +170,11 @@ def test_each_style_sets_how_many_of_the_cocos_notes_are_rests():
     assert {n: s.rests for n, s in STYLES.items()} == {"chiptune": 0.25, "enya": 0.3, "blues": 0.35, "aphex": 0.4}
     for name in STYLES:
         assert draw_styled_patch(3, CHIPS, name).rests == STYLES[name].rests
+
+
+def test_each_style_sets_how_many_of_the_leads_notes_and_the_rolls_pulses_rest():
+    assert {n: s.pulse_rests for n, s in STYLES.items()} == {
+        "chiptune": (0.1, 0.15), "enya": (0.2, 0.2), "blues": (0.25, 0.2), "aphex": (0.15, 0.3)}
+    for name in STYLES:
+        p = draw_styled_patch(3, CHIPS, name)
+        assert (p.lead_rests, p.roll_rests) == STYLES[name].pulse_rests

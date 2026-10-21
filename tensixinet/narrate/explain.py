@@ -512,6 +512,23 @@ def _rests_decision(patch: Patch) -> Decision:
     )
 
 
+def _pulse_rests_decisions(patch: Patch) -> list:
+    """How many of the lead's notes and of ttrollz's pulses are left out."""
+    where = f"set by the {patch.style} style" if patch.style else "drawn from the seed: 10 to 30%"
+    out = []
+    for name, share, plays, how in (
+        ("lead rests", patch.lead_rests, "every note of the motif",
+         "each note after the first of a phrase has its own value from the seed, and one under that share is not played, so the downbeat holds the phrase together"),
+        ("roll rests", patch.roll_rests, "every pulse of the clock and the rolls",
+         "each pulse of the clock and of every roll lane has its own value from the seed, and one under that share is not sounded (the gong still follows the whole rolls)"),
+    ):
+        if share <= 0.0:
+            out.append(Decision(f"{name}: none", f"this patch plays {plays}"))
+        else:
+            out.append(Decision(f"{name}: {share:.0%} of the {'notes' if name.startswith('lead') else 'pulses'} are silent", f"{where}; {how}"))
+    return out
+
+
 def _bus_decision(patch: Patch) -> Decision:
     """How much of the band goes through the Cocoquantus's delay, and the room."""
     if patch.coco_send <= 0.0:
@@ -584,4 +601,5 @@ def explain_patch(patch: Patch, telemetry: Sequence[Telemetry], source: str) -> 
         _snare_decision(patch),
         _bus_decision(patch),
         _rests_decision(patch),
+        *_pulse_rests_decisions(patch),
     ] + _style_decision(patch)

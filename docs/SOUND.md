@@ -151,6 +151,11 @@ note castle does), is held for each note, and a note whose value is under the pa
 that repeats and drifts with the notes. A rest is true silence, with the edges glided over 5 ms so it does not click. A drawn patch rests 15 to 45% of the notes; the styles set it (chiptune 25%, enya 30%, blues 35%,
 aphex 40%). The default patch and a patch saved before rests existed have none. The rests are in the tone that `ttcoco` echoes as well, so the delay has less to repeat, though its echoes fill part of each gap.
 
+**Rests in the lead and ttrollz.** The same idea, for the two devices that were always on. `lead_rests` is the share of the lead's notes that are left out: each note has its own value from the seed (`rests.rest_flags`),
+and one under the share is not played. The first note of every phrase always plays, so a phrase keeps its downbeat. `roll_rests` is the share of ttrollz's pulses that are left out, for the clock and for each lane
+separately, and a lane's downbeat blip goes with its pulse. The rolls themselves still run whole, so the gong and everything that follows its strikes hear the same pulses as before. A drawn patch leaves out 10 to 30%
+of each (two draws from their own stream); the styles set them (chiptune 10% and 15%, enya 20% and 20%, blues 25% and 20%, aphex 15% and 30%). The default patch and an older saved patch leave nothing out.
+
 ## ttcoco
 
 After the Cocoquantus's own delay chips: a pair of crunchy 8-bit echo ICs, each a buffer of a few tens of

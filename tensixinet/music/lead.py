@@ -17,6 +17,7 @@ import numpy as np
 
 from .mapping import aiclk_to_bpm, chip_pressure, personality, temp_to_pitch_hz
 from .patch import DEFAULT_PATCH, SCALES, Patch
+from .rests import rest_flags
 
 PENTATONIC = SCALES["major_pentatonic"]
 MOTIF: Tuple[int, ...] = DEFAULT_PATCH.motif  # scale degrees, one per eighth note; a patch brings its own
@@ -59,6 +60,7 @@ def lead_transforms(gddr_temps: Sequence[float], n_phrases: int) -> list:
     return [phrase_transform(gddr_temps[k % len(gddr_temps)] - mean) for k in range(n_phrases)]
 
 
+LEAD_REST_TAG = 0x1EAD  # tells the lead's rests from ttrollz's in `rests.rest_flags`
 BRIGHTNESS = 0.6  # level of the octave overtone at full pressure
 
 
@@ -92,11 +94,17 @@ def lead(t, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT
     offset = identity_offset(personality(t))
     brightness = chip_pressure(t)
     out = np.zeros(n_total)
+    # sample-and-hold also leaves notes out: each note has its own value, and one under the patch's share is not played. The first note of a
+    # phrase always plays, so a phrase still has its downbeat.
+    rests = rest_flags(seed, LEAD_REST_TAG, len(transforms) * len(patch.motif), patch.lead_rests).reshape(len(transforms), len(patch.motif))
+    rests[:, 0] = False
     for phrase, tr in enumerate(transforms):
         for i, degree in enumerate(apply_transform(tuple(d + offset for d in patch.motif), tr)):
             start = phrase * bar + i * eighth
             if start >= n_total:
                 break
+            if rests[phrase, i]:
+                continue
             freq = min(base * 2 ** (degree_to_semitones(degree, patch.scale) / 12), 0.45 * sample_rate)
             seg = _note(freq, eighth, sample_rate, brightness)[: n_total - start]
             out[start:start + len(seg)] += 0.8 * seg

@@ -47,6 +47,7 @@ class Style:
     snare: float  # the share of ttsteam's snare hits that play (patch.snare)
     bus: Tuple[float, float, float]  # (patch.coco_send, patch.coco_reverb, patch.reverb_s)
     rests: float  # the share of the coco's notes that rest (patch.rests)
+    pulse_rests: Tuple[float, float]  # (patch.lead_rests, patch.roll_rests)
 
 
 def _odds(*weights: float) -> Tuple[float, ...]:
@@ -68,6 +69,7 @@ STYLES: Dict[str, Style] = {
         snare=0.5,
         bus=(0.4, 0.1, 0.6),
         rests=0.25,
+        pulse_rests=(0.1, 0.15),
     ),
     "enya": Style(
         "enya",
@@ -82,6 +84,7 @@ STYLES: Dict[str, Style] = {
         snare=0.1,
         bus=(0.8, 0.5, 3.5),
         rests=0.3,
+        pulse_rests=(0.2, 0.2),
     ),
     "blues": Style(
         "blues",
@@ -96,6 +99,7 @@ STYLES: Dict[str, Style] = {
         snare=0.5,
         bus=(0.3, 0.3, 1.4),
         rests=0.35,
+        pulse_rests=(0.25, 0.2),
     ),
     "aphex": Style(
         "aphex",
@@ -110,6 +114,7 @@ STYLES: Dict[str, Style] = {
         snare=0.6,
         bus=(0.7, 0.25, 1.0),
         rests=0.4,
+        pulse_rests=(0.15, 0.3),
     ),
 }
 
@@ -150,4 +155,6 @@ def draw_styled_patch(seed: int, telemetry: Sequence[Telemetry], style: str) -> 
         coco_reverb=s.bus[1],
         reverb_s=s.bus[2],
         rests=s.rests,
+        lead_rests=s.pulse_rests[0],
+        roll_rests=s.pulse_rests[1],
     )

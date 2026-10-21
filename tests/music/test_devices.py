@@ -871,3 +871,77 @@ def test_a_rest_begins_and_ends_on_the_notes_own_boundaries_with_the_glide_centr
     edges = np.round(np.arange(0, 20.0 * steps_per_s + 1) * SR / steps_per_s)
     assert len(crossings) > 5
     assert all(np.abs(edges - c).min() <= 2 for c in crossings)
+
+
+# --- roll_rests: ttrollz leaves some of its pulses out ----------------------------------------------------------
+
+_REAL_BLIPS = devices_module._blips  # taken once, so a second spy in one test does not wrap the first
+
+
+def _blip_calls(monkeypatch, t, patch, duration=40.0, seed=4 * 10_007):
+    calls = []
+    real = _REAL_BLIPS
+    monkeypatch.setattr(devices_module, "_blips", lambda times, *a, **kw: calls.append(np.array(times)) or real(times, *a, **kw))
+    out = ttrollz(t, duration, SR, seed, patch)
+    return calls, out
+
+
+ROLL_CHIP = dict(ddr_status=(1, 1, 0, 1), eth_mask=0x00F3, aiclk=800.0, asic_temperature=55.0, heartbeat=0)
+
+
+def test_roll_rests_leave_pulses_out_of_the_clock_and_every_lane_and_keep_the_rest_where_they_were(monkeypatch):
+    t = tel(**ROLL_CHIP)
+    plain, _ = _blip_calls(monkeypatch, t, dataclasses.replace(DEFAULT_PATCH, seed=9))
+    rested, out = _blip_calls(monkeypatch, t, dataclasses.replace(DEFAULT_PATCH, seed=9, roll_rests=0.3))
+    assert len(plain) == len(rested) and len(plain) >= 7
+    for a, b in zip(plain, rested):
+        assert set(b.tolist()) <= set(a.tolist())          # nothing moved, nothing added
+    pulses = [(a, b) for a, b in zip(plain, rested) if len(a) >= 30]
+    assert pulses and all(0.55 < len(b) / len(a) < 0.85 for a, b in pulses)
+    assert np.isfinite(out).all() and np.abs(out).max() <= 1.0
+
+
+def test_a_downbeat_blip_never_sounds_without_its_pulse(monkeypatch):
+    t = tel(**ROLL_CHIP)
+    calls, _ = _blip_calls(monkeypatch, t, dataclasses.replace(DEFAULT_PATCH, seed=9, roll_rests=0.5))
+    # the calls after the clock go in pairs: a lane's pulses, then that lane's downbeats
+    for pulses, downbeats in zip(calls[1::2], calls[2::2]):
+        assert set(downbeats.tolist()) <= set(pulses.tolist())
+
+
+def test_the_rolls_the_gong_follows_are_the_same_whatever_ttrollz_leaves_out():
+    t = tel(**ROLL_CHIP)
+    a = roll_pulses(t, 12.0, dataclasses.replace(DEFAULT_PATCH, seed=9), 4)
+    b = roll_pulses(t, 12.0, dataclasses.replace(DEFAULT_PATCH, seed=9, roll_rests=0.5), 4)
+    assert all(np.array_equal(x[0], y[0]) and np.array_equal(x[1], y[1]) for x, y in zip(a, b))
+
+
+def test_a_clock_pulse_that_rests_cannot_be_accented(monkeypatch):
+    t = tel(**ROLL_CHIP)
+    patch = dataclasses.replace(DEFAULT_PATCH, seed=9, steam_routes=("accent",), roll_rests=0.4)
+    calls, _ = _blip_calls(monkeypatch, t, patch)
+    assert set(calls[1].tolist()) <= set(calls[0].tolist())
+
+
+def test_the_roll_rests_follow_the_seed_and_the_share_and_a_bigger_share_leaves_out_every_pulse_a_smaller_one_does(monkeypatch):
+    t = tel(**ROLL_CHIP)
+    small, _ = _blip_calls(monkeypatch, t, dataclasses.replace(DEFAULT_PATCH, seed=9, roll_rests=0.2))
+    big, _ = _blip_calls(monkeypatch, t, dataclasses.replace(DEFAULT_PATCH, seed=9, roll_rests=0.5))
+    again, _ = _blip_calls(monkeypatch, t, dataclasses.replace(DEFAULT_PATCH, seed=9, roll_rests=0.2))
+    other, _ = _blip_calls(monkeypatch, t, dataclasses.replace(DEFAULT_PATCH, seed=9, roll_rests=0.2), seed=5 * 10_007)
+    assert all(np.array_equal(a, b) for a, b in zip(small, again))
+    assert all(set(b.tolist()) <= set(a.tolist()) for a, b in zip(small, big)) and sum(map(len, big)) < sum(map(len, small))
+    assert not all(np.array_equal(a, b) for a, b in zip(small, other))
+    # the clock's pattern follows the whole seed, not only its segment: the next seed of the same segment rests differently
+    next_seed, _ = _blip_calls(monkeypatch, t, dataclasses.replace(DEFAULT_PATCH, seed=9, roll_rests=0.2), seed=4 * 10_007 + 1)
+    assert not np.array_equal(small[0], next_seed[0]) and not np.array_equal(small[0], other[0])
+
+
+def test_lanes_do_not_rest_in_step_with_each_other_or_the_clock(monkeypatch):
+    t = tel(**ROLL_CHIP)
+    plain, _ = _blip_calls(monkeypatch, t, dataclasses.replace(DEFAULT_PATCH, seed=9))
+    rested, _ = _blip_calls(monkeypatch, t, dataclasses.replace(DEFAULT_PATCH, seed=9, roll_rests=0.4))
+    # the share left out of each long sequence, matched by position, differs from one to the next
+    keep = [np.isin(a, b) for a, b in zip(plain, rested) if len(a) >= 40]
+    firsts = [k[:30].tolist() for k in keep]
+    assert len(firsts) >= 3 and len({tuple(f) for f in firsts}) == len(firsts)

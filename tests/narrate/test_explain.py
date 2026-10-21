@@ -514,3 +514,12 @@ def test_the_patch_log_says_how_many_of_the_cocos_notes_rest():
     off = [d for d in explain_patch(DEFAULT_PATCH_FOR_ROUTES, UNEVEN, "s") if d.what.startswith("rests")]
     assert len(on) == len(off) == 1 and "30%" in on[0].what and "none" in off[0].what
     assert "castle" in on[0].why and "15 to 45%" in on[0].why
+
+
+def test_the_patch_log_says_how_much_of_the_lead_and_the_rolls_rests():
+    on = explain_patch(dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, lead_rests=0.2, roll_rests=0.15), UNEVEN, "s")
+    off = explain_patch(DEFAULT_PATCH_FOR_ROUTES, UNEVEN, "s")
+    for name, share in (("lead rests", "20%"), ("roll rests", "15%")):
+        a, b = [[d for d in ds if d.what.startswith(name)] for ds in (on, off)]
+        assert len(a) == len(b) == 1 and share in a[0].what and "none" in b[0].what and "10 to 30%" in a[0].why
+    assert "downbeat" in [d for d in on if d.what.startswith("lead rests")][0].why

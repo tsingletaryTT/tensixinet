@@ -207,3 +207,18 @@ def test_the_strikes_route_joins_the_register_to_the_rolls_the_gong_follows_too(
     joined = strike_times(t, 60.0, routed("strikes"))
     assert len(joined) >= 2 and all(np.isclose(allowed, s).any() for s in joined)
     assert not np.array_equal(joined, strike_times(t, 60.0))
+
+
+def test_a_clock_pulse_that_rests_is_not_accented_even_where_it_lands_on_a_register_hit(monkeypatch):
+    from tensixinet.music import devices
+    t, real = chip(), devices._blips
+    landed = [c for c in ttrollz_clock(t, 30.0) if np.abs(step_times(t, 30.0) - c).min() < 0.005]
+    rested_one = False
+    for seed in range(6):
+        calls = []
+        monkeypatch.setattr(devices, "_blips", lambda times, *a, **kw: calls.append(np.array(times)) or real(times, *a, **kw))
+        ttrollz(t, 30.0, SR, seed, routed("accent", roll_rests=0.6))
+        heard, accented = calls[0], calls[1]
+        assert set(accented.tolist()) <= set(heard.tolist())
+        rested_one = rested_one or any(c not in heard for c in landed)
+    assert rested_one, "the test needs a landed pulse that rests"

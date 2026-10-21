@@ -478,3 +478,41 @@ def test_a_patch_saved_before_rests_existed_has_none_and_the_value_round_trips_a
         path.write_text(json.dumps(d))
         with pytest.raises(ValueError, match="rests"):
             load_patch(path)
+
+
+# --- lead_rests and roll_rests: the share of the lead's notes and of ttrollz's pulses that are left out ----------
+
+def test_the_default_patch_leaves_the_lead_and_rolls_alone_and_a_drawn_one_rests_some_of_each():
+    ps = [draw_patch(s, UNEVEN) for s in range(400)]
+    assert DEFAULT_PATCH.lead_rests == 0.0 and DEFAULT_PATCH.roll_rests == 0.0
+    for field in ("lead_rests", "roll_rests"):
+        values = [getattr(p, field) for p in ps]
+        assert all(0.1 <= v <= 0.3 for v in values) and min(values) < 0.13 and max(values) > 0.27 and len(set(values)) > 100
+
+
+def test_the_lead_and_roll_rests_are_drawn_from_their_own_streams():
+    ps = [draw_patch(s, UNEVEN) for s in range(3000)]
+    bare = lambda p: dataclasses.replace(p, lead_rests=0.0, roll_rests=0.0)
+    assert bare(ps[11]) == bare(draw_patch(11, UNEVEN))
+    mean = lambda group, f: sum(getattr(p, f) for p in group) / len(group)
+    assert abs(mean(ps, "lead_rests") - mean(ps, "roll_rests")) < 0.02
+    assert any(p.lead_rests != p.roll_rests for p in ps) and abs(mean([p for p in ps if p.rests < 0.25], "lead_rests") - mean([p for p in ps if p.rests > 0.35], "lead_rests")) < 0.02
+    assert abs(mean([p for p in ps if p.rests < 0.25], "roll_rests") - mean([p for p in ps if p.rests > 0.35], "roll_rests")) < 0.02
+
+
+def test_a_patch_saved_before_these_rests_existed_has_none_and_the_values_round_trip_and_are_checked(tmp_path):
+    path = tmp_path / "p.json"
+    save_patch(dataclasses.replace(DEFAULT_PATCH, lead_rests=0.2, roll_rests=0.15), path)
+    loaded = load_patch(path)
+    assert loaded.lead_rests == 0.2 and loaded.roll_rests == 0.15
+    d = json.loads(path.read_text())
+    for field in ("lead_rests", "roll_rests"):
+        saved = dict(d)
+        del saved[field]
+        path.write_text(json.dumps(saved))
+        assert getattr(load_patch(path), field) == 0.0
+        for bad in (-0.1, 1.0, 1.5, float("nan")):
+            saved[field] = bad
+            path.write_text(json.dumps(saved))
+            with pytest.raises(ValueError, match=field):
+                load_patch(path)

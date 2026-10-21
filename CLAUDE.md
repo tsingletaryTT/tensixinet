@@ -605,3 +605,8 @@ legacy/        first prototype scripts, kept for reference
   * Measured only (not listened to): the share of resting notes follows `rests` to within 0.1 over 12 seeds; `ttcoco` is quieter with rests, and its echoes fill part of each gap, as a delay does.
   * Mutation run: 14 mutants; 3 survived the first time (the glide's alignment, the petals the gate reads, and `>` against `>=` at the threshold, which is equivalent because a castle value is never exactly `rests`). The first two got tests.
   * Not done: rests for the other sample-and-hold users (ttsteam's register already rests where a column is enabled; the lead's motif and ttrollz are always on). Say if you want them.
+* **2026-10-21, "add rests to the lead and ttrollz too then push":** `Patch.lead_rests` and `Patch.roll_rests` (0 to below 1), a shared `music/rests.py` (`rest_flags`: one value per step from the seed, so a bigger share rests every step a smaller one does).
+  The lead leaves out notes but always plays the first note of a phrase. ttrollz leaves out pulses of the clock and of each lane separately (a lane's downbeat blip goes with its pulse); `roll_pulses` is untouched, so the gong still follows the whole rolls.
+  A drawn patch has 10 to 30% of each from its own stream; styles chiptune (0.1, 0.15), enya (0.2, 0.2), blues (0.25, 0.2), aphex (0.15, 0.3); the default and older patches have none. The log has "lead rests" and "roll rests" lines.
+  * Measured only (not listened to). Mutation run: 30 mutants; 2 survived the first time (the clock's rests reading only the segment of the seed, and the accent route reading the clock before its rests), each now has a test and goes red.
+  * Not done: rests in the other always-on devices (ttdrone, ttchoir, ttavdog, ttrax).
