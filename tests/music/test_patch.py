@@ -445,3 +445,36 @@ def test_the_bus_is_drawn_independently_of_the_routes_and_the_snare():
     mean = lambda group: sum(p.coco_send for p in group) / len(group)
     assert abs(mean([p for p in ps if not p.steam_routes]) - mean([p for p in ps if len(p.steam_routes) == 3])) < 0.04
     assert abs(mean([p for p in ps if p.snare == 0.0]) - mean([p for p in ps if p.snare == 1.0])) < 0.04
+
+
+# --- rests: the share of the coco's held notes that are silent --------------------------------------------------
+
+def test_the_default_patch_has_no_rests_and_a_drawn_one_always_has_some():
+    ps = [draw_patch(s, UNEVEN) for s in range(400)]
+    assert DEFAULT_PATCH.rests == 0.0
+    assert all(0.15 <= p.rests <= 0.45 for p in ps) and min(p.rests for p in ps) < 0.2 and max(p.rests for p in ps) > 0.4
+    assert len({p.rests for p in ps}) > 100
+
+
+def test_drawing_the_rests_leaves_every_other_drawn_field_where_it_was_and_they_are_independent_of_the_bus():
+    ps = [draw_patch(s, UNEVEN) for s in range(3000)]
+    assert dataclasses.replace(ps[11], rests=0.0) == dataclasses.replace(draw_patch(11, UNEVEN), rests=0.0)
+    mean = lambda group: sum(p.rests for p in group) / len(group)
+    assert abs(mean([p for p in ps if p.coco_send < 0.4]) - mean([p for p in ps if p.coco_send > 0.65])) < 0.03
+    assert abs(mean([p for p in ps if p.snare == 0.0]) - mean([p for p in ps if p.snare == 1.0])) < 0.03
+    assert abs(mean([p for p in ps if not p.steam_routes]) - mean([p for p in ps if len(p.steam_routes) == 3])) < 0.04
+
+
+def test_a_patch_saved_before_rests_existed_has_none_and_the_value_round_trips_and_is_checked(tmp_path):
+    path = tmp_path / "p.json"
+    save_patch(dataclasses.replace(DEFAULT_PATCH, rests=0.3), path)
+    assert load_patch(path).rests == 0.3
+    d = json.loads(path.read_text())
+    del d["rests"]
+    path.write_text(json.dumps(d))
+    assert load_patch(path).rests == 0.0
+    for bad in (-0.1, 1.0, 1.5, float("nan")):
+        d["rests"] = bad
+        path.write_text(json.dumps(d))
+        with pytest.raises(ValueError, match="rests"):
+            load_patch(path)

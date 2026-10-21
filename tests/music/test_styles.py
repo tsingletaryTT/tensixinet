@@ -164,3 +164,9 @@ def test_each_style_sets_how_much_goes_through_the_coco_and_how_big_the_room_is(
     for name in STYLES:
         p = draw_styled_patch(3, CHIPS, name)
         assert (p.coco_send, p.coco_reverb, p.reverb_s) == STYLES[name].bus
+
+
+def test_each_style_sets_how_many_of_the_cocos_notes_are_rests():
+    assert {n: s.rests for n, s in STYLES.items()} == {"chiptune": 0.25, "enya": 0.3, "blues": 0.35, "aphex": 0.4}
+    for name in STYLES:
+        assert draw_styled_patch(3, CHIPS, name).rests == STYLES[name].rests

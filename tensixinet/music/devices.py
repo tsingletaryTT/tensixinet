@@ -29,7 +29,7 @@ from .mapping import (
 from .patch import DEFAULT_PATCH, SCALES, Patch
 from .register import step_times
 from .ttrax import FALLBACK_ARCCLK, barre_bounds, bounce_wave, ttrax  # noqa: F401  (re-exported: the chorus and the log import them from here)
-from .ttquantussy import castle_offset, castle_output, crunch, petal_phases, petal_ratios
+from .ttquantussy import castle_offset, castle_output, crunch, petal_phases, petal_ratios, rest_offset
 from .ttrolzer import (
     BARRE_GEOMETRY, DDR_LANE_BARRES, DOWNBEAT_GAIN, ETH_LANE_BARRES, ETH_LANE_SIDES, SEGMENT_SEED_STRIDE, Link, Roll,
     barre_bpm, draw_gong_trigger, draw_links, roll_drift, roll_ensemble,
@@ -251,13 +251,35 @@ def ttquantus_steps(t: Telemetry, duration: float, sample_rate: int, seed: int, 
     return quantize_to_scale(castle, patch.scale)
 
 
+REST_FADE_S = 0.005  # a note's edges are glided over this long, so a rest does not click
+
+
+def ttquantus_gate(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """1 where a held note plays and 0 where it rests. Sample-and-hold also makes silences: a second castle of the first petal, looking at a
+    different petal than the note castle does, is held for each note, and a note whose value falls below the patch's `rests` does not play.
+    The values are spread evenly from 0 to 1, so about `rests` of the notes rest, in a pattern that repeats and drifts as the notes do."""
+    n = int(duration * sample_rate)
+    if patch.rests <= 0.0:
+        return np.ones(n)
+    rate = aiclk_to_bpm(t.aiclk) / 60.0 * 2 * t.axiclk / REFERENCE_AXICLK
+    freqs = [rate / 2 * r for r in petal_ratios(seed)]
+    castle = castle_output(0, freqs, petal_phases(seed), np.arange(n) / sample_rate, offset=rest_offset(personality(t)))
+    gate = (castle >= patch.rests).astype(float)
+    width = max(1, int(REST_FADE_S * sample_rate))
+    if width == 1:
+        return gate
+    c = np.concatenate([[0.0], np.cumsum(gate)])
+    hi, lo = np.minimum(np.arange(n) + width // 2 + 1, n), np.maximum(np.arange(n) - width // 2, 0)
+    return (c[hi] - c[lo]) / (hi - lo)
+
+
 def quantussy_tone(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
-    """The castle's notes as a plain sine, before the coco's 8-bit buffer. ttcoco patches this same tone into its
+    """The castle's notes as a plain sine (with the rests the patch asks for), before the coco's 8-bit buffer. ttcoco patches this same tone into its
     delay taps, as the real instrument's Quantussy patches into its Coco."""
     semis = ttquantus_steps(t, duration, sample_rate, seed, patch)
     freq = temp_to_pitch_hz(t.asic_temperature) * 2 ** (semis / 12)
     phase = 2 * math.pi * np.cumsum(freq) / sample_rate
-    return 0.8 * np.sin(phase)
+    return 0.8 * np.sin(phase) * ttquantus_gate(t, duration, sample_rate, seed, patch)
 
 
 def ttquantus(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:

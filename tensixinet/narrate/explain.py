@@ -500,6 +500,18 @@ def _snare_decision(patch: Patch) -> Decision:
     return Decision(what, f"{where}; the register keeps stepping whatever the level, so its steam routes still work")
 
 
+def _rests_decision(patch: Patch) -> Decision:
+    """How many of the coco's held notes are silent."""
+    if patch.rests <= 0.0:
+        return Decision("rests: none", "this patch plays every held note of the Quantussy's castle")
+    where = f"set by the {patch.style} style" if patch.style else "drawn from the seed: 15 to 45% of the notes"
+    return Decision(
+        f"rests: {patch.rests:.0%} of the coco's held notes are silent",
+        f"{where}; a second castle of the first petal, reading another petal than the note castle does, is held for each note and a note under that value does not play, "
+        "so the silences repeat and drift with the notes (ttquantus and every ttcoco echo of it)",
+    )
+
+
 def _bus_decision(patch: Patch) -> Decision:
     """How much of the band goes through the Cocoquantus's delay, and the room."""
     if patch.coco_send <= 0.0:
@@ -571,4 +583,5 @@ def explain_patch(patch: Patch, telemetry: Sequence[Telemetry], source: str) -> 
         _steam_routes_decision(patch),
         _snare_decision(patch),
         _bus_decision(patch),
+        _rests_decision(patch),
     ] + _style_decision(patch)

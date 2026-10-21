@@ -776,3 +776,98 @@ def test_every_device_that_follows_the_gongs_strikes_moves_with_the_segment_and_
         a = device(t, 20.0, SR, 0, DEFAULT_PATCH)
         assert np.array_equal(a, device(t, 20.0, SR, 7, DEFAULT_PATCH)), device.__name__
         assert not np.array_equal(a, device(t, 20.0, SR, SEGMENT_SEED_STRIDE, DEFAULT_PATCH)), device.__name__
+
+
+# --- rests: the castle that decides which held notes are not played ---------------------------------------------
+
+def _rested(rests):
+    return dataclasses.replace(DEFAULT_PATCH, rests=rests)
+
+
+def _open_share(rests, seeds=range(12), duration=20.0, **kw):
+    from tensixinet.music.devices import ttquantus_gate
+    return np.mean([np.mean(ttquantus_gate(tel(**kw), duration, SR, s, _rested(rests)) > 0.5) for s in seeds])
+
+
+def test_a_patch_with_no_rests_has_every_note_played_so_the_sound_is_as_it_was():
+    from tensixinet.music.devices import quantussy_tone, ttquantus_gate
+    gate = ttquantus_gate(tel(), 4.0, SR, 0, DEFAULT_PATCH)
+    assert DEFAULT_PATCH.rests == 0.0 and gate.shape == (4 * SR,) and np.all(gate == 1.0)
+    assert np.array_equal(quantussy_tone(tel(), 4.0, SR, 0, DEFAULT_PATCH), quantussy_tone(tel(), 4.0, SR, 0, _rested(0.0)))
+
+
+def test_the_share_of_held_notes_that_rest_is_about_the_patchs_rests():
+    for rests in (0.15, 0.3, 0.45):
+        assert _open_share(rests) == pytest.approx(1.0 - rests, abs=0.1), rests
+
+
+def test_a_rest_is_true_silence_and_a_played_note_is_untouched():
+    from tensixinet.music.devices import quantussy_tone, ttquantus_gate
+    p = _rested(0.4)
+    tone, gate, plain = quantussy_tone(tel(), 10.0, SR, 3, p), ttquantus_gate(tel(), 10.0, SR, 3, p), quantussy_tone(tel(), 10.0, SR, 3, DEFAULT_PATCH)
+    shut, open_ = gate == 0.0, gate == 1.0
+    assert shut.sum() > 0.1 * len(gate) and open_.sum() > 0.3 * len(gate)
+    assert not np.any(tone[shut]) and np.array_equal(tone[open_], plain[open_])
+
+
+def test_the_gate_changes_only_between_notes_and_glides_so_a_rest_does_not_click():
+    from tensixinet.music.devices import REST_FADE_S, ttquantus_gate
+    gate = ttquantus_gate(tel(), 20.0, SR, 3, _rested(0.4))
+    assert REST_FADE_S == 0.005
+    assert np.abs(np.diff(gate)).max() < 2.0 / (REST_FADE_S * SR)             # a fade over about 5 ms, not a jump
+    assert np.any((gate > 0.05) & (gate < 0.95))
+    steps = np.count_nonzero(np.diff(ttquantus_steps(tel(), 20.0, SR, 3)) != 0)
+    edges = np.count_nonzero(np.diff((gate > 0.5).astype(int)) != 0)
+    assert 0 < edges <= steps + 1                                              # a note's own steps, and no more often
+
+
+def test_the_rest_pattern_is_a_castle_so_it_repeats_for_a_seed_and_drifts_between_seeds():
+    from tensixinet.music.devices import ttquantus_gate
+    p = _rested(0.4)
+    g = ttquantus_gate(tel(), 12.0, SR, 3, p)
+    assert np.array_equal(g, ttquantus_gate(tel(), 12.0, SR, 3, p))
+    assert not np.array_equal(g, ttquantus_gate(tel(), 12.0, SR, 4, p))
+
+
+def test_the_rest_castle_uses_the_chips_rest_leader_and_the_note_castle_keeps_its_own(monkeypatch):
+    from tensixinet.music.devices import ttquantus_gate
+    from tensixinet.music.mapping import personality as person
+    from tensixinet.music.ttquantussy import castle_offset, rest_offset
+    seen = []
+    real = devices_module.castle_output
+    args = []
+    monkeypatch.setattr(devices_module, "castle_output", lambda *a, **k: (seen.append(k.get("offset")), args.append(a[:3])) and real(*a, **k))
+    t = tel(tensix_mask=0x37F7)
+    ttquantus_gate(t, 0.5, SR, 0, _rested(0.3))
+    ttquantus_steps(t, 0.5, SR, 0)
+    assert seen == [rest_offset(person(t)), castle_offset(person(t))]
+    assert args[0][0] == args[1][0] == 0 and list(args[0][1]) == list(args[1][1]) and list(args[0][2]) == list(args[1][2])   # the same petals, the same phases
+    seen.clear()
+    ttquantus_gate(t, 0.5, SR, 0, DEFAULT_PATCH)
+    assert seen == []                                                          # no rests: no extra castle
+
+
+def test_more_rests_make_ttquantus_quieter_and_the_voice_stays_under_its_level():
+    rms = lambda r: float(np.sqrt(np.mean(ttquantus(tel(), 12.0, SR, 2, patch=_rested(r)) ** 2)))
+    assert rms(0.0) > rms(0.2) > rms(0.45) > 0.0
+    assert np.abs(ttquantus(tel(), 4.0, SR, 2, patch=_rested(0.45))).max() <= 0.8 + 1 / 127   # the 8-bit buffer rounds to the nearest level
+
+
+def test_ttcoco_echoes_the_rests_too_so_its_echoes_carry_the_gaps_and_it_is_quieter():
+    """The echoes fill some of a rest, as a delay does, so the gaps are softer than in ttquantus; the delay still has less to repeat."""
+    from tensixinet.music.ttcoco import ttcoco
+    rms = lambda p: float(np.sqrt(np.mean(ttcoco(tel(), 12.0, SR, 2, p) ** 2)))
+    assert rms(_rested(0.45)) < 0.92 * rms(DEFAULT_PATCH) and rms(_rested(0.3)) < rms(DEFAULT_PATCH)
+    assert not np.array_equal(ttcoco(tel(), 4.0, SR, 2, _rested(0.45)), ttcoco(tel(), 4.0, SR, 2, DEFAULT_PATCH))
+
+
+def test_a_rest_begins_and_ends_on_the_notes_own_boundaries_with_the_glide_centred_on_them():
+    from tensixinet.music.devices import REFERENCE_AXICLK, ttquantus_gate
+    from tensixinet.music.mapping import aiclk_to_bpm
+    t = tel()
+    steps_per_s = aiclk_to_bpm(t.aiclk) / 60.0 * 2 * t.axiclk / REFERENCE_AXICLK      # petal 0 turns half a cycle for every note
+    gate = ttquantus_gate(t, 20.0, SR, 3, _rested(0.4))
+    crossings = np.nonzero(np.diff((gate > 0.5).astype(int)))[0]
+    edges = np.round(np.arange(0, 20.0 * steps_per_s + 1) * SR / steps_per_s)
+    assert len(crossings) > 5
+    assert all(np.abs(edges - c).min() <= 2 for c in crossings)

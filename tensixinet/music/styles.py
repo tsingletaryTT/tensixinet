@@ -46,6 +46,7 @@ class Style:
     emphasis: Tuple[Tuple[str, float], ...]
     snare: float  # the share of ttsteam's snare hits that play (patch.snare)
     bus: Tuple[float, float, float]  # (patch.coco_send, patch.coco_reverb, patch.reverb_s)
+    rests: float  # the share of the coco's notes that rest (patch.rests)
 
 
 def _odds(*weights: float) -> Tuple[float, ...]:
@@ -66,6 +67,7 @@ STYLES: Dict[str, Style] = {
                   ("ultrasonic_shimmer", 0.5), ("gong", 1.0), ("ttcoco", 0.6), ("ttdrone", 0.4), ("ttchoir", 0.2)),
         snare=0.5,
         bus=(0.4, 0.1, 0.6),
+        rests=0.25,
     ),
     "enya": Style(
         "enya",
@@ -79,6 +81,7 @@ STYLES: Dict[str, Style] = {
                   ("gong", 1.0), ("ttquantus", 0.7), ("ttavdog", 0.4), ("ttrollz", 0.3), ("ttsteam", 0.15)),
         snare=0.1,
         bus=(0.8, 0.5, 3.5),
+        rests=0.3,
     ),
     "blues": Style(
         "blues",
@@ -92,6 +95,7 @@ STYLES: Dict[str, Style] = {
                   ("ttdrone", 0.7), ("gong", 1.0), ("ttquantus", 0.5), ("ultrasonic_shimmer", 0.4), ("ttchoir", 0.3)),
         snare=0.5,
         bus=(0.3, 0.3, 1.4),
+        rests=0.35,
     ),
     "aphex": Style(
         "aphex",
@@ -105,6 +109,7 @@ STYLES: Dict[str, Style] = {
                   ("lead", 0.9), ("gong", 1.3), ("ttrax", 0.8), ("ttchoir", 0.7), ("ttdrone", 0.6)),
         snare=0.6,
         bus=(0.7, 0.25, 1.0),
+        rests=0.4,
     ),
 }
 
@@ -144,4 +149,5 @@ def draw_styled_patch(seed: int, telemetry: Sequence[Telemetry], style: str) -> 
         coco_send=s.bus[0],
         coco_reverb=s.bus[1],
         reverb_s=s.bus[2],
+        rests=s.rests,
     )

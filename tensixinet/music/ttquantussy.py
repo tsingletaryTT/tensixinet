@@ -53,6 +53,12 @@ def castle_output(
     return triangle(freqs[leader], phases[leader], sample_time)
 
 
+def rest_offset(identity: int) -> int:
+    """The leader of the castle that decides which notes rest: the next one round the castle mod select from the note castle's, so it
+    reads another petal and the pattern of rests is not the pattern of notes."""
+    return LEADER_OFFSETS[(identity + 1) % len(LEADER_OFFSETS)]
+
+
 def petal_ratios(seed: int) -> Tuple[float, ...]:
     """Frequency ratios of the five petals: low primes, each nudged by the seed. Petal 0 sets the rate and is exact."""
     nudge = np.random.default_rng(seed).uniform(-RATIO_NUDGE, RATIO_NUDGE, N_PETALS)

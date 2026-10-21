@@ -507,3 +507,10 @@ def test_the_steam_route_reason_gives_the_odds_the_seed_used():
     why = [d.why for d in explain_patch(dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, steam_routes=("strikes",)), UNEVEN, "s")
            if d.what.startswith("steam routes")][0]
     assert "60%" not in why and "none 10%" in why and "three 20%" in why
+
+
+def test_the_patch_log_says_how_many_of_the_cocos_notes_rest():
+    on = [d for d in explain_patch(dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, rests=0.3), UNEVEN, "s") if d.what.startswith("rests")]
+    off = [d for d in explain_patch(DEFAULT_PATCH_FOR_ROUTES, UNEVEN, "s") if d.what.startswith("rests")]
+    assert len(on) == len(off) == 1 and "30%" in on[0].what and "none" in off[0].what
+    assert "castle" in on[0].why and "15 to 45%" in on[0].why

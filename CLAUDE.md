@@ -598,3 +598,10 @@ legacy/        first prototype scripts, kept for reference
     The unit tests passed `request=` themselves and could not see it. The handlers now name every setting, and a test asks Gradio's own `special_args` whether it would fill `request` (the old form turns it red). With the fix: two play at once, a third is told the places are taken,
     the first's Stop leaves the second going, and the third gets in once a place is free; two new visitors both get in after earlier ones disconnected.
   * Not tried yet: the limit on the Space under real load (cpu-basic, two vCPUs). 3 is a guess from a 3 s segment taking about 0.5 s to render.
+* **2026-10-20, "looping cocos need more 'off' notes or rests ... when doing sample and hold to shift registers, or sample and hold to coco style stuff, you add in some silence to get into the rhythms too":**
+  `Patch.rests` (0 to below 1) is the share of the coco's held notes that are silent. `devices.ttquantus_gate` takes a second castle of petal 0 that reads the next leader round the castle mod select (`ttquantussy.rest_offset`), held for each note; a note under `rests`
+  does not play. `quantussy_tone` multiplies by the gate, so `ttquantus` and every `ttcoco` echo carry the rests. 5 ms glide, true silence between. A drawn patch rests 15 to 45% (own random stream); styles chiptune 25%, enya 30%, blues 35%, aphex 40%;
+  the default patch and old saved patches have none. The log has a "rests" line.
+  * Measured only (not listened to): the share of resting notes follows `rests` to within 0.1 over 12 seeds; `ttcoco` is quieter with rests, and its echoes fill part of each gap, as a delay does.
+  * Mutation run: 14 mutants; 3 survived the first time (the glide's alignment, the petals the gate reads, and `>` against `>=` at the threshold, which is equivalent because a castle value is never exactly `rests`). The first two got tests.
+  * Not done: rests for the other sample-and-hold users (ttsteam's register already rests where a column is enabled; the lead's motif and ttrollz are always on). Say if you want them.

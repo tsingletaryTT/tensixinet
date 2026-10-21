@@ -146,6 +146,11 @@ leader is 2, 3, 4 or 1 places round the ring, picked by the chip's identity. The
 patch's scale over two octaves. Low prime ratios make the notes repeat, and the nudge makes the pattern drift.
 The voice is a sine rounded to 8 bits, held for longer at a lower AXI clock.
 
+**Rests.** Sample-and-hold also makes silences, and the rhythms come from them. A second castle of petal 0, looking at the next leader round the castle mod select (so it reads another petal than the
+note castle does), is held for each note, and a note whose value is under the patch's `rests` is not played. The values are spread evenly from 0 to 1, so about `rests` of the notes rest, in a pattern
+that repeats and drifts with the notes. A rest is true silence, with the edges glided over 5 ms so it does not click. A drawn patch rests 15 to 45% of the notes; the styles set it (chiptune 25%, enya 30%, blues 35%,
+aphex 40%). The default patch and a patch saved before rests existed have none. The rests are in the tone that `ttcoco` echoes as well, so the delay has less to repeat, though its echoes fill part of each gap.
+
 ## ttcoco
 
 After the Cocoquantus's own delay chips: a pair of crunchy 8-bit echo ICs, each a buffer of a few tens of

@@ -149,3 +149,11 @@ def test_the_castle_output_samples_whichever_leader_the_offset_names():
         c = castle_output(0, freqs, phases, t, offset=offset)
         expected = triangle(freqs[castle_leader(0, offset)], phases[castle_leader(0, offset)], np.array([sample_time]))[0]
         assert c[int((sample_time + 0.01) * SR)] == pytest.approx(expected, abs=1e-9)
+
+
+def test_a_chips_rest_castle_looks_to_a_different_leader_than_its_note_castle():
+    from tensixinet.music.ttquantussy import LEADER_OFFSETS, castle_offset, rest_offset
+    for identity in range(12):
+        assert rest_offset(identity) != castle_offset(identity) and rest_offset(identity) in LEADER_OFFSETS
+    assert rest_offset(0) == LEADER_OFFSETS[1] and rest_offset(3) == LEADER_OFFSETS[0]   # the next one round the castle mod select
+    assert len({rest_offset(i) for i in range(4)}) == 4

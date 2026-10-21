@@ -95,6 +95,7 @@ SNARE_ODDS = (0.4, 0.3, 0.2, 0.1)
 COCO_SEND_RANGE = (0.25, 0.8)
 COCO_REVERB_RANGE = (0.15, 0.5)
 REVERB_S_RANGE = (0.8, 3.5)
+RESTS_RANGE = (0.15, 0.45)  # a drawn patch rests this share of the coco's notes
 
 MOTIF_LENGTHS = (6, 7, 8, 9, 10, 12)  # eighth notes; the lead's bar is as long as its motif
 MOTIF_LOW_RANGE = (-5, -2)  # the lowest degree a motif may reach is drawn from here ...
@@ -125,6 +126,7 @@ class Patch:
     coco_send: float = 0.0  # how much of the band is sent into the Cocoquantus's delay (cocobus.py); 0 is none, and the sound from before the bus
     coco_reverb: float = 0.0  # how much of the room (reverb) is mixed in with the echoes
     reverb_s: float = 1.5  # the room's decay time: seconds to fall by 60 dB
+    rests: float = 0.0  # the share of the coco's held notes that rest (devices.ttquantus_gate): 0 plays every note, the sound from before rests
 
 
 DEFAULT_PATCH = Patch(
@@ -230,6 +232,11 @@ def _draw_bus(seed: int) -> Tuple[float, float, float]:
     return tuple(round(float(rng.uniform(*r)), 3) for r in (COCO_SEND_RANGE, COCO_REVERB_RANGE, REVERB_S_RANGE))
 
 
+def _draw_rests(seed: int) -> float:
+    """From its own random stream, so no other drawn field moved when rests were added."""
+    return round(float(np.random.default_rng([seed, 0x7E57]).uniform(*RESTS_RANGE)), 3)
+
+
 def draw_patch(seed: int, telemetry: Sequence[Telemetry]) -> Patch:
     rng = np.random.default_rng(seed)
     scale_name = scale_for(telemetry)
@@ -259,6 +266,7 @@ def draw_patch(seed: int, telemetry: Sequence[Telemetry]) -> Patch:
         coco_send=send,
         coco_reverb=room,
         reverb_s=room_s,
+        rests=_draw_rests(seed),
     )
 
 
@@ -289,6 +297,8 @@ def _validate(p: Patch) -> Patch:
         raise ValueError("coco_reverb must be between 0 and 1")
     if not p.reverb_s > 0.0:
         raise ValueError("reverb_s must be above 0")
+    if not 0.0 <= p.rests < 1.0:  # also false for NaN; every note resting would be silence
+        raise ValueError("rests must be at least 0 and below 1")
     unknown = [r for r in p.steam_routes if r not in STEAM_ROUTES]
     if unknown:
         raise ValueError(f"unknown steam route {', '.join(unknown)}; the routes are {', '.join(STEAM_ROUTES)}")
@@ -319,6 +329,8 @@ def patch_from_dict(d: dict) -> Patch:
             steam_routes=tuple(str(x) for x in d.get("steam_routes", ())),
             # a patch saved before the snare level existed played every hit
             snare=float(d.get("snare", 1.0)),
+            # a patch saved before rests existed played every note
+            rests=float(d.get("rests", 0.0)),
             # a patch saved before the coco bus existed had no send and no room
             coco_send=float(d.get("coco_send", 0.0)),
             coco_reverb=float(d.get("coco_reverb", 0.0)),
