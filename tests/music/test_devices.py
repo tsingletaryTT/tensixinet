@@ -945,3 +945,127 @@ def test_lanes_do_not_rest_in_step_with_each_other_or_the_clock(monkeypatch):
     keep = [np.isin(a, b) for a, b in zip(plain, rested) if len(a) >= 40]
     firsts = [k[:30].tolist() for k in keep]
     assert len(firsts) >= 3 and len({tuple(f) for f in firsts}) == len(firsts)
+
+
+# --- quantus_mod: the looping line moves its register, glides and sways ----------------------------------------------------------
+
+def _modded(mod, **kw):
+    return dataclasses.replace(DEFAULT_PATCH, quantus_mod=mod, **kw)
+
+
+SR_MOD = 4000
+
+
+def test_with_no_modulation_every_note_is_a_whole_scale_step_held_for_the_note():
+    steps = ttquantus_steps(tel(), 20.0, SR_MOD, 3)
+    assert np.array_equal(steps, np.round(steps)) and np.array_equal(steps, ttquantus_steps(tel(), 20.0, SR_MOD, 3, _modded(0.0)))
+    assert np.abs(np.diff(steps)).max() >= 1.0                      # a note change is a jump
+
+
+def test_the_register_shifts_by_whole_scale_degrees_up_to_three_at_full_modulation_and_in_proportion_below_it():
+    from tensixinet.music.devices import QUANTUS_SHIFT_DEGREES, ttquantus_register
+    assert QUANTUS_SHIFT_DEGREES == 3
+    assert not ttquantus_register(tel(), 30.0, SR_MOD, 3, DEFAULT_PATCH).any()          # no modulation, no shift
+    full = ttquantus_register(tel(), 120.0, SR_MOD, 3, _modded(1.0))
+    half = ttquantus_register(tel(), 120.0, SR_MOD, 3, _modded(0.5))
+    assert np.array_equal(full, np.round(full)) and set(np.unique(full)) >= {-3, 3} and len(np.unique(full)) >= 5
+    assert np.abs(full).max() == 3 and 1 <= np.abs(half).max() <= 2 and len(np.unique(half)) < len(np.unique(full))
+
+
+def test_the_register_moves_slowly_a_new_one_only_every_several_notes():
+    from tensixinet.music.devices import ttquantus_register
+    reg = ttquantus_register(tel(), 60.0, SR_MOD, 3, _modded(1.0))
+    notes = np.count_nonzero(np.diff(ttquantus_steps(tel(), 60.0, SR_MOD, 3)) != 0)
+    moves = np.count_nonzero(np.diff(reg) != 0)
+    assert 3 <= moves < notes / 4
+
+
+def test_the_register_castle_reads_the_third_leader_at_an_eighth_of_the_note_rate_with_the_same_petals(monkeypatch):
+    from tensixinet.music.devices import QUANTUS_REGISTER_SLOWDOWN, ttquantus_register
+    from tensixinet.music.mapping import personality as person
+    from tensixinet.music.ttquantussy import castle_offset, pitch_offset
+    assert QUANTUS_REGISTER_SLOWDOWN == 8
+    seen, args = [], []
+    real = devices_module.castle_output
+    monkeypatch.setattr(devices_module, "castle_output", lambda *a, **k: (seen.append(k.get("offset")), args.append(a[:3])) and real(*a, **k))
+    t = tel(tensix_mask=0x37F7)
+    ttquantus_steps(t, 0.5, SR_MOD, 0)
+    ttquantus_register(t, 0.5, SR_MOD, 0, _modded(1.0))
+    assert seen == [castle_offset(person(t)), pitch_offset(person(t))]
+    assert args[1][0] == 0 and list(args[1][2]) == list(args[0][2])
+    assert np.allclose(list(args[1][1]), [f / QUANTUS_REGISTER_SLOWDOWN for f in args[0][1]])
+    seen.clear()
+    ttquantus_register(t, 0.5, SR_MOD, 0, DEFAULT_PATCH)
+    assert seen == []                                                  # no modulation: no extra castle
+
+
+def test_notes_glide_into_each_other_for_a_share_of_the_note_that_grows_with_the_modulation():
+    jump = lambda mod: float(np.abs(np.diff(ttquantus_steps(tel(), 20.0, SR_MOD, 3, _modded(mod)))).max())
+    assert jump(0.0) >= 1.0 and jump(0.5) < 0.2 and jump(1.0) < 0.1 and jump(1.0) < jump(0.5)
+
+
+def test_a_glide_is_centred_on_the_notes_boundary_and_is_one_note_long_at_full_modulation(monkeypatch):
+    """With the register and the vibrato taken out, so only the glide is left: half way between two notes at their boundary."""
+    t = tel()
+    monkeypatch.setattr(devices_module, "ttquantus_register", lambda t, duration, sr, seed, patch: np.zeros(int(duration * sr), dtype=int))
+    monkeypatch.setattr(devices_module, "VIBRATO_MAX_ST", 0.0)
+    held = ttquantus_steps(t, 20.0, SR_MOD, 3, DEFAULT_PATCH)
+    glided = ttquantus_steps(t, 20.0, SR_MOD, 3, _modded(1.0))
+    edges = np.nonzero(np.abs(np.diff(held)) >= 4)[0][:6]
+    assert len(edges) >= 3
+    for e in edges:
+        lo, hi = sorted((held[e], held[e + 1]))
+        assert lo + 0.4 * (hi - lo) < glided[e] < hi - 0.4 * (hi - lo)
+    # one note long at full modulation: the line has left the old note about half a note before the boundary and reaches the new one half a note after
+    note = int(np.median(np.diff(np.nonzero(np.diff(held) != 0)[0])))
+    e = edges[0]
+    assert glided[e - note // 2 - 3] == pytest.approx(held[e - note // 2 - 3], abs=0.5) and abs(glided[e + note // 2 + 3] - held[e + note // 2 + 3]) <= 0.5
+    assert abs(glided[e - note // 4] - held[e]) > 0.05 * abs(held[e + 1] - held[e]) and abs(glided[e + note // 4] - held[e + 1]) > 0.05 * abs(held[e + 1] - held[e])
+
+
+def test_a_vibrato_sways_the_pitch_at_five_hertz_deeper_with_the_chips_pressure_and_the_modulation():
+    from tensixinet.music.devices import VIBRATO_BASE, VIBRATO_HZ, VIBRATO_MAX_ST
+    from tensixinet.music.mapping import chip_pressure
+    calm, hot = tel(power=10.0), tel(power=125.0, asic_temperature=95.0)
+    assert chip_pressure(hot) - chip_pressure(calm) > 0.5
+    assert VIBRATO_HZ == 5.0 and VIBRATO_MAX_ST == 0.4 and VIBRATO_BASE == 0.3      # 40 cents at the limits, 30% of that when calm
+    for mod in (1.0, 0.5):
+        diff = ttquantus_steps(hot, 12.0, SR_MOD, 3, _modded(mod)) - ttquantus_steps(calm, 12.0, SR_MOD, 3, _modded(mod))
+        want = mod * VIBRATO_MAX_ST * (1 - VIBRATO_BASE) * (chip_pressure(hot) - chip_pressure(calm))
+        assert np.abs(diff).max() == pytest.approx(want, rel=0.06)
+        spectrum = np.abs(np.fft.rfft(diff - diff.mean()))
+        assert np.fft.rfftfreq(len(diff), 1 / SR_MOD)[spectrum.argmax()] == pytest.approx(VIBRATO_HZ, abs=0.3)
+    still = ttquantus_steps(hot, 12.0, SR_MOD, 3, DEFAULT_PATCH) - ttquantus_steps(calm, 12.0, SR_MOD, 3, DEFAULT_PATCH)
+    assert not still.any()                                              # with no modulation the pressure does not touch the pitch
+
+
+def test_even_a_calm_chip_sways_a_little_when_the_line_is_modulated():
+    from tensixinet.music.devices import VIBRATO_BASE, VIBRATO_MAX_ST
+    calm = tel(power=1.0, asic_temperature=30.0)
+    sway = ttquantus_steps(calm, 12.0, SR_MOD, 3, _modded(1.0)) - ttquantus_steps(calm, 12.0, SR_MOD, 3, _modded(1.0))
+    assert not sway.any()
+    from tensixinet.music.mapping import chip_pressure
+    plain = ttquantus_steps(calm, 20.0, SR_MOD, 3, _modded(0.0))
+    moved = ttquantus_steps(calm, 20.0, SR_MOD, 3, _modded(1.0))
+    assert chip_pressure(calm) < 0.1 and np.abs(moved - plain).max() > VIBRATO_BASE * VIBRATO_MAX_ST * 0.5
+
+
+def test_a_modulated_line_is_a_different_sound_in_ttquantus_and_in_every_ttcoco_echo_and_stays_bounded():
+    from tensixinet.music.ttcoco import ttcoco
+    for device in (ttquantus, ttcoco):
+        plain, moved = device(tel(), 8.0, SR, 2, DEFAULT_PATCH), device(tel(), 8.0, SR, 2, _modded(1.0))
+        assert not np.allclose(plain, moved) and np.isfinite(moved).all() and np.abs(moved).max() <= 1.0
+    # the pitch really wanders more: far more different pitches than the fixed line's handful of scale steps
+    distinct = lambda patch: len(np.unique(np.round(ttquantus_steps(tel(), 8.0, SR, 2, patch), 2)))
+    assert distinct(_modded(1.0)) > 20 * distinct(DEFAULT_PATCH) / 2
+
+
+def test_the_register_is_added_to_the_notes_before_they_are_glided_so_three_degrees_up_is_three_scale_steps_up(monkeypatch):
+    """A register of +3 lifts the whole line by three scale degrees (more than four semitones in any scale here, under an octave)."""
+    monkeypatch.setattr(devices_module, "VIBRATO_MAX_ST", 0.0)
+    n = lambda duration, sr: int(duration * sr)
+    monkeypatch.setattr(devices_module, "ttquantus_register", lambda t, duration, sr, seed, patch: np.zeros(n(duration, sr), dtype=int))
+    flat = ttquantus_steps(tel(), 10.0, SR_MOD, 3, _modded(1.0))
+    monkeypatch.setattr(devices_module, "ttquantus_register", lambda t, duration, sr, seed, patch: np.full(n(duration, sr), 3))
+    lifted = ttquantus_steps(tel(), 10.0, SR_MOD, 3, _modded(1.0))
+    assert (lifted - flat).min() > 4 and (lifted - flat).max() < 13

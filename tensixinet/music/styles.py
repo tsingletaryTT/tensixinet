@@ -48,6 +48,7 @@ class Style:
     bus: Tuple[float, float, float]  # (patch.coco_send, patch.coco_reverb, patch.reverb_s)
     rests: float  # the share of the coco's notes that rest (patch.rests)
     pulse_rests: Tuple[float, float]  # (patch.lead_rests, patch.roll_rests)
+    mod: float  # how far the looping line's pitch is moved (patch.quantus_mod)
 
 
 def _odds(*weights: float) -> Tuple[float, ...]:
@@ -70,21 +71,23 @@ STYLES: Dict[str, Style] = {
         bus=(0.4, 0.1, 0.6),
         rests=0.25,
         pulse_rests=(0.1, 0.15),
+        mod=0.15,
     ),
     "enya": Style(
         "enya",
-        "Slow, modal and spacious: long turns, singing bowls and glass, the choir and the drone in front, the delay taps filling the "
-        "room, and hardly any snare.",
+        "Slow, modal and spacious: long turns, singing bowls and glass, the choir and the drone in front, a long room of delay "
+        "behind them, and hardly any snare.",
         scales=("dorian", "lydian", "major_pentatonic", "mixolydian"), modes="any",
         gong_tunings=("singing_bowl", "glass", "bell"), beat=(0.25, 0.5), band_low=(8000.0, 11000.0), band_width=(6000.0, 9000.0),
         bars=(4, 5, 6), floor=(0.45, 0.5), motif_lengths=(12,), motif_steps=_odds(0.2, 1, 6, 2, 6, 1, 0.2),
         routes=("pitch",), rax_bars=(7, 14),
-        emphasis=(("ttchoir", 1.8), ("ttdrone", 1.5), ("ultrasonic_shimmer", 1.3), ("ttcoco", 1.2), ("ttrax", 1.2), ("lead", 1.0),
-                  ("gong", 1.0), ("ttquantus", 0.7), ("ttavdog", 0.4), ("ttrollz", 0.3), ("ttsteam", 0.15)),
+        emphasis=(("ttchoir", 1.8), ("ttdrone", 1.5), ("ultrasonic_shimmer", 1.3), ("ttrax", 1.2), ("lead", 1.0),
+                  ("gong", 1.0), ("ttcoco", 0.3), ("ttquantus", 0.3), ("ttavdog", 0.4), ("ttrollz", 0.3), ("ttsteam", 0.15)),
         snare=0.1,
         bus=(0.8, 0.5, 3.5),
         rests=0.3,
         pulse_rests=(0.2, 0.2),
+        mod=0.8,
     ),
     "blues": Style(
         "blues",
@@ -100,6 +103,7 @@ STYLES: Dict[str, Style] = {
         bus=(0.3, 0.3, 1.4),
         rests=0.35,
         pulse_rests=(0.25, 0.2),
+        mod=0.45,
     ),
     "aphex": Style(
         "aphex",
@@ -115,6 +119,7 @@ STYLES: Dict[str, Style] = {
         bus=(0.7, 0.25, 1.0),
         rests=0.4,
         pulse_rests=(0.15, 0.3),
+        mod=0.9,
     ),
 }
 
@@ -157,4 +162,5 @@ def draw_styled_patch(seed: int, telemetry: Sequence[Telemetry], style: str) -> 
         rests=s.rests,
         lead_rests=s.pulse_rests[0],
         roll_rests=s.pulse_rests[1],
+        quantus_mod=s.mod,
     )

@@ -516,3 +516,39 @@ def test_a_patch_saved_before_these_rests_existed_has_none_and_the_values_round_
             path.write_text(json.dumps(saved))
             with pytest.raises(ValueError, match=field):
                 load_patch(path)
+
+
+# --- quantus_mod: how much the looping line's pitch is moved ----------------------------------------------------------------
+
+def test_the_default_patch_does_not_move_the_looping_line_and_a_drawn_one_always_does():
+    ps = [draw_patch(s, UNEVEN) for s in range(400)]
+    assert DEFAULT_PATCH.quantus_mod == 0.0
+    assert all(0.35 <= p.quantus_mod <= 0.9 for p in ps) and min(p.quantus_mod for p in ps) < 0.4 and max(p.quantus_mod for p in ps) > 0.85
+    assert len({p.quantus_mod for p in ps}) > 100
+
+
+def test_drawing_the_modulation_leaves_every_other_drawn_field_where_it_was_and_is_independent_of_them():
+    ps = [draw_patch(s, UNEVEN) for s in range(3000)]
+    assert dataclasses.replace(ps[11], quantus_mod=0.0) == dataclasses.replace(draw_patch(11, UNEVEN), quantus_mod=0.0)
+    mean = lambda group: sum(p.quantus_mod for p in group) / len(group)
+    assert abs(mean([p for p in ps if p.rests < 0.25]) - mean([p for p in ps if p.rests > 0.35])) < 0.03
+    assert abs(mean([p for p in ps if p.coco_send < 0.4]) - mean([p for p in ps if p.coco_send > 0.65])) < 0.03
+    assert abs(mean([p for p in ps if p.lead_rests < 0.15]) - mean([p for p in ps if p.lead_rests > 0.25])) < 0.03
+
+
+def test_a_patch_saved_before_the_modulation_existed_has_none_and_the_value_round_trips_and_is_checked(tmp_path):
+    path = tmp_path / "p.json"
+    save_patch(dataclasses.replace(DEFAULT_PATCH, quantus_mod=0.6), path)
+    assert load_patch(path).quantus_mod == 0.6
+    d = json.loads(path.read_text())
+    del d["quantus_mod"]
+    path.write_text(json.dumps(d))
+    assert load_patch(path).quantus_mod == 0.0
+    for bad in (-0.1, 1.5, float("nan")):
+        d["quantus_mod"] = bad
+        path.write_text(json.dumps(d))
+        with pytest.raises(ValueError, match="quantus_mod"):
+            load_patch(path)
+    d["quantus_mod"] = 1.0                                              # full modulation is allowed
+    path.write_text(json.dumps(d))
+    assert load_patch(path).quantus_mod == 1.0

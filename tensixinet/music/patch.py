@@ -98,6 +98,7 @@ REVERB_S_RANGE = (0.8, 3.5)
 RESTS_RANGE = (0.15, 0.45)  # a drawn patch rests this share of the coco's notes
 LEAD_RESTS_RANGE = (0.1, 0.3)  # ... and this share of the lead's notes
 ROLL_RESTS_RANGE = (0.1, 0.3)  # ... and this share of ttrollz's pulses
+QUANTUS_MOD_RANGE = (0.35, 0.9)  # a drawn patch moves the looping line's pitch this much (devices.ttquantus_steps)
 
 MOTIF_LENGTHS = (6, 7, 8, 9, 10, 12)  # eighth notes; the lead's bar is as long as its motif
 MOTIF_LOW_RANGE = (-5, -2)  # the lowest degree a motif may reach is drawn from here ...
@@ -131,6 +132,7 @@ class Patch:
     rests: float = 0.0  # the share of the coco's held notes that rest (devices.ttquantus_gate): 0 plays every note, the sound from before rests
     lead_rests: float = 0.0  # the share of the lead's notes that rest (lead.py, rests.rest_flags); the first note of a phrase always plays
     roll_rests: float = 0.0  # the share of ttrollz's clock and lane pulses that rest (devices.ttrollz); the gong still follows the rolls whole
+    quantus_mod: float = 0.0  # how far the looping line's pitch is moved (devices.ttquantus_steps): its register, glides between notes and vibrato; 0 is the fixed line from before
 
 
 DEFAULT_PATCH = Patch(
@@ -247,6 +249,11 @@ def _draw_pulse_rests(seed: int) -> Tuple[float, float]:
     return tuple(round(float(rng.uniform(*r)), 3) for r in (LEAD_RESTS_RANGE, ROLL_RESTS_RANGE))
 
 
+def _draw_quantus_mod(seed: int) -> float:
+    """From its own random stream, so no other drawn field moved when the modulation was added."""
+    return round(float(np.random.default_rng([seed, 0x70D5]).uniform(*QUANTUS_MOD_RANGE)), 3)
+
+
 def draw_patch(seed: int, telemetry: Sequence[Telemetry]) -> Patch:
     rng = np.random.default_rng(seed)
     lead_rests, roll_rests = _draw_pulse_rests(seed)
@@ -280,6 +287,7 @@ def draw_patch(seed: int, telemetry: Sequence[Telemetry]) -> Patch:
         rests=_draw_rests(seed),
         lead_rests=lead_rests,
         roll_rests=roll_rests,
+        quantus_mod=_draw_quantus_mod(seed),
     )
 
 
@@ -315,6 +323,8 @@ def _validate(p: Patch) -> Patch:
     for field in ("lead_rests", "roll_rests"):
         if not 0.0 <= getattr(p, field) < 1.0:
             raise ValueError(f"{field} must be at least 0 and below 1")
+    if not 0.0 <= p.quantus_mod <= 1.0:  # also false for NaN
+        raise ValueError("quantus_mod must be between 0 and 1")
     unknown = [r for r in p.steam_routes if r not in STEAM_ROUTES]
     if unknown:
         raise ValueError(f"unknown steam route {', '.join(unknown)}; the routes are {', '.join(STEAM_ROUTES)}")
@@ -350,6 +360,8 @@ def patch_from_dict(d: dict) -> Patch:
             # nor did the lead or the rolls leave anything out
             lead_rests=float(d.get("lead_rests", 0.0)),
             roll_rests=float(d.get("roll_rests", 0.0)),
+            # nor was the looping line's pitch moved
+            quantus_mod=float(d.get("quantus_mod", 0.0)),
             # a patch saved before the coco bus existed had no send and no room
             coco_send=float(d.get("coco_send", 0.0)),
             coco_reverb=float(d.get("coco_reverb", 0.0)),

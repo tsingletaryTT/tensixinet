@@ -283,11 +283,12 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 
 <section id="bus"><div class="wrap">
   <div class="kicker">Delay and rests</div>
-  <h2>A delay the whole band goes through, and silences to play against</h2>
+  <h2>A delay the whole band goes through, silences, and a line that moves</h2>
   <p>The Cocoquantus is two delay chips as well as a looping voice: it takes sound in and puts it through a delay that the petals move. Each chip's voices now go through four 8-bit delay taps, one for every second GDDR channel. Temperature sets a tap's delay, the delay sets its bit depth (a shorter buffer holds more bits), and pressure raises the feedback from 0.25 to 0.8. A petal's castle sways each tap's delay by up to 35%, so the echoes bend. The echoes and the dry send then pass through a convolution reverb (noise that falls 60 dB over 0.8 to 3.5 s, rolled off at 4 kHz, a different room for each ear). The reverb is an addition: the real unit has none. The bus runs on the CPU. The two coco devices send nothing into it, because they are the delay.</p>
   <div class="grid">
     <div class="card"><h3>Send, room and time</h3><p>A drawn patch sends 25% to 80% of the band, mixes in 15% to 50% room, and sets the room's time from 0.8 to 3.5 s. The default patch and any patch saved earlier send nothing, so they sound as before.</p><span class="tag">coco_send, coco_reverb, reverb_s</span></div>
     <div class="card"><h3>Rests in the coco</h3><p>Sample-and-hold makes silences as well as notes. A second castle, reading a different petal than the note castle, is held for each note, and a note under the patch's value is silent, with the edges glided over 5 ms. A drawn patch rests 15% to 45% of the coco's notes, and every <code>ttcoco</code> echo carries the gaps.</p><span class="tag">rests</span></div>
+    <div class="card"><h3>A line that moves</h3><p>The looping line was a fixed window of scale steps. A slow castle now shifts its register by up to 3 scale degrees every several notes, each note glides into the next over up to a note's length, and a 5 Hz vibrato sways the pitch by up to 40 cents, more as the chip nears its limits. A drawn patch moves it 35% to 90% of the way; <code>ttcoco</code> echoes the same line.</p><span class="tag">quantus_mod</span></div>
     <div class="card"><h3>Rests in the lead and the rolls</h3><p>The lead leaves out 10% to 30% of its notes, but always plays the first note of a phrase. ttrollz leaves out 10% to 30% of its clock and lane pulses, each lane on its own pattern. The rolls themselves run whole, so the gong still follows every pulse.</p><span class="tag">lead_rests, roll_rests</span></div>
   </div>
   <p class="src" style="margin-top:10px">Heard by the owner of the code, who said the rests sound better. The bus and its levels are measured. A 20 s stereo render on four synthetic chips went from 2.6 s to 4.1 s with the bus on.</p>
@@ -299,17 +300,17 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   <p>A style is a named patch. It narrows what a run may draw (the scales, the gong tunings, how long and how leaping the lead's motif is, how long a turn lasts, which steam routes are on) and sets a balance for the band, a factor on each device's level and on how often it gets the floor. The system still picks which of the style's scales and tunings from the chips' readings, and the seed draws the rest, so no two runs of a style match. These are sketches of a sound, not imitations: the devices are the devices.</p>
   <div class="grid">
     <div class="card"><h3><code>--style chiptune</code></h3><p>Square-ish and quick: short turns, bright bells, a small four-barre ttrax, and the 8-bit ttquantus and the lead out in front with the rolls and the snare keeping it snappy.</p><span class="tag">scales: major pentatonic, mixolydian, minor pentatonic, dorian</span><audio controls preload="none" src="assets/audio/chiptune.mp3"></audio></div>
-    <div class="card"><h3><code>--style enya</code></h3><p>Slow, modal and spacious: long turns, singing bowls and glass, the choir and the drone in front, the delay taps filling the room, and hardly any snare.</p><span class="tag">scales: dorian, lydian, major pentatonic, mixolydian</span><audio controls preload="none" src="assets/audio/enya.mp3"></audio></div>
+    <div class="card"><h3><code>--style enya</code></h3><p>Slow, modal and spacious: long turns, singing bowls and glass, the choir and the drone in front, a long room of delay behind them, and hardly any snare.</p><span class="tag">scales: dorian, lydian, major pentatonic, mixolydian</span><audio controls preload="none" src="assets/audio/enya.mp3"></audio></div>
     <div class="card"><h3><code>--style blues</code></h3><p>A twelve-note phrase over the blues scales, four bars to a turn so three turns make twelve bars, the ttrax organ and the lead up front, and the snare on the back beat.</p><span class="tag">scales: blues, mixolydian, minor pentatonic, dorian</span><audio controls preload="none" src="assets/audio/blues.mp3"></audio></div>
     <div class="card"><h3><code>--style aphex</code></h3><p>Restless and odd-metered: eight-note scales, motifs of seven, nine or ten notes with big leaps, short turns, fast metallic gongs, two steam routes on, and the rolls, the AVDog and the delay taps doing the talking with the snare in the mix.</p><span class="tag">scales: octatonic, augmented, whole tone, hungarian minor, double harmonic, prometheus</span><audio controls preload="none" src="assets/audio/aphex.mp3"></audio></div>
   </div>
   <table>
-    <thead><tr><th>style</th><th>snare</th><th>coco send</th><th>room</th><th>room time</th><th>coco rests</th><th>lead rests</th><th>roll rests</th></tr></thead>
+    <thead><tr><th>style</th><th>snare</th><th>coco send</th><th>room</th><th>room time</th><th>coco rests</th><th>lead rests</th><th>roll rests</th><th>pitch movement</th></tr></thead>
     <tbody>
-      <tr><td><code>chiptune</code></td><td>0.5</td><td>0.4</td><td>0.1</td><td>0.6 s</td><td>0.25</td><td>0.1</td><td>0.15</td></tr>
-      <tr><td><code>enya</code></td><td>0.1</td><td>0.8</td><td>0.5</td><td>3.5 s</td><td>0.3</td><td>0.2</td><td>0.2</td></tr>
-      <tr><td><code>blues</code></td><td>0.5</td><td>0.3</td><td>0.3</td><td>1.4 s</td><td>0.35</td><td>0.25</td><td>0.2</td></tr>
-      <tr><td><code>aphex</code></td><td>0.6</td><td>0.7</td><td>0.25</td><td>1 s</td><td>0.4</td><td>0.15</td><td>0.3</td></tr>
+      <tr><td><code>chiptune</code></td><td>0.5</td><td>0.4</td><td>0.1</td><td>0.6 s</td><td>0.25</td><td>0.1</td><td>0.15</td><td>0.15</td></tr>
+      <tr><td><code>enya</code></td><td>0.1</td><td>0.8</td><td>0.5</td><td>3.5 s</td><td>0.3</td><td>0.2</td><td>0.2</td><td>0.8</td></tr>
+      <tr><td><code>blues</code></td><td>0.5</td><td>0.3</td><td>0.3</td><td>1.4 s</td><td>0.35</td><td>0.25</td><td>0.2</td><td>0.45</td></tr>
+      <tr><td><code>aphex</code></td><td>0.6</td><td>0.7</td><td>0.25</td><td>1 s</td><td>0.4</td><td>0.15</td><td>0.3</td><td>0.9</td></tr>
     </tbody>
   </table>
   <p class="src" style="margin-top:10px">Each clip is forty seconds from the four real chips with patch seed 5, with the kernel devices on the chips. Try <code>tensixinet --live --style enya</code>. A saved patch keeps its style and its balance, and replays with <code>--patch</code>.</p>
@@ -366,6 +367,8 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
   <div class="players">
     <div class="card"><h3>The whole band, cables on</h3><p>All eleven devices, cross-patched, with turn-taking.</p><audio controls preload="none" src="assets/audio/all.mp3"></audio></div>
     <div class="card"><h3>The same patch, no cables</h3><p>The same chips and seed with <code>--no-cables</code>. Play it after the first.</p><audio controls preload="none" src="assets/audio/all_nocables.mp3"></audio></div>
+    <div class="card"><h3>The looping line, pitch held</h3><p>ttquantus alone, with the pitch movement off: every note a whole scale step, held for the note. The same patch and the same synthetic readings as the next card.</p><audio controls preload="none" src="assets/audio/quantus_fixed.mp3"></audio></div>
+    <div class="card"><h3>The looping line, pitch moving</h3><p>The same line with <code>quantus_mod</code> on: a register that shifts by scale degrees, notes that glide into each other, and a vibrato that deepens with pressure.</p><audio controls preload="none" src="assets/audio/quantus_moving.mp3"></audio></div>
     <div class="card"><h3>ttchoir</h3><p>A voice built from formant resonances, singing vowels the memory channels choose.</p><audio controls preload="none" src="assets/audio/choir.mp3"></audio></div>
     <div class="card"><h3>ttavdog</h3><p>A shock wave that undulates, with a second voice answering on the other half with the opposite slope.</p><audio controls preload="none" src="assets/audio/avdog.mp3"></audio></div>
     <div class="card"><h3>gong</h3><p>Inharmonic partials that beat against detuned copies, struck on the chip's own clock.</p><audio controls preload="none" src="assets/audio/gong.mp3"></audio></div>

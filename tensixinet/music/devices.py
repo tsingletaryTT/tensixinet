@@ -30,7 +30,7 @@ from .patch import DEFAULT_PATCH, SCALES, Patch
 from .register import step_times
 from .ttrax import FALLBACK_ARCCLK, barre_bounds, bounce_wave, ttrax  # noqa: F401  (re-exported: the chorus and the log import them from here)
 from .rests import rest_flags
-from .ttquantussy import castle_offset, castle_output, crunch, petal_phases, petal_ratios, rest_offset
+from .ttquantussy import castle_offset, castle_output, crunch, petal_phases, petal_ratios, pitch_offset, rest_offset
 from .ttrolzer import (
     BARRE_GEOMETRY, DDR_LANE_BARRES, DOWNBEAT_GAIN, ETH_LANE_BARRES, ETH_LANE_SIDES, SEGMENT_SEED_STRIDE, Link, Roll,
     barre_bpm, draw_gong_trigger, draw_links, roll_drift, roll_ensemble,
@@ -51,7 +51,7 @@ IDENTITY_FIELDS = frozenset({"tensix_mask", "eth_mask"})
 DEVICE_INPUTS = {
     "ttrollz": frozenset({"asic_temperature", "aiclk", "ddr_status", "eth_mask"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ttrax": frozenset({"asic_temperature", "gddr_temps", "arcclk", "aiclk", "temp_rate", "power_rate"}) | PRESSURE_FIELDS,
-    "ttquantus": frozenset({"asic_temperature", "aiclk", "axiclk"}) | IDENTITY_FIELDS,
+    "ttquantus": frozenset({"asic_temperature", "aiclk", "axiclk"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,   # pressure sways the pitch when the patch moves it
     "ttdrone": frozenset({"asic_temperature", "voltage", "pcie_usage", "aiclk", "heartbeat", "ddr_status"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "lead": frozenset({"aiclk", "gddr_temps"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "gong": frozenset({"asic_temperature", "aiclk", "heartbeat", "ddr_status"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
@@ -236,11 +236,21 @@ def ttrollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: P
 
 # --- ttquantus: the ttquantussy's castles, through an 8-bit buffer ---------------------------------------
 
+def scale_degrees(values: np.ndarray, scale: Sequence[int], octaves: int = 2) -> np.ndarray:
+    """Map [0, 1] values onto scale degrees counted up from the root: 0 to `len(scale) * octaves - 1`."""
+    count = len(scale) * octaves
+    return np.minimum((np.asarray(values) * count).astype(int), count - 1)
+
+
+def degrees_to_semitones(degrees: np.ndarray, scale: Sequence[int]) -> np.ndarray:
+    """Semitone offsets of whole scale degrees, below the root and above the top as well (lead.degree_to_semitones, for arrays)."""
+    octave, step = np.divmod(np.asarray(degrees), len(scale))
+    return 12 * octave + np.asarray(scale)[step]
+
+
 def quantize_to_scale(values: np.ndarray, scale: Sequence[int], octaves: int = 2) -> np.ndarray:
     """Map [0, 1] values onto semitone offsets of `scale` across `octaves`."""
-    notes = [12 * o + d for o in range(octaves) for d in scale]
-    idx = np.minimum((np.asarray(values) * len(notes)).astype(int), len(notes) - 1)
-    return np.array(notes)[idx]
+    return degrees_to_semitones(scale_degrees(values, scale, octaves), scale)
 
 
 REFERENCE_AXICLK = 960.0  # MHz: at this AXI clock a note is held for an eighth
@@ -248,17 +258,60 @@ CRUNCH_FULL_AXICLK = 1920.0  # MHz: at this AXI clock the buffer runs at the aud
 CRUNCH_MIN_RATE = 0.25  # the buffer clock never drops below this share of the sample rate
 
 
+QUANTUS_SHIFT_DEGREES = 3  # at full modulation the register moves this many scale degrees either way
+QUANTUS_REGISTER_SLOWDOWN = 8  # the register castle turns this many times slower than the note castle: a new register every several notes
+QUANTUS_GLIDE_NOTES = 1.0  # at full modulation a note takes a whole note's length to slide into the next
+VIBRATO_HZ = 5.0
+VIBRATO_MAX_ST = 0.4  # semitones: the depth at full modulation on a chip at its pressure limit
+VIBRATO_BASE = 0.3  # a calm chip still sways this share of that depth
+
+
+def _note_rate(t: Telemetry) -> float:
+    """Notes a second: petal 0 turns half a cycle for every note."""
+    return aiclk_to_bpm(t.aiclk) / 60.0 * 2 * t.axiclk / REFERENCE_AXICLK
+
+
+def ttquantus_register(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """Per-sample whole scale degrees that the line's register is moved by: a slow castle (the same petals as the notes, turning slower, looking
+    at a third leader) held for several notes, spread over up to `QUANTUS_SHIFT_DEGREES * patch.quantus_mod` degrees either way. All zero when the
+    patch does not move the line's pitch."""
+    n = int(duration * sample_rate)
+    if patch.quantus_mod <= 0.0:
+        return np.zeros(n, dtype=int)
+    freqs = [_note_rate(t) / 2 * r / QUANTUS_REGISTER_SLOWDOWN for r in petal_ratios(seed)]
+    slow = castle_output(0, freqs, petal_phases(seed), np.arange(n) / sample_rate, offset=pitch_offset(personality(t)))
+    return np.round((slow - 0.5) * 2 * QUANTUS_SHIFT_DEGREES * patch.quantus_mod).astype(int)
+
+
+def _glided(values: np.ndarray, width: int) -> np.ndarray:
+    """A centred moving average `width` samples wide, so a jump between two values becomes a slide through the boundary."""
+    if width <= 1:
+        return values.astype(float)
+    n = len(values)
+    c = np.concatenate([[0.0], np.cumsum(values, dtype=float)])
+    hi, lo = np.minimum(np.arange(n) + width // 2 + 1, n), np.maximum(np.arange(n) - width // 2, 0)
+    return (c[hi] - c[lo]) / (hi - lo)
+
+
 def ttquantus_steps(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """Per-sample semitone offsets: the first petal's castle on the patch's scale.
 
     The ttquantussy's first petal turns round twice per eighth note, so a note lasts an eighth. The other four
     petals run at low prime ratios to it (the seed nudges them), so the notes make a pattern that repeats
-    and slowly drifts. The chip's identity picks which petal the castle samples."""
+    and slowly drifts. The chip's identity picks which petal the castle samples.
+
+    With the patch's `quantus_mod` above 0 the line is also moved, in three ways that scale with it: a slow castle shifts the register by whole scale
+    degrees (`ttquantus_register`), each note glides into the next over up to a note's length, and a vibrato sways the pitch, deeper as the chip's
+    pressure rises. With none, every note is a whole scale step held for its note, as before."""
     n = int(duration * sample_rate)
-    rate = aiclk_to_bpm(t.aiclk) / 60.0 * 2 * t.axiclk / REFERENCE_AXICLK
-    freqs = [rate / 2 * r for r in petal_ratios(seed)]
+    freqs = [_note_rate(t) / 2 * r for r in petal_ratios(seed)]
     castle = castle_output(0, freqs, petal_phases(seed), np.arange(n) / sample_rate, offset=castle_offset(personality(t)))
-    return quantize_to_scale(castle, patch.scale)
+    if patch.quantus_mod <= 0.0:
+        return quantize_to_scale(castle, patch.scale)
+    degrees = scale_degrees(castle, patch.scale) + ttquantus_register(t, duration, sample_rate, seed, patch)
+    semis = _glided(degrees_to_semitones(degrees, patch.scale), int(QUANTUS_GLIDE_NOTES * patch.quantus_mod * sample_rate / _note_rate(t)))
+    depth = patch.quantus_mod * VIBRATO_MAX_ST * (VIBRATO_BASE + (1.0 - VIBRATO_BASE) * chip_pressure(t))
+    return semis + depth * np.sin(2 * math.pi * VIBRATO_HZ * np.arange(n) / sample_rate)
 
 
 REST_FADE_S = 0.005  # a note's edges are glided over this long, so a rest does not click

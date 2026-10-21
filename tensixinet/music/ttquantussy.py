@@ -59,6 +59,12 @@ def rest_offset(identity: int) -> int:
     return LEADER_OFFSETS[(identity + 1) % len(LEADER_OFFSETS)]
 
 
+def pitch_offset(identity: int) -> int:
+    """The leader of the slow castle that moves the line's register: two on round the castle mod select from the note castle's, so it reads a third
+    petal and the register's moves are neither the notes' pattern nor the rests'."""
+    return LEADER_OFFSETS[(identity + 2) % len(LEADER_OFFSETS)]
+
+
 def petal_ratios(seed: int) -> Tuple[float, ...]:
     """Frequency ratios of the five petals: low primes, each nudged by the seed. Petal 0 sets the rate and is exact."""
     nudge = np.random.default_rng(seed).uniform(-RATIO_NUDGE, RATIO_NUDGE, N_PETALS)

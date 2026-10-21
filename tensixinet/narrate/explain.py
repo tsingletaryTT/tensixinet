@@ -17,12 +17,15 @@ from ..music.cables import Cable, strength
 from ..music.chorus import DEVICES, assign_device, chip_devices, n_slots, plan_turns, slot_chip
 from ..music.devices import (
     DEVICE_INPUTS,
+    QUANTUS_GLIDE_NOTES,
+    QUANTUS_SHIFT_DEGREES,
     REFERENCE_AXICLK,
     SHIMMER_BEAT_HZ_PER_DEG,
     SHOCK_DECAY_BEATS,
     SHOCK_RATE_BEATS,
     TRIGGER_RESPONSE_SPREAD,
     TRIGGER_RESPONSE_STEPS,
+    VIBRATO_MAX_ST,
     gong_detune_cents,
     gong_trigger_roll,
     strike_times,
@@ -512,6 +515,19 @@ def _rests_decision(patch: Patch) -> Decision:
     )
 
 
+def _pitch_movement_decision(patch: Patch) -> Decision:
+    """How far the looping line's pitch is moved."""
+    if patch.quantus_mod <= 0.0:
+        return Decision("pitch movement: none", "this patch holds each note of the looping line (ttquantus, and the ttcoco echoes of it) at its scale step, in a fixed two-octave window")
+    where = f"set by the {patch.style} style" if patch.style else "drawn from the seed: 0.35 to 0.9"
+    return Decision(
+        f"pitch movement: {patch.quantus_mod:.0%} of the most the line can move",
+        f"{where}; a slow castle shifts the line's register by up to {QUANTUS_SHIFT_DEGREES * patch.quantus_mod:.1f} of {QUANTUS_SHIFT_DEGREES} scale degrees every several notes, each note "
+        f"glides into the next over {QUANTUS_GLIDE_NOTES * patch.quantus_mod:.0%} of a note, and a vibrato sways the pitch by up to {VIBRATO_MAX_ST * patch.quantus_mod * 100:.0f} cents, deeper "
+        "as the chip nears its limits, so the loop is not the same line each time round",
+    )
+
+
 def _pulse_rests_decisions(patch: Patch) -> list:
     """How many of the lead's notes and of ttrollz's pulses are left out."""
     where = f"set by the {patch.style} style" if patch.style else "drawn from the seed: 10 to 30%"
@@ -602,4 +618,5 @@ def explain_patch(patch: Patch, telemetry: Sequence[Telemetry], source: str) -> 
         _bus_decision(patch),
         _rests_decision(patch),
         *_pulse_rests_decisions(patch),
+        _pitch_movement_decision(patch),
     ] + _style_decision(patch)

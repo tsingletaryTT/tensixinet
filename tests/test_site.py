@@ -241,7 +241,7 @@ def test_each_style_has_its_own_clip_and_the_styles_table_carries_its_snare_bus_
         assert f'src="assets/audio/{name}.mp3"' in section and (SITE / "assets" / "audio" / f"{name}.mp3").is_file(), name
         row = re.search(rf"<tr><td><code>{name}</code></td>(.*?)</tr>", section).group(1)
         cells = re.findall(r"<td>(.*?)</td>", row)
-        assert cells == [f"{st.snare:g}", f"{st.bus[0]:g}", f"{st.bus[1]:g}", f"{st.bus[2]:g} s", f"{st.rests:g}", f"{st.pulse_rests[0]:g}", f"{st.pulse_rests[1]:g}"], name
+        assert cells == [f"{st.snare:g}", f"{st.bus[0]:g}", f"{st.bus[1]:g}", f"{st.bus[2]:g} s", f"{st.rests:g}", f"{st.pulse_rests[0]:g}", f"{st.pulse_rests[1]:g}", f"{st.mod:g}"], name
 
 
 def test_every_audio_clip_on_the_page_exists():
@@ -265,3 +265,23 @@ def test_the_reset_clip_says_how_it_was_made_and_what_the_loop_did_while_the_chi
     assert "no chips in this reading" in (SITE.parent / "tensixinet" / "live.py").read_text()
     script = (SITE.parent / "demo" / "make_reset_clip.sh").read_text()
     assert 'gozer release "$LEASE"' in script and "tt-smi -r" not in script.replace("the same reset `tt-smi -r` makes", "")
+
+
+def test_the_pitch_movement_card_states_the_numbers_the_code_uses():
+    from tensixinet.music.devices import QUANTUS_SHIFT_DEGREES, VIBRATO_HZ, VIBRATO_MAX_ST
+    from tensixinet.music.patch import QUANTUS_MOD_RANGE
+    section = HTML[HTML.index('id="bus"'): HTML.index('id="styles"')]
+    card = section[section.index("<h3>A line that moves</h3>"):]
+    card = card[: card.index("</div>")]
+    for text in (f"up to {QUANTUS_SHIFT_DEGREES} scale degrees", f"{VIBRATO_HZ:g} Hz vibrato", f"up to {round(VIBRATO_MAX_ST * 100)} cents",
+                 f"{QUANTUS_MOD_RANGE[0]:.0%} to {QUANTUS_MOD_RANGE[1]:.0%}", ">quantus_mod<", "ttcoco"):
+        assert text in card, text
+
+
+def test_the_pitch_movement_has_a_held_and_a_moving_clip_from_the_same_patch_and_readings():
+    listen = HTML[HTML.index('id="listen"'): HTML.index('id="new"')]
+    for name in ("quantus_fixed", "quantus_moving"):
+        assert f'src="assets/audio/{name}.mp3"' in listen and (SITE / "assets" / "audio" / f"{name}.mp3").is_file(), name
+    assert "same patch and the same synthetic readings" in listen and listen.index("quantus_fixed") < listen.index("quantus_moving")
+    script = (SITE.parent / "demo" / "make_clips.sh").read_text()
+    assert 'd["quantus_mod"]=0.0' in script and "--mock-chips 4 --seed 3" in script    # the held clip is the moving one's patch with the modulation off

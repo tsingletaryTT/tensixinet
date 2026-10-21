@@ -178,3 +178,31 @@ def test_each_style_sets_how_many_of_the_leads_notes_and_the_rolls_pulses_rest()
     for name in STYLES:
         p = draw_styled_patch(3, CHIPS, name)
         assert (p.lead_rests, p.roll_rests) == STYLES[name].pulse_rests
+
+
+def test_each_style_sets_how_much_the_looping_lines_pitch_is_moved():
+    assert {n: s.mod for n, s in STYLES.items()} == {"chiptune": 0.15, "enya": 0.8, "blues": 0.45, "aphex": 0.9}
+    for name in STYLES:
+        assert draw_styled_patch(3, CHIPS, name).quantus_mod == STYLES[name].mod
+
+
+def test_in_enya_the_looping_coco_devices_are_in_the_background_by_balance_and_by_what_is_heard():
+    emphasis = dict(STYLES["enya"].emphasis)
+    others = [d for d in emphasis if d not in ("ttcoco", "ttquantus", "ttsteam", "ttrollz", "ttavdog")]
+    assert all(emphasis["ttcoco"] < emphasis[d] and emphasis["ttquantus"] < emphasis[d] for d in others)
+    assert emphasis["ttcoco"] <= 0.4 and emphasis["ttquantus"] <= 0.4
+    # and by ear's measure: their share of the mix's energy (each device's level, the balance and the turn gains)
+    from tensixinet.music.chorus import assign_device, emphasis_of, n_slots, plan_turns, slot_chip, turn_gains
+    shares = []
+    for seed in (1, 2, 3):
+        tel = mock_telemetry(4, seed=seed)
+        patch = draw_styled_patch(seed, tel, "enya")
+        planned, turn_s = plan_turns(tel, 10.0, patch, None)
+        gains = turn_gains(planned, n_slots(4), 10 * 8000, 8000, turn_s, floor=patch.floor)
+        energy = {}
+        for s in range(n_slots(4)):
+            device = assign_device(s)
+            voice = device(tel[slot_chip(s, 4)], 10.0, 8000, seed=s, patch=patch)
+            energy[device.__name__] = float(np.mean((emphasis_of(patch, device.__name__) * gains[s] * voice) ** 2))
+        shares.append((energy["ttcoco"] + energy["ttquantus"]) / sum(energy.values()))
+    assert max(shares) < 0.2 and np.mean(shares) < 0.15

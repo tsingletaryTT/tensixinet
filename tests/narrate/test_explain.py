@@ -8,6 +8,7 @@ import pytest
 
 from tensixinet.music.chorus import DEVICES, assign_device
 from tensixinet.music.devices import DEVICE_INPUTS
+from tensixinet.music.patch import DEFAULT_PATCH
 from tensixinet.narrate.explain import explain_chip, explain_mix
 from tensixinet.telemetry import FALLBACK
 
@@ -22,6 +23,8 @@ BASE_OVERRIDES = {
     "ttsteam": {"tensix_mask": 0x37F7},
     "gong": ROLL_LINKED, "ttdrone": ROLL_LINKED, "ultrasonic_shimmer": ROLL_LINKED, "ttavdog": ROLL_LINKED, "ttrollz": ROLL_LINKED,
 }
+# The looping line's vibrato reads the chip's pressure only when the patch moves its pitch, so those two devices are judged with a patch that does.
+PATCH_OVERRIDES = {"ttquantus": dataclasses.replace(DEFAULT_PATCH, quantus_mod=0.8), "ttcoco": dataclasses.replace(DEFAULT_PATCH, quantus_mod=0.8)}
 CHANGES = {
     "asic_temperature": 90.0,
     "aiclk": 1350.0,
@@ -55,8 +58,9 @@ CHANGES = {
 def test_device_inputs_match_what_the_device_actually_reads(device, field):
     base = dataclasses.replace(FALLBACK, ddr_status=(0, 0, 0, 0), **BASE_OVERRIDES.get(device.__name__, {}))
     changed = dataclasses.replace(base, **{field: CHANGES[field]})
+    patch = PATCH_OVERRIDES.get(device.__name__, DEFAULT_PATCH)
     # long enough for a second gong strike, because the strike times depend on the clock, the heartbeat and the identity
-    differs = not np.allclose(device(base, LONG, SR, 0), device(changed, LONG, SR, 0))
+    differs = not np.allclose(device(base, LONG, SR, 0, patch), device(changed, LONG, SR, 0, patch))
     assert differs == (field in DEVICE_INPUTS[device.__name__]), (
         f"{device.__name__}: DEVICE_INPUTS says {sorted(DEVICE_INPUTS[device.__name__])}, "
         f"but changing {field} {'did' if differs else 'did not'} change the audio"
@@ -523,3 +527,11 @@ def test_the_patch_log_says_how_much_of_the_lead_and_the_rolls_rests():
         a, b = [[d for d in ds if d.what.startswith(name)] for ds in (on, off)]
         assert len(a) == len(b) == 1 and share in a[0].what and "none" in b[0].what and "10 to 30%" in a[0].why
     assert "downbeat" in [d for d in on if d.what.startswith("lead rests")][0].why
+
+
+def test_the_patch_log_says_how_far_the_looping_lines_pitch_is_moved():
+    on = [d for d in explain_patch(dataclasses.replace(DEFAULT_PATCH_FOR_ROUTES, quantus_mod=0.8), UNEVEN, "s") if d.what.startswith("pitch movement")]
+    off = [d for d in explain_patch(DEFAULT_PATCH_FOR_ROUTES, UNEVEN, "s") if d.what.startswith("pitch movement")]
+    assert len(on) == len(off) == 1 and "80%" in on[0].what and "none" in off[0].what
+    for text in ("3 scale degrees", "glide", "vibrato", "0.35 to 0.9"):
+        assert text in on[0].why, text

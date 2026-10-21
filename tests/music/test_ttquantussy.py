@@ -157,3 +157,10 @@ def test_a_chips_rest_castle_looks_to_a_different_leader_than_its_note_castle():
         assert rest_offset(identity) != castle_offset(identity) and rest_offset(identity) in LEADER_OFFSETS
     assert rest_offset(0) == LEADER_OFFSETS[1] and rest_offset(3) == LEADER_OFFSETS[0]   # the next one round the castle mod select
     assert len({rest_offset(i) for i in range(4)}) == 4
+
+
+def test_the_register_castle_looks_to_a_third_leader_so_it_moves_apart_from_both_the_notes_and_the_rests():
+    from tensixinet.music.ttquantussy import LEADER_OFFSETS, castle_offset, pitch_offset, rest_offset
+    for identity in range(12):
+        assert len({castle_offset(identity), rest_offset(identity), pitch_offset(identity)}) == 3 and pitch_offset(identity) in LEADER_OFFSETS
+    assert pitch_offset(0) == LEADER_OFFSETS[2] and pitch_offset(3) == LEADER_OFFSETS[1]   # two on from the note castle's
