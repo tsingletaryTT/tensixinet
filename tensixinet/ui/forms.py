@@ -9,8 +9,12 @@ from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Tuple
 
 from ..media.chip import ChipWorker, find_simulator, simulator_command
+from ..music.live import Tracker
 from ..music.patch import Patch, load_patch
 from ..music.styles import STYLES
+from .instrument import InstrumentConfig, InstrumentSession
+from .knobs import MAX_CHIPS, Knobs, to_telemetry
+from .scopes import resolve_scope
 from .session import Session, make_patch, mock_sample, real_sample
 
 SOURCES = ("synthetic chips", "the real chips (tt-smi, read-only)")
@@ -85,3 +89,46 @@ def new_session(
         patch = make_patch("" if style in ("", PLAIN) else style, int(seed), first)
     worker = worker_factory(len(first)) if kernels == SIMULATED else None  # started by the session's thread, closed when it ends
     return Session(sample, patch, source=label, stereo=stereo, evict=evict, cables=cables, sleep=sleep, worker=worker, lead_s=lead_s), patch
+
+
+def new_instrument(
+    scope: str,
+    style: str,
+    seed: int,
+    chips: int,
+    stereo: bool,
+    cables: bool,
+    evict: bool,
+    knobs: Knobs,
+    sleep: Callable[[float], None] = time.sleep,
+    lead_s: float = 1.5,
+) -> Tuple[InstrumentSession, Patch]:
+    """The Play tab's instrument and its patch. The patch is drawn (in `style`, "plain draw" for none, from `seed`) from the knobs' *default* readings
+    for `chips` chips, so the same choices always give the same patch whatever the performer has done to the knobs. `knobs` is resized to
+    `chips`. `ValueError` for a scope or style that does not exist or a chip count outside 1 to 4."""
+    if not 1 <= int(chips) <= MAX_CHIPS:
+        raise ValueError(f"the Play tab plays 1 to {MAX_CHIPS} chips, got {chips}")
+    resolve_scope(scope)  # raises for a scope that does not exist
+    patch = make_patch("" if style in ("", PLAIN) else style, int(seed), to_telemetry(Knobs(int(chips)), Tracker(), 0.0))
+    knobs.resize(int(chips))
+    config = InstrumentConfig(scope=scope, chips=int(chips), style="" if style == PLAIN else style, seed=int(seed),
+                              stereo=bool(stereo), cables=bool(cables), evict=bool(evict))
+    return InstrumentSession(config, knobs, patch, sleep=sleep, lead_s=lead_s), patch
+
+
+def read_chip_knobs(knobs: Knobs, sample: Optional[Callable] = None) -> str:
+    """Copy one real `tt-smi` reading into the knobs (chip i of the reading into chip i of the knobs, clamped to each knob's range) and say what
+    happened in one line. Chips the reading lacks are left alone. It never raises: a missing or failing `tt-smi` is reported in the line."""
+    try:
+        readings = (sample or real_sample())()
+    except Exception as e:  # tt-smi missing, timed out or printed something unreadable
+        return f"could not read the chips: {type(e).__name__}: {e}"
+    if not readings:
+        return "no chips in the reading from tt-smi"
+    count = min(len(readings), len(knobs.values()))
+    for chip in range(count):
+        t = readings[chip]
+        for name, value in (("temperature", t.asic_temperature), ("power", t.power), ("aiclk", t.aiclk), ("voltage", t.voltage),
+                            ("gddr_spread", max(t.gddr_temps) - min(t.gddr_temps))):
+            knobs.set(chip, name, value)
+    return f"loaded {count} chip{'s' if count != 1 else ''} from tt-smi"

@@ -4,9 +4,14 @@ import json
 
 import pytest
 
+from tensixinet.telemetry import mock_telemetry
+from tensixinet.ui.instrument import InstrumentSession
+from tensixinet.ui.knobs import KNOB_RANGES, Knobs
+from tensixinet.ui.scopes import scope_choices
+
 from tensixinet.music.patch import DEFAULT_PATCH, save_patch
 from tensixinet.music.styles import STYLES
-from tensixinet.ui.forms import DRAW, PLAIN, SOURCES, new_session, patch_choices, style_choices
+from tensixinet.ui.forms import DRAW, PLAIN, SOURCES, new_instrument, new_session, patch_choices, read_chip_knobs, style_choices
 
 SLEEP = lambda s: None
 
@@ -162,3 +167,88 @@ def test_the_lead_goes_to_the_session_and_defaults_to_none():
     args = (SOURCES[0], "plain draw", 1, 2, 0, "draw from the seed and the style", [], lambda s: None)
     assert new_session(*args)[0]._lead_s == 0.0
     assert new_session(*args, lead_s=7.5)[0]._lead_s == 7.5
+
+
+# --- the Play tab ------------------------------------------------------------------------------------------------------------------
+
+def _instrument(scope="system", style="plain draw", seed=7, chips=4, knobs=None, **kw):
+    knobs = knobs or Knobs(4)
+    return new_instrument(scope, style, seed, chips, True, True, True, knobs, sleep=SLEEP, **kw), knobs
+
+
+def test_new_instrument_builds_a_session_and_a_patch_for_every_scope_choice():
+    for _, value in scope_choices():
+        (session, patch), _ = _instrument(scope=value)
+        assert isinstance(session, InstrumentSession) and session.config.scope == value and session.patch is patch
+
+
+def test_new_instrument_draws_the_patch_in_the_style_from_the_seed_and_ignores_the_knobs():
+    (_, patch), knobs = _instrument(style="enya", seed=7)
+    knobs.set(0, "power", 140.0)
+    (_, again), _ = _instrument(style="enya", seed=7, knobs=knobs)
+    (_, other), _ = _instrument(style="enya", seed=8)
+    assert patch.style == "enya" and again == patch and other != patch
+    (_, plain), _ = _instrument(style=PLAIN)
+    assert plain.style == ""
+
+
+def test_new_instrument_sizes_the_knobs_to_the_chip_count_and_keeps_pending_events():
+    knobs = Knobs(4)
+    knobs.trigger(1, "memory_error")
+    _instrument(chips=2, knobs=knobs)
+    assert len(knobs.values()) == 2 and knobs.take_events() == [(1, "memory_error")]  # drawing the patch must not eat the performer's events
+
+
+def test_new_instrument_records_the_style_the_seed_and_the_switches_it_was_given():
+    session, patch = new_instrument("system", PLAIN, 11, 2, False, False, False, Knobs(2), sleep=SLEEP)
+    assert (session.config.style, session.config.seed) == ("", 11)
+    assert (session.config.stereo, session.config.cables, session.config.evict) == (False, False, False)
+    assert session._sleep is SLEEP
+    session, _ = new_instrument("system", "blues", 12, 2, True, True, True, Knobs(2), sleep=SLEEP)
+    assert (session.config.style, session.config.seed) == ("blues", 12)
+
+
+def test_new_instrument_passes_the_choices_on():
+    (session, _), knobs = _instrument(chips=3)
+    assert session.config.chips == 3 and session.config.stereo and session.config.cables and session.config.evict and session.knobs is knobs
+    (session, _), _ = _instrument(lead_s=0.25)
+    assert session._lead_s == 0.25
+
+
+@pytest.mark.parametrize("kwargs", [dict(scope="device:nope"), dict(scope="gong"), dict(style="no such style"), dict(chips=0), dict(chips=5)])
+def test_new_instrument_rejects_what_it_cannot_play(kwargs):
+    with pytest.raises(ValueError):
+        _instrument(**kwargs)
+
+
+def test_read_chip_knobs_copies_a_reading_into_the_knobs():
+    knobs = Knobs(3)
+    readings = mock_telemetry(4, seed=2)
+    status = read_chip_knobs(knobs, sample=lambda: readings)
+    for chip in range(3):
+        t = readings[chip]
+        low, high, _ = KNOB_RANGES["temperature"]
+        assert knobs.get(chip, "temperature") == min(high, max(low, t.asic_temperature))
+        assert knobs.get(chip, "aiclk") == min(KNOB_RANGES["aiclk"][1], max(KNOB_RANGES["aiclk"][0], t.aiclk))
+        assert knobs.get(chip, "power") == min(KNOB_RANGES["power"][1], max(KNOB_RANGES["power"][0], t.power))
+        assert knobs.get(chip, "voltage") == min(KNOB_RANGES["voltage"][1], max(KNOB_RANGES["voltage"][0], t.voltage))
+        assert knobs.get(chip, "gddr_spread") == pytest.approx(max(t.gddr_temps) - min(t.gddr_temps))
+    assert "3" in status
+
+
+def test_read_chip_knobs_with_fewer_chips_than_the_knobs_leaves_the_rest_alone():
+    knobs = Knobs(4)
+    knobs.set(3, "power", 99.0)
+    read_chip_knobs(knobs, sample=lambda: mock_telemetry(2, seed=2))
+    assert knobs.get(3, "power") == 99.0 and knobs.get(1, "power") != 30.0
+
+
+def test_read_chip_knobs_reports_a_failing_tt_smi_and_leaves_the_knobs_alone():
+    knobs = Knobs(2)
+
+    def broken():
+        raise FileNotFoundError("tt-smi")
+
+    status = read_chip_knobs(knobs, sample=broken)
+    assert "tt-smi" in status and knobs.get(0, "power") == 30.0
+    assert "no chips" in read_chip_knobs(knobs, sample=lambda: [])
