@@ -50,6 +50,7 @@ def test_the_assembled_folder_has_what_the_space_runs_and_nothing_else(tmp_path)
     done = subprocess.run(["bash", str(SPACE / "assemble.sh"), str(dest)], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     for name in ("Dockerfile", "README.md", "pyproject.toml", "LICENSE", "tensixinet/__init__.py", "tensixinet/ui/session.py",
+                 "tensixinet/ui/knobs.py", "tensixinet/ui/scopes.py", "tensixinet/ui/instrument.py", "tensixinet/ui/readout.py",   # the Play tab
                  "kernels/pool.py", "kernels/worker.py", "kernels/_common.py", "app/gradio_app.py", "demo/chorus.patch.json"):
         assert (dest / name).is_file(), name
     for kernel in ("ttshock", "ttshimmer", "ttgong", "ttavdog", "ttmix", "ttcoco"):
