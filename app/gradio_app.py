@@ -143,7 +143,7 @@ def _stream(key, config, only_if_changed):
     if token is None:
         yield gr.skip(), gr.skip(), gr.skip(), gr.skip()
         return
-    yield None, STARTING, log_html([]), "starting"  # None empties the audio player, which would otherwise play on what it had buffered
+    yield None, STARTING, log_html([]), "starting"  # None starts the new stream from 0 (Stop does not use it: see STOPPED_FRAME)
     if old is not None:
         old.stop()  # can take seconds: it waits for a segment that is being rendered
     try:

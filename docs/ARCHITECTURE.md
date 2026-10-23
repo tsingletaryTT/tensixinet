@@ -58,6 +58,24 @@ runs `tt-smi -s`.
 | | `mux.py` | Puts the WAV under a video with ffmpeg |
 | | `player.py` | Where live audio goes: a `paplay`, `aplay` or `ffplay` process, a growing WAV, or no sound at the speed of the music |
 
+## The app
+
+`app/gradio_app.py` lays out two tabs and moves data. Everything else is in `tensixinet/ui/`, which imports no UI library.
+
+| Module | Job |
+|---|---|
+| `flow.py`, `chart.py`, `logview.py`, `progress.py` | The first tab: what is playing as data, as an animated SVG, as a coloured log, and the steps of a start |
+| `session.py` | The first tab's session: `run_live` on a thread, with a sink that hands each segment to the page |
+| `player.py` | `Player` (which session a page shows) and `Visitors` (one `Player` for each visitor, with a limit on how many play). Both tabs use it, so a visitor plays in one tab at a time |
+| `forms.py` | The form's choices and how they become a session (`new_session`) or an instrument (`new_instrument`, `read_chip_knobs`) |
+| `knobs.py` | The Play tab's performer: `Knobs` (five values for each of four chips, and pending events) and `to_telemetry`, which turns them into `Telemetry` through a `Tracker` |
+| `scopes.py` | What the Play tab plays: `resolve_scope` turns `system`, `module:<name>` or `device:<name>` into the `only` list `render_chorus` takes |
+| `instrument.py` | `InstrumentSession`: a thread that reads the knobs every block (1.2 s), renders a phrase when something changed or the last one ran out, and hands the audio on through the EQ and the live gain |
+| `readout.py` | The Play tab's readout: pitch, tempo and pressure for each chip, from the same `mapping.py` functions the devices use |
+
+The Play tab's data flow: sliders and buttons write `Knobs` (per visitor, `knob_store` in the app) → the render thread reads them once a block →
+`to_telemetry` → `render_chorus(only=...)` for a phrase → blocks cut from the phrase, crossfaded where a phrase changes → EQ → loudness → the page.
+
 ## Dependencies run one way
 
 `telemetry` depends on nothing in the package. `music` depends on `telemetry`. Inside `music`, `devices.py` builds on

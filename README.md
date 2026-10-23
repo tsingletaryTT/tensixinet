@@ -213,7 +213,25 @@ uv venv .venv-app && uv pip install --python .venv-app/bin/python "gradio>=5" nu
 ```
 
 It is also a [tt-discolike](https://github.com/tsingletaryTT/tt-discolike) app (`.disco/app.yaml`), so the catalog can start and stop it. The chart,
-the log panel and the session are in `tensixinet/ui/` and are tested without Gradio.
+the log panel, the session and the Play tab's knobs, scopes, instrument and readout are in `tensixinet/ui/` and are tested without Gradio.
+
+## Play it
+
+The second tab of the page, **Play**, is the instrument. You choose what to play: one device, a module (a named group of devices: the rhythm section,
+drones and air, melody, delay and echo) or the whole system with its cables, delay bus and eviction. Then you play it with the readings. Each chip has
+sliders for temperature, power, aiclk, GDDR spread and voltage, and three buttons that inject a memory error, a thermal trip or a load burst (a chip's
+power jumps by 70 W for four seconds, so an eviction can follow). Temperature moves the pitch, aiclk the tempo, power the volume, and temperature with
+power the pressure that brightens, thickens and speeds several devices. A slider that moves fast gives a chip a temperature or power rate, which moves the
+ttrax chaos as it does when a real chip heats quickly. On a machine with `tt-smi`, **Load from the chips** copies one real reading into the sliders.
+
+A move is heard about four seconds later: the page keeps its audio player three seconds ahead, because on less it stalls. The readout shows each chip's
+pitch, tempo and pressure for the moment you are hearing. Moving a slider or pressing a button never restarts the sound; changing the thing played, the
+style, the seed, the chip count or a switch does. Playing in either tab ends what you were playing in the other, and a visitor counts as one player for
+`TENSIXINET_MAX_PLAYERS` whichever tab they use. The Play tab runs on the CPU with synthetic chips only.
+
+The sound is made in short phrases, because the slow devices need room: the gong's first strike can be two seconds in. A move starts a short phrase
+(2.4 s) so it is heard quickly, and a phrase that runs out with nothing moving is followed by a long one (6 s). A new phrase takes over with a 0.2 s
+crossfade. Each phrase restarts the devices' clocks, so a ringing gong fades at the join, as in live mode.
 
 ## What the readings do
 

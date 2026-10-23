@@ -48,6 +48,11 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    beyond the ordinary one-chip turn, since it is deliberately not polite load; and what in the music marks the moment (a device of
    its own, or an event like the error ticks). Nothing here is built. This only runs with an explicit lease and an explicit opt-in;
    it is not something a live run turns on by itself.
+7c. **The Play tab, next.** Built: a device, a module or the system, played with knobs for each chip's readings (README, "Play it"). Open, in order: the real chips as a
+   live source, with the knobs as offsets on a real reading; a phrase that continues the last one (the start-time offset in item 3), which would also stop the gong fading at each join
+   and let a slow device sound during a gesture; the kernels in the Play tab (a worker's start is far longer than a phrase); a lead shorter than 3 s, which needs a look at how Gradio's
+   streaming audio buffers; saving a knob setting as a patch or a recorded gesture; a recorded demo of the tab. Gradio's `None` for streaming audio (see `DECISIONS.md`) was found by
+   this work; the first tab's old comment that it "empties the audio player" no longer holds.
 8. **Loudness.** Done in `music/loudness.py`: one gain to -18 dBFS RMS. A perceptual measure (LUFS, with
    K-weighting) would match the level of runs with very different spectra more closely.
 9. **More of the guides.** The Gongue's Trad and Gonz filter modes, the shift register's feedback taps and buttons,

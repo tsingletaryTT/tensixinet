@@ -16,6 +16,7 @@ say what exists and what is left.
 | `kernels/README.md` | The devices as TT-Lang kernels: how to run them in the simulator and on a chip |
 | `site/index.html` | The project site (GitHub Pages, deployed from `site/` by `.github/workflows/pages.yml`): routing diagrams, cable explorer, audio |
 | `legacy/README.md` | The old prototype scripts (unsafe to run) |
+| `PLAN-PLAY-TAB.md` | **Open plan for qwencode:** a "Play" tab in the Gradio app to play a device, a module or the whole system live. Execute it task by task |
 
 ## Run it
 
@@ -39,7 +40,7 @@ tensixinet/
   music/       mapping, synth, devices, ttrolzer, ttrax, ttquantussy, ttsteam, lead, events, loudness, turns, patch, chorus, live
   narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
   media/       llm (OpenAI-compatible endpoint), mux (WAV under a video), player (live audio out)
-  ui/          flow (what is playing as data), chart (it as animated SVG), logview, session (the live loop on a thread), progress (the steps of a start), player (which session the page shows), forms
+  ui/          flow (what is playing as data), chart (it as animated SVG), logview, session (the live loop on a thread), progress (the steps of a start), player (which session the page shows), forms, knobs / scopes / instrument / readout (the Play tab)
   run.py live.py cli.py __main__.py     wiring (offline and live) and the command line
 tensixinet.py  the launcher: standard library only; finds or builds .venv, falls back to synthetic chips, --live/--app/--doctor/--setup
 tests/         mirrors the package: tests/music/test_devices.py tests the music/devices.py module
@@ -634,4 +635,19 @@ legacy/        first prototype scripts, kept for reference
   * The first recording attempt was refused by the script's own screen check on a clean screen: its dialog probe samples one row where a cell's caption sits. `demo/screen_clean.py` measures how much of the dialog's box is pale instead; it passes the real frame and refuses a fake dialog and a fake taskbar. A tt-bio-demo session was told.
   * The quad run's own `gozer run` refused to reset (`chips [3] still open by [pid]`, the process gone a moment later) and left the lease STALE. Checked with `fuser`, then `gozer reconcile`, then an acquire and release of all four chips to reset them.
   * Not done: the question mode (not working on tt-bio 0.21.0 as of this run), a recording with the kernel devices on the chips (the booth holds them).
-
+* **2026-10-23, "expand the gradio app to include a tab for playing the instruments, modules, and system 'live'" (a plan for qwencode, then "we need to use the 4 chip version qwen code to succeed on this front. for now, fix the mistakes it made and carry out the plan instead"):**
+  `PLAN-PLAY-TAB.md` is the plan (it now ends with "What changed while it was built"). The app has a second tab, **Play**: one device, a module (rhythm section, drones and air, melody, delay and echo) or the whole system,
+  played with sliders for each chip's temperature, power, aiclk, GDDR spread and voltage and buttons for a memory error, a thermal trip and a load burst. New in `tensixinet/ui/`: `knobs.py`, `scopes.py`, `instrument.py`, `readout.py`;
+  changed: `player.py` (`Player.session`, `Visitors.session`), `forms.py` (`new_instrument`, `read_chip_knobs`), `app/gradio_app.py` (two tabs).
+  * qwencode's first attempt (Qwen3-Coder-Next on two chips) was discarded. It wrote `knobs.py`, `scopes.py` and `readout.py` out of order with no tests for the last two, replaced the SPDX header of `ui/__init__.py` with imports (hygiene red), had a load burst that forgot
+    when it started, a `heard_on` that ignored how devices are dealt, and a gddr test that asserted nothing. All three modules and the tests were redone test-first.
+  * **Found by the real-render test:** the gong was silent in a 1.2 s render. It lives on chip 1 and its first strike is up to 2.2 s in. The engine now renders short (2.4 s, after a change) and long (6 s) phrases and plays 1.2 s slices, crossfading only where a phrase is replaced.
+    The plan's premise that a 1-chip box leaves devices undealt was also wrong: `n_slots` is at least the device count.
+  * **Found only in the browser** (headless Chrome through Playwright, in this order): Gradio never goes network-idle, so a page-load wait on it hangs; a Stop that returns `None` for the streaming audio makes Chrome load a new source and play it for several seconds more. The same happens in the first
+    tab and on the commit before this work (run from a worktree), so it is an old bug that the earlier browser check missed. Stop and the stopped frames now return `gr.skip()` in both tabs; after that the element stays paused. Typing a chip count and pressing Tab restarts the stream (blur fires `release`); Enter does not.
+  * Browser results: Play starts in 0.6 s; moving a slider changes the readout 3.6 to 4.2 s later with no restart; a scope change restarts in 0.3 s; Play after Stop plays again; two visitors have separate knobs; the fourth player is told the places are taken; 40 s of play had no stall (smallest buffer 1.7 s); no console errors; no horizontal scroll at 375 px.
+    The lead is 3 s because the browser's player stalls on less (a shorter lead was not tried). Cost on two CPUs and on one: a short phrase 0.15 s, a long one 0.34 s, so no chip cap for the Space.
+  * Mutation runs, per task: knobs 2 survivors (a boundary, an uncorrectable count) plus 1 after hiding chips; scopes 0; instrument 6 the first time (one equivalent: the crossfade tail in the bound that says a phrase has run out) and 1 more (the soloist's phrase number); readout 2; player 1; forms 5; app 1 plus the cross-tab frames. Each got a test.
+    The 2546 tests pass in `.venv-app` (34 skipped); with the TT venv's Python the app tests skip because its Gradio does not import.
+  * Slips: `pkill -f "app/gradio_app.py"` matched its own shell and killed the command (and a second server); `git add -A tests` swept in an older uncommitted change to `tests/test_site.py` that was not mine, so that commit was redone without it (the file is still uncommitted).
+  * The Qwen3-Coder-Next container (port 8011) was stopped on request and its stale lease cleared with `gozer reconcile`; all four chips are free. Measured and watched in a browser; not listened to by a person.

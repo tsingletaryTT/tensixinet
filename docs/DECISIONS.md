@@ -139,3 +139,26 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   Without the loudness gain, a render whose lows were lifted past full scale is scaled down to fit. The curve is a
   starting point chosen by reasoning, not by listening.
 
+## The Play tab
+
+* **Three scopes, one engine.** A device, a module and the whole system all go through `render_chorus`: `only=[...]` for a device or module, no `only` for the
+  system. A module is a fixed group of devices (`ui/scopes.MODULES`), so the page does not need a patch editor. The system keeps cables, the delay bus, turn-taking and
+  eviction, which `only` switches off.
+* **The performer's hands are the readings.** The devices read chip telemetry, so the Play tab has knobs for the readings (`ui/knobs.py`) and does not add a
+  separate control path into the devices. Current and board power follow the power knob, as `mock_telemetry` has them, because the mix is weighted by current. Each
+  chip keeps its masks (its identity in the music) however many chips are played, because the masks come from one `mock_telemetry(4)` call.
+* **The sound is rendered in phrases of 2 or 5 blocks.** The first version rendered every 1.2 s block on its own. The gong lives on chip 1 and its first strike is up to half a two-bar
+  interval in (2.2 s at 110 BPM), so a bare 1.2 s render of the gong was silent, and the test that played every device caught it. A block is now a slice of a phrase. A change (a knob, an error,
+  a trip, an eviction phase) starts a 2-block phrase, which renders in 0.15 s and is heard within a block. A phrase that runs out with nothing moving is followed by a 5-block one.
+  The slowest devices are still silent for the first block or two of a short phrase, and a gong whose first strike is later than 2.4 s is silent while a slider is being moved.
+* **An error, a trip or a new knob value starts a phrase; the error counter going back to zero does not.** The counter falls back the block after an error, and a phrase started by that would cut
+  the phrase that carries the tick before the tick was heard.
+* **Latency is about four seconds.** The page's player is kept `INSTRUMENT_LEAD_S = 3.0` s ahead of the listener. Over a 40 s run in headless Chrome that gave a smallest
+  buffer of 1.7 s and no stall; a move showed in the readout 3.6 to 4.2 s after it was made. A shorter lead was not tried.
+* **Stop returns `gr.skip()` for the audio.** Returning `None` for a streaming audio component made Chrome load a new source and play it, so the sound went on for several seconds after Stop (found in
+  the browser, on Gradio 6.30, in the first tab too). Stop and the stopped frames return `gr.skip()`, and the page's own `pause()` does the silencing. The first frame of a new Play still returns
+  `None`, which starts the new stream from 0.
+* **One audio stream for a visitor.** Both tabs share `Visitors`, so Play in one ends the other, and a visitor holds one of the `TENSIXINET_MAX_PLAYERS` places whichever tab it is. A setting
+  changed in the tab that is not playing does nothing.
+* **Cost on a small machine.** One short phrase (4 chips, stereo, system) took at most 0.15 s and a long one 0.34 s with the process pinned to two CPUs, and the same pinned to one. A visitor who
+  keeps a slider moving starts a short phrase every block, so about 12% of a core. The Play tab therefore has no chip cap for the Space.
