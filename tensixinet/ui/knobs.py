@@ -58,38 +58,42 @@ def _defaults() -> Dict[str, float]:
 class Knobs:
     """Thread-safe store of each chip's slider values, pending events, running error counts and load bursts.
 
+    It remembers the values of all `MAX_CHIPS` chips and plays the first `n_chips` of them (`resize` changes that number), so a chip the page
+    hides still has the value its slider shows when it comes back.
+
     The page's handlers write it from Gradio's threads and the render thread reads it once per block, so every method takes the lock."""
 
     def __init__(self, n_chips: int):
         _check_chips(n_chips)
         self._lock = threading.Lock()
-        self._values: List[Dict[str, float]] = [_defaults() for _ in range(n_chips)]
+        self._n = n_chips
+        self._values: List[Dict[str, float]] = [_defaults() for _ in range(MAX_CHIPS)]
         self._pending: List[Tuple[int, str]] = []
-        self._counts: List[Dict[str, int]] = [{"corr_errs": 0, "thermal_trips": 0} for _ in range(n_chips)]
-        self._burst_until: List[Optional[float]] = [None] * n_chips
+        self._counts: List[Dict[str, int]] = [{"corr_errs": 0, "thermal_trips": 0} for _ in range(MAX_CHIPS)]
+        self._burst_until: List[Optional[float]] = [None] * MAX_CHIPS
 
     def set(self, chip: int, name: str, value: float) -> None:
-        """Set one knob, held inside its range. An unknown chip or knob, and NaN, are ignored."""
+        """Set one knob, held inside its range. An unknown chip or knob, and NaN, are ignored. A chip that is not being played keeps its value."""
         if name not in KNOB_RANGES or value != value:
             return
         low, high, _ = KNOB_RANGES[name]
         with self._lock:
-            if 0 <= chip < len(self._values):
+            if 0 <= chip < MAX_CHIPS:
                 self._values[chip][name] = min(high, max(low, float(value)))
 
     def get(self, chip: int, name: str) -> float:
         with self._lock:
-            return self._values[chip][name] if 0 <= chip < len(self._values) else KNOB_RANGES[name][2]
+            return self._values[chip][name] if 0 <= chip < MAX_CHIPS else KNOB_RANGES[name][2]
 
     def values(self) -> List[Dict[str, float]]:
-        """A copy of every chip's knob values."""
+        """A copy of the knob values of the chips that are being played."""
         with self._lock:
-            return [dict(v) for v in self._values]
+            return [dict(v) for v in self._values[: self._n]]
 
     def trigger(self, chip: int, event: str) -> None:
         """Queue an event for the next block. An unknown chip or event is ignored."""
         with self._lock:
-            if event in EVENTS and 0 <= chip < len(self._values):
+            if event in EVENTS and 0 <= chip < self._n:
                 self._pending.append((chip, event))
 
     def take_events(self) -> List[Tuple[int, str]]:
@@ -99,13 +103,10 @@ class Knobs:
             return taken
 
     def resize(self, n_chips: int) -> None:
-        """Change the chip count. Chips that remain keep their values and counts; new chips start at the defaults; events for chips that go are dropped."""
+        """Play `n_chips` chips. Every chip keeps its values; events for chips that are no longer played are dropped."""
         _check_chips(n_chips)
         with self._lock:
-            old = len(self._values)
-            self._values = self._values[:n_chips] + [_defaults() for _ in range(max(0, n_chips - old))]
-            self._counts = self._counts[:n_chips] + [{"corr_errs": 0, "thermal_trips": 0} for _ in range(max(0, n_chips - old))]
-            self._burst_until = self._burst_until[:n_chips] + [None] * max(0, n_chips - old)
+            self._n = n_chips
             self._pending = [(c, e) for c, e in self._pending if c < n_chips]
 
     def advance(self, now: float):
@@ -122,7 +123,7 @@ class Knobs:
                 else:
                     self._burst_until[chip] = now + LOAD_BURST_S
             bursting = [until is not None and now < until for until in self._burst_until]
-            return [dict(v) for v in self._values], [dict(c) for c in self._counts], bursting
+            return [dict(v) for v in self._values[: self._n]], [dict(c) for c in self._counts[: self._n]], bursting[: self._n]
 
 
 def gddr_temps(spread: float) -> Tuple[float, ...]:

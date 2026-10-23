@@ -165,6 +165,17 @@ def test_resize_keeps_the_chips_that_remain_and_their_identity():
     assert [(c.tensix_mask, c.eth_mask) for c in _read(knobs)] == masks
 
 
+def test_a_chip_hidden_by_resize_gets_its_values_back_when_it_returns():
+    knobs = Knobs(4)
+    knobs.set(3, "power", 120.0)
+    knobs.resize(2)
+    assert len(knobs.values()) == 2 and len(_read(knobs)) == 2
+    assert knobs.get(3, "power") == 120.0  # the page's slider for it still shows 120
+    knobs.set(3, "power", 130.0)  # and moving it while hidden is remembered too
+    knobs.resize(4)
+    assert knobs.get(3, "power") == 130.0 and _read(knobs)[3].power == 130.0
+
+
 def test_resize_drops_the_events_of_chips_that_go():
     knobs = Knobs(3)
     knobs.trigger(2, "memory_error")

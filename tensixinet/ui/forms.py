@@ -125,7 +125,7 @@ def read_chip_knobs(knobs: Knobs, sample: Optional[Callable] = None) -> str:
         return f"could not read the chips: {type(e).__name__}: {e}"
     if not readings:
         return "no chips in the reading from tt-smi"
-    count = min(len(readings), len(knobs.values()))
+    count = min(len(readings), MAX_CHIPS)  # the chips the page hides are filled too
     for chip in range(count):
         t = readings[chip]
         for name, value in (("temperature", t.asic_temperature), ("power", t.power), ("aiclk", t.aiclk), ("voltage", t.voltage),

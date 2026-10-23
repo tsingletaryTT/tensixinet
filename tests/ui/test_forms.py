@@ -225,7 +225,7 @@ def test_read_chip_knobs_copies_a_reading_into_the_knobs():
     knobs = Knobs(3)
     readings = mock_telemetry(4, seed=2)
     status = read_chip_knobs(knobs, sample=lambda: readings)
-    for chip in range(3):
+    for chip in range(4):
         t = readings[chip]
         low, high, _ = KNOB_RANGES["temperature"]
         assert knobs.get(chip, "temperature") == min(high, max(low, t.asic_temperature))
@@ -233,7 +233,7 @@ def test_read_chip_knobs_copies_a_reading_into_the_knobs():
         assert knobs.get(chip, "power") == min(KNOB_RANGES["power"][1], max(KNOB_RANGES["power"][0], t.power))
         assert knobs.get(chip, "voltage") == min(KNOB_RANGES["voltage"][1], max(KNOB_RANGES["voltage"][0], t.voltage))
         assert knobs.get(chip, "gddr_spread") == pytest.approx(max(t.gddr_temps) - min(t.gddr_temps))
-    assert "3" in status
+    assert status == "loaded 4 chips from tt-smi" and knobs.get(3, "power") != 30.0  # a hidden chip's knobs are filled too
 
 
 def test_read_chip_knobs_with_fewer_chips_than_the_knobs_leaves_the_rest_alone():
