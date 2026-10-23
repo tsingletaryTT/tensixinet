@@ -53,6 +53,11 @@ def test_the_app_builds_its_page_and_every_choice_it_offers_is_one_the_forms_acc
 
 # --- Play, Stop and a change of setting ---------------------------------------------------------------------------------------------
 
+def _gr():
+    """gradio, or a skip where it does not import (the TT venv's copy does not)."""
+    return pytest.importorskip("gradio", exc_type=ImportError, reason="gradio is installed in .venv-app, and the TT venv's copy does not import")
+
+
 def _app():
     pytest.importorskip("gradio", exc_type=ImportError, reason="gradio is installed in .venv-app, and the TT venv's copy does not import")
     import sys
@@ -157,16 +162,17 @@ def test_a_change_that_leaves_the_settings_as_they_were_does_not_restart(monkeyp
 
 
 def test_stop_empties_the_audio_player_and_a_change_afterwards_does_not_start_anything(monkeypatch):
+    gr = _gr()
     app, made = _app(), []
     _fake_new_session(app, monkeypatch, made)
     g = app.play(*_args())
     next(g), next(g)
     audio, chart, status = app.stop()
-    assert audio is None and status == "stopped" and chart == app.STOPPED and made[0][0].stopped >= 1
+    assert audio == gr.skip() and status == "stopped" and chart == app.STOPPED and made[0][0].stopped >= 1   # skip, not None: see test_stop_leaves_the_audio_element_alone
     assert len(_take(app.restart(*_args(style="blues")), 3)) == 1
     assert len(made) == 1
     last = _take(g, 3)
-    assert len(last) == 1 and last[0][0] is None and last[0][1] == app.STOPPED and last[0][3] == "stopped"   # it finishes the page itself
+    assert len(last) == 1 and last[0][0] == gr.skip() and last[0][1] == app.STOPPED and last[0][3] == "stopped"   # it finishes the page itself
 
 
 def test_a_stop_while_the_session_is_still_being_built_means_it_never_starts(monkeypatch):
@@ -517,6 +523,7 @@ def test_a_change_with_nothing_playing_leaves_the_play_tab_alone(monkeypatch):
 
 
 def test_playing_in_the_play_tab_ends_what_the_same_visitor_played_in_the_first_tab(monkeypatch):
+    gr = _gr()
     app, watched, made = _app(), [], []
     _fake_new_session(app, monkeypatch, watched)
     _fake_new_instrument(app, monkeypatch, made)
@@ -526,11 +533,12 @@ def test_playing_in_the_play_tab_ends_what_the_same_visitor_played_in_the_first_
     next(g2), next(g2)
     assert watched[0][0].stopped >= 1 and made[0].started
     said = _take(g1, 3)  # the first tab's stream says one more thing: the visitor is on the other tab now
-    assert len(said) == 1 and said[0][0] is None and said[0][3] == "stopped: you started playing in the Play tab"
+    assert len(said) == 1 and said[0][0] == gr.skip() and said[0][3] == "stopped: you started playing in the Play tab"
     g2.close()
 
 
 def test_playing_in_the_first_tab_ends_the_play_tab_session(monkeypatch):
+    gr = _gr()
     app, watched, made = _app(), [], []
     _fake_new_session(app, monkeypatch, watched)
     _fake_new_instrument(app, monkeypatch, made)
@@ -540,7 +548,7 @@ def test_playing_in_the_first_tab_ends_the_play_tab_session(monkeypatch):
     next(g1), next(g1)
     assert made[0].stopped >= 1 and watched[0][0].started
     said = _take(g2, 3)
-    assert len(said) == 1 and said[0][0] is None and said[0][2] == "stopped: you started playing in the first tab"
+    assert len(said) == 1 and said[0][0] == gr.skip() and said[0][2] == "stopped: you started playing in the first tab"
     g1.close()
 
 
@@ -565,15 +573,16 @@ def test_and_a_setting_changed_in_the_play_tab_does_not_start_playing_there_whil
 
 
 def test_stop_empties_the_play_tab_and_a_change_afterwards_starts_nothing(monkeypatch):
+    gr = _gr()
     app, made = _app(), []
     _fake_new_instrument(app, monkeypatch, made)
     g = app.instrument_play(*_iargs())
     next(g), next(g)
     audio, readout, status = app.instrument_stop()
-    assert audio is None and readout == app.READOUT_WAITING and status == "stopped" and made[0].stopped >= 1
+    assert audio == gr.skip() and readout == app.READOUT_WAITING and status == "stopped" and made[0].stopped >= 1
     assert len(_take(app.instrument_restart(*_iargs(scope="device:gong")), 3)) == 1 and len(made) == 1
     last = _take(g, 3)
-    assert len(last) == 1 and last[0][0] is None and last[0][2] == "stopped"
+    assert len(last) == 1 and last[0][0] == gr.skip() and last[0][2] == "stopped"
 
 
 def test_a_stop_while_the_instrument_is_still_being_built_means_it_never_starts(monkeypatch):
@@ -691,6 +700,15 @@ def test_gradio_hands_every_new_handler_the_request_so_visitors_can_be_told_apar
     for handler in (app.knob_setter(0, "power"), app.event_trigger(0, "memory_error")):
         values = [1.0] if handler.__name__ == "set_knob" else []
         assert special_args(handler, list(values), sentinel)[0] == values + [sentinel]
+
+
+def test_stop_leaves_the_audio_element_alone_in_both_tabs():
+    """Found in a real browser (Chrome, Gradio 6.30): a Stop that returns None for the streaming audio makes the element load a new source and
+    autoplay it, so the sound goes on for several seconds. The page's own pause() on Stop is what silences it; the server must not touch the value."""
+    gr = _gr()
+    app = _app()
+    assert app.stop()[0] == gr.skip() and app.instrument_stop()[0] == gr.skip()
+    assert app.STOPPED_FRAME[0] == gr.skip() and app.INSTRUMENT_STOPPED[0] == gr.skip()
 
 
 def test_the_status_says_one_chip_in_the_singular(monkeypatch):

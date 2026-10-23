@@ -100,7 +100,9 @@ def _config(source, style, seed, chips, load_s, patch_name, kernels, stereo, evi
     return (source, style, int(seed or 0), int(chips), float(load_s), patch_name, kernels, bool(stereo), bool(evict), bool(cables))
 
 
-STOPPED_FRAME = (None, STOPPED, gr.skip(), "stopped")
+# The audio is left alone (skip) when a page is stopped: returning None makes the streaming audio element load a new source and autoplay it, so the
+# sound goes on for several seconds (seen in Chrome with Gradio 6.30). The page pauses the element itself (JS_STOP) before the server answers.
+STOPPED_FRAME = (gr.skip(), STOPPED, gr.skip(), "stopped")
 
 
 def _ended(player, token):
@@ -109,7 +111,7 @@ def _ended(player, token):
     if not player.active and not player.is_current(token):
         yield STOPPED_FRAME
     elif player.active and _is_instrument_config(player.config):  # the visitor pressed Play in the other tab
-        yield None, gr.skip(), gr.skip(), "stopped: you started playing in the Play tab"
+        yield gr.skip(), gr.skip(), gr.skip(), "stopped: you started playing in the Play tab"
 
 
 def _chart(snap):
@@ -206,7 +208,7 @@ def restart(source, style, seed, chips, load_s, patch_name, kernels, stereo, evi
 def stop(request: gr.Request = None):
     """Stop this visitor's session, and empty their audio player: the browser would go on playing what it had already buffered."""
     visitors.player(_key(request)).stop()
-    return None, STOPPED, "stopped"
+    return gr.skip(), STOPPED, "stopped"
 
 
 def leave(request: gr.Request = None):
@@ -222,7 +224,7 @@ JS_PLAY_INSTRUMENT = "(...a) => { %s window.tensixinetInstrument = JSON.stringif
 JS_CHANGE_INSTRUMENT = ("(...a) => { if (window.tensixinetInstrument && window.tensixinetInstrument !== JSON.stringify(a)) "
                         "{ %s window.tensixinetInstrument = JSON.stringify(a); } return a; }" % SILENCE)
 JS_STOP_INSTRUMENT = "() => { %s window.tensixinetInstrument = null; }" % SILENCE
-INSTRUMENT_STOPPED = (None, READOUT_WAITING, "stopped")
+INSTRUMENT_STOPPED = (gr.skip(), READOUT_WAITING, "stopped")
 SCOPE_LABELS = {value: label for label, value in scope_choices()}
 
 
@@ -235,7 +237,7 @@ def _instrument_ended(player, token):
     if not player.active and not player.is_current(token):
         yield INSTRUMENT_STOPPED
     elif player.active and not _is_instrument_config(player.config):  # the visitor pressed Play in the first tab
-        yield None, gr.skip(), "stopped: you started playing in the first tab"
+        yield gr.skip(), gr.skip(), "stopped: you started playing in the first tab"
 
 
 def _instrument_stream(key, config, only_if_changed):
@@ -307,7 +309,7 @@ def instrument_restart(scope, style, seed, chips, stereo, cables, evict, request
 def instrument_stop(request: gr.Request = None):
     """Stop this visitor's session and empty their audio player, as `stop` does for the first tab."""
     visitors.player(_key(request)).stop()
-    return None, READOUT_WAITING, "stopped"
+    return gr.skip(), READOUT_WAITING, "stopped"
 
 
 def knob_setter(chip: int, name: str):
