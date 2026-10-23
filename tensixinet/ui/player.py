@@ -32,6 +32,12 @@ class Player:
     def config(self) -> Any:
         return self._config
 
+    @property
+    def session(self) -> Any:
+        """The session that is playing, once it has been attached; None while it is being built, and after a Stop, a finish or a newer claim.
+        The Play tab's knob handlers use it to reach the visitor's running instrument."""
+        return self._session
+
     def claim(self, config: Any, only_if_changed: bool = False):
         """Take the page for a new session, without ending the old one yet: returns (token, the session that was playing). The caller can show
         that it is starting and then stop the old one, which can take seconds. With `only_if_changed` (a change of a setting), the claim is
@@ -105,6 +111,12 @@ class Visitors:
     def player(self, key: str) -> Player:
         with self._lock:
             return self._players.setdefault(key, Player())
+
+    def session(self, key: str) -> Any:
+        """That visitor's running session, or None (also for a visitor the registry has not seen: asking does not add one)."""
+        with self._lock:
+            p = self._players.get(key)
+        return p.session if p is not None else None
 
     def playing(self) -> int:
         return sum(p.active for p in list(self._players.values()))

@@ -219,3 +219,52 @@ def test_reset_stops_everyone_and_forgets_them_and_a_limit_of_nothing_is_refused
     assert s.stopped == 1 and len(v) == 0
     with pytest.raises(ValueError):
         Visitors(0)
+
+
+# --- reaching the running session (the Play tab's knob handlers need it) -------------------------------------------------------------
+
+def test_session_is_none_before_attach_after_stop_and_after_finish():
+    player = Player()
+    assert player.session is None
+    token = player.begin("a")
+    assert player.session is None  # claimed, still being built
+    stub = FakeSession()
+    assert player.attach(token, stub) and player.session is stub
+    player.stop()
+    assert player.session is None
+    token = player.begin("b")
+    player.attach(token, FakeSession())
+    player.finish(token)
+    assert player.session is None
+
+
+def test_a_newer_claim_takes_the_old_session_away():
+    player = Player()
+    first = FakeSession()
+    player.attach(player.begin("a"), first)
+    player.claim("b")
+    assert player.session is None
+
+
+def test_two_visitors_have_their_own_sessions():
+    visitors = Visitors(3)
+    a, b = FakeSession(), FakeSession()
+    for key, stub in (("a", a), ("b", b)):
+        player, token, _ = visitors.claim(key, ("cfg", key))
+        player.attach(token, stub)
+    assert visitors.session("a") is a and visitors.session("b") is b and visitors.session("nobody") is None
+
+
+def test_the_limit_counts_a_session_of_any_kind():
+    visitors = Visitors(1)
+    player, token, _ = visitors.claim("a", ("instrument", "system"))
+    player.attach(token, FakeSession())
+    with pytest.raises(Busy):
+        visitors.claim("b", ("watch", "synthetic"))
+    visitors.drop("a")
+    visitors.claim("b", ("watch", "synthetic"))
+
+
+def test_asking_for_a_visitors_session_does_not_add_the_visitor():
+    visitors = Visitors(2)
+    assert visitors.session("stranger") is None and len(visitors) == 0
