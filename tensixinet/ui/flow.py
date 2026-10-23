@@ -9,7 +9,7 @@ and imports no UI library.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..music.cables import draw_cables, strength
 from ..music.chorus import assign_device, device_names, n_slots, slot_chip, slot_weights
@@ -40,6 +40,7 @@ class DeviceView:
     share: float  # its turn weight over all the weights
     azimuth: float
     depth: float  # 0 near to 1 far
+    heard: bool = True  # false for a device the Play tab is not playing (its scope leaves it out): drawn faint
 
 
 @dataclass(frozen=True)
@@ -58,8 +59,8 @@ class FlowState:
     chips: Tuple[ChipView, ...]
     devices: Tuple[DeviceView, ...]
     cables: Tuple[CableView, ...]
-    soloist_device: str
-    soloist_chip: int
+    soloist_device: str  # "" when nobody has the floor (a scope that plays some devices at full level)
+    soloist_chip: int  # -1 then
     patch: dict
 
 
@@ -67,12 +68,14 @@ def build_flow(
     chips: Sequence[Telemetry],
     patch: Patch,
     segment: int,
-    soloist_slot: int,
+    soloist_slot: Optional[int],
     seconds: float,
     phases: Dict[int, str] = None,
     cables: bool = True,
+    heard: Optional[Sequence[str]] = None,
 ) -> FlowState:
-    """The state of one segment. `phases` maps a chip index to a phase other than "running"."""
+    """The state of one segment. `phases` maps a chip index to a phase other than "running"; `soloist_slot` is None when nobody has the floor;
+    `heard` names the devices that sound (None: all of them)."""
     n = len(chips)
     phases = phases or {}
     chip_views = tuple(
@@ -87,18 +90,18 @@ def build_flow(
         chip = slot_chip(slot, n)
         offset, _, depth = device_space(name)
         azimuth = max(-1.0, min(1.0, chip_views[chip].azimuth + offset))
-        devices.append(DeviceView(name, slot, chip, slot == soloist_slot, weights[slot] / total, azimuth, depth))
+        devices.append(DeviceView(name, slot, chip, slot == soloist_slot, weights[slot] / total, azimuth, depth, heard is None or name in heard))
     chip_of = {d.name: d.chip for d in devices}
     wiring = draw_cables(patch.seed, device_names()) if cables else []
     cable_views = tuple(
         CableView(w.source, w.target, w.kind, w.depth, strength(w, chip_views[chip_of[w.source]].chaos)) for w in wiring
     )
-    solo = next(d for d in devices if d.slot == soloist_slot)
+    solo = next((d for d in devices if d.slot == soloist_slot), None)
     summary = {
         "seed": patch.seed, "style": patch.style, "scale": patch.scale_name, "gong": patch.gong_tuning, "rax_bars": patch.rax_bars,
         "routes": tuple(patch.steam_routes), "bars_per_turn": patch.bars_per_turn, "floor": patch.floor, "mode": patch.mode,
     }
-    return FlowState(segment, seconds, chip_views, tuple(devices), cable_views, solo.name, solo.chip, summary)
+    return FlowState(segment, seconds, chip_views, tuple(devices), cable_views, solo.name if solo else "", solo.chip if solo else -1, summary)
 
 
 def phases_at(events: Sequence[Tuple[float, str, int]], now: float, n_chips: int) -> Dict[int, str]:

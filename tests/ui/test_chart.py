@@ -99,3 +99,27 @@ def test_text_from_a_patch_is_escaped():
     state = build_flow(mock_telemetry(4), dataclasses.replace(DEFAULT_PATCH, scale_name="a<b>&c"), 0, 0, 4.0)
     svg = flow_svg(state)
     assert "a<b>" not in svg and "a&lt;b&gt;&amp;c" in svg and _tree(svg) is not None
+
+
+def test_a_device_that_is_not_heard_is_marked_silent_in_the_flow_and_the_field_and_fainter_there():
+    state = build_flow(mock_telemetry(4), DEFAULT_PATCH, 1, None, 4.0, heard=["gong"])
+    root = _tree(flow_svg(state))
+    for cls in ("device", "voice"):
+        silent = {e.get("data-device") for e in _by_class(root, cls) if "silent" in e.get("class").split()}
+        assert silent == set(device_names()) - {"gong"}, cls
+    voices = {e.get("data-device"): float(e.get("opacity")) for e in _by_class(root, "voice")}
+    assert all(voices[n] < voices["gong"] for n in voices if n != "gong")
+
+
+def test_a_heading_replaces_the_segment_line_and_is_escaped():
+    state = build_flow(mock_telemetry(4), DEFAULT_PATCH, 7, 2, 4.0)
+    svg = flow_svg(state, heading="a<b> has the floor")
+    assert "a&lt;b&gt; has the floor" in svg and "a<b>" not in svg and "segment 7" not in svg and _tree(svg) is not None
+    assert "segment 7" in flow_svg(state)
+
+
+def test_a_silent_device_is_faded_by_the_stylesheet_too_and_an_empty_heading_is_still_a_heading():
+    from tensixinet.ui.chart import STYLE
+    assert re.search(r"\.flow \.device\.silent\{opacity:0?\.[0-9]+\}", STYLE)
+    state = build_flow(mock_telemetry(4), DEFAULT_PATCH, 7, 2, 4.0)
+    assert "segment 7" not in flow_svg(state, heading="")

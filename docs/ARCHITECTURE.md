@@ -71,7 +71,7 @@ runs `tt-smi -s`.
 | `knobs.py` | The Play tab's performer: `Knobs` (five values for each of four chips, and pending events) and `to_telemetry`, which turns them into `Telemetry` through a `Tracker` |
 | `scopes.py` | What the Play tab plays: `resolve_scope` turns `system`, `module:<name>` or `device:<name>` into the `only` list `render_chorus` takes |
 | `instrument.py` | `InstrumentSession`: a thread that reads the knobs every block (1.2 s), renders a phrase when something changed or the last one ran out, and hands the audio on through the EQ and the live gain |
-| `readout.py` | The Play tab's readout: pitch, tempo and pressure for each chip, from the same `mapping.py` functions the devices use |
+| `readout.py` | The Play tab's view: `play_html` is the flow chart of the block being heard (`chart.flow_svg`, from the snapshot's `FlowState`) above `readout_html`, pitch, tempo and pressure for each chip from the same `mapping.py` functions the devices use |
 
 The Play tab's data flow: sliders and buttons write `Knobs` (per visitor, `knob_store` in the app) → the render thread reads them once a block →
 `to_telemetry` → `render_chorus(only=...)` for a phrase → blocks cut from the phrase, crossfaded where a phrase changes → EQ → loudness → the page.

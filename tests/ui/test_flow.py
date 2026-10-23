@@ -102,3 +102,19 @@ def test_a_device_never_sits_outside_the_field_even_when_its_chip_is_at_the_edge
         s = build_flow(mock_telemetry(4), DEFAULT_PATCH, 0, 0, 4.0)
         assert all(-1.0 <= d.azimuth <= 1.0 for d in s.devices)
         assert any(abs(d.azimuth) == 1.0 for d in s.devices)  # some offset really does push past the edge, so the clamp is what holds it
+
+
+def test_every_device_is_heard_unless_the_caller_names_the_ones_that_are():
+    _, s = _state()
+    assert all(d.heard for d in s.devices)
+    _, s = _state(heard=["gong", "ttchoir"])
+    assert {d.name for d in s.devices if d.heard} == {"gong", "ttchoir"}
+    _, s = _state(heard=[])
+    assert not any(d.heard for d in s.devices)
+
+
+def test_no_soloist_means_nobody_has_the_floor_and_the_state_says_so():
+    chips = mock_telemetry(4)
+    s = build_flow(chips, DEFAULT_PATCH, segment=0, soloist_slot=None, seconds=0.0)
+    assert not any(d.soloist for d in s.devices) and s.soloist_device == "" and s.soloist_chip == -1
+    assert len(s.devices) == len(device_names())

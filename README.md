@@ -217,6 +217,8 @@ the log panel, the session and the Play tab's knobs, scopes, instrument and read
 
 ## Play it
 
+![The Play tab on four chips, whole system: the flow chart and readout on the left follow the sliders on the right (chip 0 hot at 135 W, chip 2 cool at 28 C, a memory error just sent to chip 1)](docs/media/play-tab.png)
+
 The second tab of the page, **Play**, is the instrument. You choose what to play: one device, a module (a named group of devices: the rhythm section,
 drones and air, melody, delay and echo) or the whole system with its cables, delay bus and eviction. Then you play it with the readings. Each chip has
 sliders for temperature, power, aiclk, GDDR spread and voltage, and three buttons that inject a memory error, a thermal trip or a load burst (a chip's
@@ -224,8 +226,9 @@ power jumps by 70 W for four seconds, so an eviction can follow). Temperature mo
 power the pressure that brightens, thickens and speeds several devices. A slider that moves fast gives a chip a temperature or power rate, which moves the
 ttrax chaos as it does when a real chip heats quickly. On a machine with `tt-smi`, **Load from the chips** copies one real reading into the sliders.
 
-A move is heard about four seconds later: the page keeps its audio player three seconds ahead, because on less it stalls. The readout shows each chip's
-pitch, tempo and pressure for the moment you are hearing. Moving a slider or pressing a button never restarts the sound; changing the thing played, the
+A move is heard about four seconds later: the page keeps its audio player three seconds ahead, because on less it stalls. Above the sliders the Play tab draws the same flow chart as the first tab for the
+block you are hearing: each chip's temperature, power, pressure and chaos, the devices dealt to it, the cables, who has the floor and the stereo field, so a slider's effect on
+the system is seen as it is heard. A device outside the chosen scope is drawn faint. Under the chart, the readout shows each chip's pitch, tempo and pressure. Moving a slider or pressing a button never restarts the sound; changing the thing played, the
 style, the seed, the chip count or a switch does. Playing in either tab ends what you were playing in the other, and a visitor counts as one player for
 `TENSIXINET_MAX_PLAYERS` whichever tab they use. The Play tab runs on the CPU with synthetic chips only.
 

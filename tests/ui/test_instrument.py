@@ -473,3 +473,89 @@ def test_the_real_system_phrases_render_faster_than_they_play():
     print(f"four chips, system, stereo: a short phrase took {short:.2f} s for {SHORT_BLOCKS * BLOCK_S:.1f} s of sound, "
           f"a long one {long:.2f} s for {LONG_BLOCKS * BLOCK_S:.1f} s")
     assert short < SHORT_BLOCKS * BLOCK_S and long < LONG_BLOCKS * BLOCK_S
+
+
+def test_the_snapshot_carries_the_flow_of_the_block_the_listener_has_reached():
+    session, _, knobs, clock = make(lead_s=3.0, chips=3)
+    assert session.snapshot().state is None
+    knobs.set(0, "power", 40.0)
+    session.render_block()
+    knobs.set(0, "power", 120.0)
+    session.render_block()
+    state = session.snapshot().state
+    assert [c.power_w for c in state.chips] == [40.0, pytest.approx(session.snapshot().telemetry[1].power), pytest.approx(session.snapshot().telemetry[2].power)]
+    clock.sleep(BLOCK_S + 0.01)
+    assert session.snapshot().state.chips[0].power_w == 120.0 and len(session.snapshot().state.chips) == 3
+
+
+def test_the_flow_names_the_soloist_the_engine_chose_and_the_cables_the_patch_draws():
+    from tensixinet.music.cables import draw_cables
+    session, render, *_ = make(scope="system", chips=4)
+    session.render_block()
+    state = session.snapshot().state
+    assert [d.slot for d in state.devices if d.soloist] == render.calls[0]["soloists"]
+    assert {(c.source, c.target, c.kind) for c in state.cables} == {(w.source, w.target, w.kind) for w in draw_cables(DEFAULT_PATCH.seed, device_names())}
+    session, *_ = make(scope="system", chips=4, cables=False)
+    session.render_block()
+    assert session.snapshot().state.cables == ()
+
+
+@pytest.mark.parametrize("scope,heard", [("device:gong", ("gong",)), ("module:delay and echo", ("ttquantus", "ttcoco"))])
+def test_a_scope_that_plays_some_devices_shows_only_those_as_heard_and_nobody_has_the_floor(scope, heard):
+    session, *_ = make(scope=scope, chips=4)
+    session.render_block()
+    state = session.snapshot().state
+    assert {d.name for d in state.devices if d.heard} == set(heard)
+    assert not any(d.soloist for d in state.devices) and state.soloist_device == ""
+
+
+def test_the_flow_shows_a_chips_eviction_phase():
+    session, render, knobs, clock = make(scope="system", chips=1, lead_s=0.0)
+    knobs.set(0, "power", 14.0)
+    for _ in range(3):
+        session.render_block()
+        clock.sleep(5.0)
+    knobs.set(0, "power", 100.0)
+    for _ in range(6):
+        session.render_block()
+        clock.sleep(5.0)
+    knobs.set(0, "power", 14.0)
+    phases = set()
+    for _ in range(25):
+        session.render_block()
+        clock.sleep(5.0)
+        phases.add(session.snapshot().state.chips[0].phase)
+    assert "evicting" in phases
+
+
+def test_the_flow_counts_the_phrase_and_the_time_the_block_starts_at():
+    session, _, _, clock = make(lead_s=9.0)
+    for _ in range(SHORT_BLOCKS + 1):
+        session.render_block()
+    seen = []
+    for _ in range(SHORT_BLOCKS + 1):
+        seen.append((session.snapshot().state.segment, session.snapshot().state.seconds))
+        clock.sleep(BLOCK_S + 0.01)
+    # the first phrase is segment 0 and has SHORT_BLOCKS blocks, the next block is the second phrase's first
+    assert seen == [(0, pytest.approx(0.0)), (0, pytest.approx(BLOCK_S)), (1, pytest.approx(2 * BLOCK_S))]
+
+
+def test_a_chips_eviction_phase_holds_for_every_block_of_the_phrase_it_began(monkeypatch):
+    from types import SimpleNamespace
+
+    class Stub:
+        def update(self, chips, now):
+            return [SimpleNamespace(phase="evicting") for _ in chips]
+
+        def take_events(self):
+            return []
+
+    monkeypatch.setattr(instrument, "EvictTracker", Stub)
+    session, _, _, clock = make(chips=2, lead_s=3.0)
+    for _ in range(3):
+        session.render_block()
+    phases = []
+    for _ in range(3):
+        phases.append([c.phase for c in session.snapshot().state.chips])
+        clock.sleep(BLOCK_S + 0.01)
+    assert phases == [["evicting", "evicting"]] * 3

@@ -11,7 +11,7 @@ No script, so it can be set as the HTML of any page.
 from __future__ import annotations
 
 from html import escape
-from typing import Tuple
+from typing import Optional, Tuple
 
 from ..music.evict import PRESENCE
 from ..narrate.color import CHIP_JACKS, DEVICE_JACKS, JACK_HEX
@@ -32,6 +32,7 @@ STYLE = """
 .flow .solo rect,.flow .voice.solo{animation:glow 1.2s ease-in-out infinite}
 .flow .chip.evicting rect.box,.flow .chip.idle rect.box{stroke-dasharray:4 4}
 .flow .chip.idle{opacity:.45}.flow .chip.evicting{opacity:.7}
+.flow .device.silent{opacity:.3}
 """
 
 
@@ -64,13 +65,18 @@ def _bar(x: float, y: float, w: float, value: float, colour: str, label: str) ->
             f'<rect x="{x + 44}" y="{y}" width="{w * value:.1f}" height="10" rx="3" fill="{colour}"/>')
 
 
-def flow_svg(state: FlowState) -> str:
+SILENT_PRESENCE = 0.25  # a voice that is not played is drawn at this fraction of its presence
+
+
+def flow_svg(state: FlowState, heading: Optional[str] = None) -> str:
+    """The chart. `heading` replaces the first line (the segment, its time and who has the floor), for a page that has no segments to count."""
     n = len(state.chips)
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" class="flow" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" '
            f'aria-label="What is playing: {n} chips, {len(state.devices)} devices, {len(state.cables)} cables, and where each voice sits">',
            f"<style>{STYLE}</style>", f'<rect width="{WIDTH}" height="{HEIGHT}" rx="10" fill="#0b1f1e"/>']
     p = state.patch
-    head = f"segment {state.segment} · {state.seconds:.1f} s · {escape(state.soloist_device)} on chip {state.soloist_chip} has the floor"
+    head = escape(heading) if heading is not None else (
+        f"segment {state.segment} · {state.seconds:.1f} s · {escape(state.soloist_device)} on chip {state.soloist_chip} has the floor")
     patch = (f"{escape(p['style'] or 'plain patch')} · scale {escape(p['scale'])} · gong {escape(p['gong'])} · ttrax {p['rax_bars']} bars"
              f" · routes {escape(', '.join(p['routes']) or 'none')} · seed {p['seed']}")
     out.append(f'<text class="big" x="20" y="28">{head}</text><text class="dim" x="20" y="46">{patch}</text>')
@@ -115,7 +121,7 @@ def flow_svg(state: FlowState) -> str:
     for d in order:
         y, colour = pill_y[d.name], device_colour(d.name)
         out.append(
-            f'<g class="device{" solo" if d.soloist else ""}" data-device="{escape(d.name)}" data-chip="{d.chip}">'
+            f'<g class="device{" solo" if d.soloist else ""}{"" if d.heard else " silent"}" data-device="{escape(d.name)}" data-chip="{d.chip}">'
             f'<rect x="300" y="{y:.1f}" width="170" height="{pill_h}" rx="8" fill="#10292a" stroke="{colour}" stroke-width="{3 if d.soloist else 1.5}"/>'
             f'<text x="312" y="{y + 15:.1f}" style="fill:{colour}">{escape(d.name)}</text>'
             f'<text class="dim" x="440" y="{y + 15:.1f}">c{d.chip}</text>'
@@ -133,10 +139,10 @@ def flow_svg(state: FlowState) -> str:
                f'<text class="dim" x="{FIELD_CX - 24}" y="{FIELD_TOP - 14}">far</text><text class="dim" x="{FIELD_CX - 24}" y="{FIELD_BOTTOM + 28}">near</text>')
     for d in state.devices:
         x, y = field_xy(d.azimuth, d.depth)
-        presence = PRESENCE[state.chips[d.chip].phase]
+        presence = PRESENCE[state.chips[d.chip].phase] * (1.0 if d.heard else SILENT_PRESENCE)
         r = 11 if d.soloist else 7
         label = f'<text class="{"" if d.soloist else "dim"}" x="{x + r + 3:.1f}" y="{y + 4:.1f}" opacity="{presence:.2f}">{escape(d.name)}</text>'
-        out.append(f'<g><circle class="voice{" solo" if d.soloist else ""}" data-device="{escape(d.name)}" cx="{x:.1f}" cy="{y:.1f}" r="{r}" '
+        out.append(f'<g><circle class="voice{" solo" if d.soloist else ""}{"" if d.heard else " silent"}" data-device="{escape(d.name)}" cx="{x:.1f}" cy="{y:.1f}" r="{r}" '
                    f'fill="{device_colour(d.name)}" stroke="{chip_colour(d.chip)}" stroke-width="2" opacity="{presence:.2f}"/>{label}</g>')
     out.append("</svg>")
     return "".join(out)

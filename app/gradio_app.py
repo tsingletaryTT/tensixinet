@@ -31,7 +31,7 @@ from tensixinet.ui.knobs import EVENTS, KNOB_RANGES, MAX_CHIPS, Knobs
 from tensixinet.ui.logview import log_html
 from tensixinet.ui.player import Busy, Visitors
 from tensixinet.ui.progress import ACTIVE, progress_html
-from tensixinet.ui.readout import READOUT_WAITING, readout_html
+from tensixinet.ui.readout import READOUT_WAITING, play_html
 from tensixinet.ui.scopes import scope_choices
 from tensixinet.ui.session import PREROLL_S
 
@@ -62,6 +62,7 @@ DEFAULT_MAX_PLAYERS = 3  # a small machine (a Space's two CPUs) can render a few
 LOCAL = "local"  # the visitor when there is no request (tests, or a call that did not come through the page)
 INSTRUMENT = "instrument"  # the first item of a Play-tab session's config, so the two tabs' configs can be told apart
 INSTRUMENT_LEAD_S = 3.0  # how far ahead of the listener the Play tab's session may run: the browser's player stalls on less
+CSS = ".play-view { position: sticky; top: 8px; align-self: flex-start; }"
 KNOB_ORDER = tuple(KNOB_RANGES)  # the order of a chip's sliders on the page
 KNOB_LABELS = {"temperature": ("temperature", "C", 1), "power": ("power", "W", 1), "aiclk": ("aiclk", "MHz", 10),
                "gddr_spread": ("GDDR spread", "C", 0.5), "voltage": ("voltage", "V", 0.01)}  # label, unit, step
@@ -280,7 +281,7 @@ def _instrument_stream(key, config, only_if_changed):
                 yield from _instrument_ended(player, token)
                 return
             snap = session.snapshot()
-            readout = readout_html(snap)
+            readout = play_html(snap)  # the flow chart of the block being heard, then the readout
             if snap.error:
                 player.finish(token)
                 yield gr.skip(), readout, f"stopped: {snap.error}"
@@ -395,10 +396,10 @@ def _build_play_tab() -> None:
         load_btn = gr.Button("Load from the chips") if len(source_choices()) > 1 else None  # it reads tt-smi, so it needs tt-smi
     status = gr.Markdown("")
     with gr.Row():
-        with gr.Column(scale=2):
-            readout = gr.HTML(READOUT_WAITING, label="Readout")
+        with gr.Column(scale=3, elem_classes="play-view"):  # the chart and the readout stay in view while the sliders are scrolled
+            readout = gr.HTML(READOUT_WAITING, label="What is playing")
             audio = gr.Audio(streaming=True, autoplay=True, label="What you play", interactive=False)
-        with gr.Column(scale=3):
+        with gr.Column(scale=2):
             columns, sliders = [], []
             for chip in range(MAX_CHIPS):
                 with gr.Column(visible=True) as column:
@@ -429,7 +430,7 @@ def _build_play_tab() -> None:
 
 
 def build() -> gr.Blocks:
-    with gr.Blocks(title="tensixinet: what is playing") as demo:
+    with gr.Blocks(title="tensixinet: what is playing", css=CSS) as demo:
         gr.Markdown(f"## tensixinet: what is playing\n{INTRO}")
         with gr.Tabs():
             with gr.Tab("What is playing"):

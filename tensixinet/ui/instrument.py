@@ -33,6 +33,7 @@ from ..music.live import Tracker
 from ..music.loudness import LiveGain
 from ..music.patch import Patch
 from ..music.turns import pick_soloist
+from .flow import FlowState, build_flow
 from .knobs import Knobs, to_telemetry
 from .scopes import heard_on, resolve_scope
 
@@ -78,6 +79,7 @@ class InstrumentSnapshot:
     telemetry: tuple  # that block's readings
     playing: tuple  # the devices heard in it
     notes: tuple  # plain lines about it: a device that is not dealt to the chips, an eviction or a fill
+    state: Optional[FlowState] = None  # the chart's data for that block (flow.py); None before the first
 
 
 class InstrumentSession:
@@ -102,6 +104,7 @@ class InstrumentSession:
         self._sig: Optional[tuple] = None
         self._phrases = 0  # phrases rendered: the next one's segment number
         self._meta: tuple = ((), (), ())  # the playing phrase's readings, devices heard and notes
+        self._phases: dict = {}  # the playing phrase's chips that are not running, for the chart
         self._stop = threading.Event()
         self._audio: "queue.Queue[np.ndarray]" = queue.Queue()
         self._lock = threading.Lock()
@@ -176,7 +179,7 @@ class InstrumentSession:
         with self._lock:
             if self._t0 is None:
                 self._t0 = self._clock()
-            self._pending.append((self._delivered, self._block) + self._meta)
+            self._pending.append((self._delivered, self._block) + self._meta + (self._flow(),))
             self._delivered += len(ready) / SAMPLE_RATE
         self._audio.put(np.clip(ready, -1.0, 1.0).astype(np.float32))
         self._block += 1
@@ -203,7 +206,14 @@ class InstrumentSession:
         notes = [f"{name} is not dealt to any of the {len(chips)} chip{'s' if len(chips) != 1 else ''}, so it is silent"
                  for name in wanted if name not in heard] + notes
         self._meta = (tuple(chips), tuple(heard), tuple(notes))
+        self._phases = {k: d.phase for k, d in enumerate(defrag) if d.phase != "running"} if defrag is not None else {}
         return block.astype(np.float32)
+
+    def _flow(self) -> FlowState:
+        """The chart's data for the block being handed over: the playing phrase's readings, who has the floor (nobody, in a scope that plays some devices),
+        which devices are heard and which chips are not running."""
+        chips, heard, _ = self._meta
+        return build_flow(chips, self.patch, self._phrases - 1, self._soloist, self._block * BLOCK_S, self._phases, cables=self.config.cables, heard=heard)
 
     # -- what the app reads --------------------------------------------------------------------------------------------------------
 
@@ -220,8 +230,8 @@ class InstrumentSession:
         self._advance()
         running = self._thread is not None and self._thread.is_alive() and not self._stop.is_set()
         with self._lock:
-            block, chips, heard, notes = self._shown if self._shown is not None else (-1, (), (), ())
-        return InstrumentSnapshot(running, self._error, block, chips, heard, notes)
+            block, chips, heard, notes, state = self._shown if self._shown is not None else (-1, (), (), (), None)
+        return InstrumentSnapshot(running, self._error, block, chips, heard, notes, state)
 
     def next_audio(self, timeout: float = 1.0) -> Optional[np.ndarray]:
         """The next block's audio, or None if there is none within `timeout` seconds."""

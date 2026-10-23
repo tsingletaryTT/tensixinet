@@ -429,8 +429,11 @@ class _Instrument:
     def snapshot(self):
         from tensixinet.music.live import Tracker
         from tensixinet.ui.instrument import InstrumentSnapshot
+        from tensixinet.music.patch import DEFAULT_PATCH
+        from tensixinet.ui.flow import build_flow
         from tensixinet.ui.knobs import Knobs, to_telemetry
-        return InstrumentSnapshot(self.started and not self.stopped, None, 0, tuple(to_telemetry(Knobs(2), Tracker(), 0.0)), ("gong",), ())
+        chips = tuple(to_telemetry(Knobs(2), Tracker(), 0.0))
+        return InstrumentSnapshot(self.started and not self.stopped, None, 0, chips, ("gong",), (), build_flow(chips, DEFAULT_PATCH, 0, None, 0.0, heard=["gong"]))
 
 
 def _fake_new_instrument(app, monkeypatch, made):
@@ -465,6 +468,28 @@ def test_play_instrument_clears_the_page_then_streams_audio_a_readout_and_a_stat
     assert (made[0].settings["scope"], made[0].settings["chips"], made[0].settings["style"]) == ("device:gong", 2, "enya")
     g.close()
     assert made[0].stopped >= 1
+
+
+def test_the_play_tab_draws_the_flow_chart_above_the_readout_and_sends_it_again_only_when_it_changes(monkeypatch):
+    from tensixinet.music.live import Tracker
+    from tensixinet.ui.knobs import Knobs, to_telemetry
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    g = app.instrument_play(*_iargs(scope="device:gong", chips=2))
+    next(g)
+    _, view, _ = next(g)
+    assert view.index("<svg") < view.index('class="readout"') and 'data-device="gong"' in view and "full level" in view
+    assert next(g)[1] == app.gr.skip()  # the same block again: nothing to redraw
+    knobs = Knobs(2)
+    knobs.set(0, "power", 120.0)
+    from tensixinet.music.patch import DEFAULT_PATCH
+    from tensixinet.ui.flow import build_flow
+    from tensixinet.ui.instrument import InstrumentSnapshot
+    chips = tuple(to_telemetry(knobs, Tracker(), 0.0))
+    made[0].snapshot = lambda: InstrumentSnapshot(True, None, 1, chips, ("gong",), (), build_flow(chips, DEFAULT_PATCH, 0, None, 0.0, heard=["gong"]))
+    changed = next(g)[1]
+    assert changed != app.gr.skip() and "120W" in changed and "120W" not in view
+    g.close()
 
 
 def test_the_instrument_is_given_the_apps_lead_and_real_sleep(monkeypatch):

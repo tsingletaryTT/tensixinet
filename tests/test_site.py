@@ -285,3 +285,42 @@ def test_the_pitch_movement_has_a_held_and_a_moving_clip_from_the_same_patch_and
     assert "same patch and the same synthetic readings" in listen and listen.index("quantus_fixed") < listen.index("quantus_moving")
     script = (SITE.parent / "demo" / "make_clips.sh").read_text()
     assert 'd["quantus_mod"]=0.0' in script and "--mock-chips 4 --seed 3" in script    # the held clip is the moving one's patch with the modulation off
+
+
+# --- the tt-bio-demo recording ------------------------------------------------------------------------------------------------
+
+def test_the_bio_section_has_the_recording_its_poster_and_the_patch_it_replays_with_the_patchs_own_numbers():
+    from tensixinet.music.patch import load_patch
+    section = HTML[HTML.index('id="bio"'): HTML.index('id="app"')]
+    assert 'href="#bio"' in HTML and HTML.index('id="space"') < HTML.index('id="bio"') < HTML.index('id="app"')
+    assert 'src="assets/bio.mp4"' in section and 'poster="assets/bio-frame.png"' in section
+    for name in ("bio.mp4", "bio-frame.png"):
+        assert (SITE / "assets" / name).is_file(), name
+    patch = load_patch(SITE.parent / "demo" / "bio.patch.json")
+    for text in ("--patch demo/bio.patch.json", patch.scale_name, patch.gong_tuning.replace("_", " "), f"snare at {patch.snare:g}",
+                 f"{patch.coco_send:.0%} of the band", f"{patch.rests:.0%} of the coco's notes", f"pitch movement {patch.quantus_mod:g}"):
+        assert text in section, text
+    assert [r for r in patch.steam_routes] == ["avdog", "pitch"] and "<code>avdog</code> and <code>pitch</code>" in section
+
+
+def test_the_bio_section_says_what_ran_where_and_links_to_both_projects():
+    section = HTML[HTML.index('id="bio"'): HTML.index('id="app"')]
+    for text in ("all four chips", "tt-bio 0.21.0", "tt-smi", "on the CPU", "the booth holds the chips"):
+        assert text in section, text
+    assert 'href="https://github.com/tsingletaryTT/tt-bio-demo"' in section and 'href="https://github.com/moritztng/tt-bio"' in section
+    assert "no questions" in section.lower()   # the affinity-question mode was not part of this recording
+
+
+def test_no_file_the_site_serves_is_over_what_github_accepts():
+    limit = 95 * 1024 * 1024   # GitHub refuses a file over 100 MB
+    big = [str(p.relative_to(SITE)) for p in SITE.rglob("*") if p.is_file() and p.stat().st_size > limit]
+    assert not big, big
+
+
+def test_the_app_section_describes_the_play_tab_with_its_screenshot_and_the_numbers_the_code_has():
+    from tensixinet.ui.knobs import KNOB_RANGES, MAX_CHIPS
+    section = HTML[HTML.index('id="app"'): HTML.index('id="band"')]
+    assert 'src="assets/play-tab.png"' in section and (SITE / "assets" / "play-tab.png").is_file()
+    for text in ("Play tab", "flow chart", "memory error", "thermal trip", "load burst", "Load from the chips", f"{MAX_CHIPS} chips", f"{len(KNOB_RANGES)} sliders"):
+        assert text in section, text
+    assert "rhythm section" in section and "delay and echo" in section  # the modules a visitor can pick

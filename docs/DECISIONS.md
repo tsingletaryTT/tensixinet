@@ -155,6 +155,10 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   the phrase that carries the tick before the tick was heard.
 * **Latency is about four seconds.** The page's player is kept `INSTRUMENT_LEAD_S = 3.0` s ahead of the listener. Over a 40 s run in headless Chrome that gave a smallest
   buffer of 1.7 s and no stall; a move showed in the readout 3.6 to 4.2 s after it was made. A shorter lead was not tried.
+* **The Play tab draws the first tab's flow chart.** The session builds a `FlowState` for each block (`build_flow`, from the playing phrase's readings, its soloist and its eviction phases) and the snapshot carries the one the
+  listener has reached, so the chart follows the sound as the readout does. A scope that plays some devices has nobody on the floor (it plays at full level, with no turn-taking), and the devices it leaves out are drawn faint
+  (`DeviceView.heard`). The chart's heading names who has the floor and has no segment number or time, so the page is sent again only when something in it changes (a new phrase can change the floor).
+  The chart and readout are one HTML output, so the handlers still yield three values. The readout's inner rows set their own colour: Gradio's theme colours a div's text itself, and the pitch line was dark grey on the dark panel.
 * **Stop returns `gr.skip()` for the audio.** Returning `None` for a streaming audio component made Chrome load a new source and play it, so the sound went on for several seconds after Stop (found in
   the browser, on Gradio 6.30, in the first tab too). Stop and the stopped frames return `gr.skip()`, and the page's own `pause()` does the silencing. The first frame of a new Play still returns
   `None`, which starts the new stream from 0.

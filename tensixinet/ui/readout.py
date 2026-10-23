@@ -12,6 +12,7 @@ from html import escape
 
 from ..music.mapping import C3_HZ, aiclk_to_bpm, chip_pressure, temp_to_pitch_hz
 from ..narrate.color import CHIP_JACKS, JACK_HEX
+from .chart import flow_svg
 from .instrument import InstrumentSnapshot
 
 PANEL = '<div class="readout" style="background:#092221;border-radius:8px;padding:12px 14px">'  # the brand's dark teal: the readout's colours are written for it, whatever the page's theme
@@ -35,7 +36,7 @@ def readout_html(snapshot: InstrumentSnapshot) -> str:
         hz, bpm, pressure = temp_to_pitch_hz(t.asic_temperature), aiclk_to_bpm(t.aiclk), chip_pressure(t)  # 0 to 1
         rows.append(
             f'<div class="chip" style="margin:6px 0;font:13px ui-monospace,monospace;color:#cfe4e2">'
-            f'<div><span style="color:{colour};font-weight:600">chip {i}</span> &nbsp; '
+            f'<div style="color:#cfe4e2"><span style="color:{colour};font-weight:600">chip {i}</span> &nbsp; '  # the page's theme colours a div's text itself, so each sets its own
             f'{note_name(hz)} ({hz:.1f} Hz) &nbsp; {bpm:.0f} BPM &nbsp; pressure {pressure:.2f}</div>'
             f'<div class="bar" style="height:6px;background:#12302e;border-radius:3px;margin-top:3px">'
             f'<div style="width:{round(pressure * 100)}%;height:100%;background:{colour};border-radius:3px"></div></div></div>')
@@ -43,3 +44,15 @@ def readout_html(snapshot: InstrumentSnapshot) -> str:
     lines = [f'<div style="margin-top:8px;font:12px ui-monospace,monospace;color:#7d9a98">playing: {playing}</div>']
     lines += [f'<div style="font:12px ui-monospace,monospace;color:#f6bc42">{escape(n)}</div>' for n in snapshot.notes]
     return PANEL + "".join(rows + lines) + "</div>"
+
+
+def play_html(snapshot: InstrumentSnapshot) -> str:
+    """What the Play tab shows: the flow chart of the block being heard (the same drawing as the first tab, so a knob's effect on the chips, the cables,
+    the floor and the stereo field is seen), and the readout under it. Without a flow it is the readout alone. The heading names who has the floor,
+    and carries no segment or time, so the page changes only when something in it does."""
+    if not snapshot.telemetry or snapshot.state is None:
+        return readout_html(snapshot)
+    s = snapshot.state
+    heading = (f"{s.soloist_device} on chip {s.soloist_chip} has the floor" if s.soloist_device
+               else "the chosen devices play at full level, no turn-taking")
+    return flow_svg(s, heading) + readout_html(snapshot)
