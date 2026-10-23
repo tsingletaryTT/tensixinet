@@ -218,3 +218,9 @@ def test_the_knobs_never_report_an_uncorrectable_error():
     for chip in range(4):
         knobs.trigger(chip, "memory_error")
     assert [t.uncorr_errs for t in _read(knobs)] == [0, 0, 0, 0]
+
+
+def test_an_event_for_a_chip_that_is_not_being_played_is_dropped():
+    knobs = Knobs(2)
+    knobs.trigger(3, "memory_error")
+    assert knobs.take_events() == []
