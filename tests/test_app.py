@@ -398,3 +398,313 @@ def test_gradio_hands_each_handler_the_request_so_visitors_can_be_told_apart():
         assert filled[-1] is sentinel and filled[:-1] == values
     for handler in (app.stop, app.leave):
         assert special_args(handler, [], sentinel)[0] == [sentinel]
+
+
+# --- the Play tab -------------------------------------------------------------------------------------------------------------------
+
+class _Instrument:
+    """Stands in for ui.instrument.InstrumentSession."""
+    sample_rate = 8000
+
+    def __init__(self, knobs, **settings):
+        import numpy as np
+        self.knobs, self.settings = knobs, settings
+        self.chunk, self.started, self.stopped = np.zeros(80, dtype=float), False, 0
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        self.stopped += 1
+
+    def next_audio(self, timeout=0.0):
+        return None if self.stopped else self.chunk
+
+    def snapshot(self):
+        from tensixinet.music.live import Tracker
+        from tensixinet.ui.instrument import InstrumentSnapshot
+        from tensixinet.ui.knobs import Knobs, to_telemetry
+        return InstrumentSnapshot(self.started and not self.stopped, None, 0, tuple(to_telemetry(Knobs(2), Tracker(), 0.0)), ("gong",), ())
+
+
+def _fake_new_instrument(app, monkeypatch, made):
+    def new_instrument(scope, style, seed, chips, stereo, cables, evict, knobs, **kw):
+        s = _Instrument(knobs, scope=scope, style=style, seed=seed, chips=chips, stereo=stereo, cables=cables, evict=evict, **kw)
+        made.append(s)
+        return s, _Patch()
+    monkeypatch.setattr(app, "new_instrument", new_instrument)
+
+
+def _iargs(**over):
+    base = dict(scope="system", style="plain draw", seed=4, chips=4, stereo=True, cables=True, evict=True)
+    base.update(over)
+    return tuple(base.values())
+
+
+def test_the_page_has_two_tabs_named_what_is_playing_and_play():
+    app = _app()
+    tabs = [c["props"]["label"] for c in app.build().config["components"] if c["type"] == "tabitem"]
+    assert tabs == ["What is playing", "Play"]
+
+
+def test_play_instrument_clears_the_page_then_streams_audio_a_readout_and_a_status(monkeypatch):
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    g = app.instrument_play(*_iargs(scope="device:gong", style="enya", seed=3, chips=2))
+    audio, readout, status = next(g)
+    assert audio is None and readout == app.READOUT_WAITING and status == "starting" and not made
+    audio, readout, status = next(g)
+    assert made[0].started and audio is not None and audio[0] == 8000 and audio[1].dtype.name == "int16"
+    assert "chip 0" in readout and "gong" in readout and status.startswith("playing") and "device: gong" in status and "2 chips" in status
+    assert (made[0].settings["scope"], made[0].settings["chips"], made[0].settings["style"]) == ("device:gong", 2, "enya")
+    g.close()
+    assert made[0].stopped >= 1
+
+
+def test_the_instrument_is_given_the_apps_lead_and_real_sleep(monkeypatch):
+    import time
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    g = app.instrument_play(*_iargs())
+    next(g), next(g)
+    g.close()
+    assert made[0].settings["lead_s"] == app.INSTRUMENT_LEAD_S and 1.0 <= app.INSTRUMENT_LEAD_S <= 6.0
+    assert made[0].settings["sleep"] is time.sleep
+
+
+def test_a_knob_set_before_play_is_in_the_knobs_the_session_gets(monkeypatch):
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    app.knob_setter(0, "power")(120.0)
+    g = app.instrument_play(*_iargs())
+    next(g), next(g)
+    assert made[0].knobs.get(0, "power") == 120.0
+    g.close()
+
+
+def test_a_knob_moved_while_playing_reaches_the_running_session_and_does_not_restart_it(monkeypatch):
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    g = app.instrument_play(*_iargs())
+    next(g), next(g)
+    app.knob_setter(1, "temperature")(90.0)
+    app.event_trigger(1, "memory_error")()
+    assert made[0].knobs.get(1, "temperature") == 90.0 and made[0].knobs.take_events() == [(1, "memory_error")]
+    assert len(_take(app.instrument_restart(*_iargs()), 3)) == 1  # a field that lost focus and changed nothing
+    assert len(made) == 1 and not made[0].stopped
+    g.close()
+
+
+def test_a_change_of_scope_while_playing_restarts_with_the_new_scope_and_the_same_knobs(monkeypatch):
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    g1 = app.instrument_play(*_iargs(scope="system"))
+    next(g1), next(g1)
+    app.knob_setter(0, "power")(111.0)
+    g2 = app.instrument_restart(*_iargs(scope="module:melody"))
+    outs = [next(g2), next(g2)]
+    assert made[0].stopped >= 1 and made[1].settings["scope"] == "module:melody" and made[1].started and outs[0][0] is None
+    assert made[1].knobs is made[0].knobs and made[1].knobs.get(0, "power") == 111.0
+    assert _take(g1, 3) == []
+    g2.close()
+
+
+def test_a_change_with_nothing_playing_leaves_the_play_tab_alone(monkeypatch):
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    out = _take(app.instrument_restart(*_iargs(scope="module:melody")), 3)
+    assert len(out) == 1 and not made
+
+
+def test_playing_in_the_play_tab_ends_what_the_same_visitor_played_in_the_first_tab(monkeypatch):
+    app, watched, made = _app(), [], []
+    _fake_new_session(app, monkeypatch, watched)
+    _fake_new_instrument(app, monkeypatch, made)
+    g1 = app.play(*_args())
+    next(g1), next(g1)
+    g2 = app.instrument_play(*_iargs())
+    next(g2), next(g2)
+    assert watched[0][0].stopped >= 1 and made[0].started
+    assert _take(g1, 3) == []  # the first tab's stream says nothing more: the visitor is on the other tab now
+    g2.close()
+
+
+def test_playing_in_the_first_tab_ends_the_play_tab_session(monkeypatch):
+    app, watched, made = _app(), [], []
+    _fake_new_session(app, monkeypatch, watched)
+    _fake_new_instrument(app, monkeypatch, made)
+    g2 = app.instrument_play(*_iargs())
+    next(g2), next(g2)
+    g1 = app.play(*_args())
+    next(g1), next(g1)
+    assert made[0].stopped >= 1 and watched[0][0].started
+    assert _take(g2, 3) == []
+    g1.close()
+
+
+def test_a_setting_changed_in_the_first_tab_does_not_start_playing_there_while_the_play_tab_plays(monkeypatch):
+    app, watched, made = _app(), [], []
+    _fake_new_session(app, monkeypatch, watched)
+    _fake_new_instrument(app, monkeypatch, made)
+    g2 = app.instrument_play(*_iargs())
+    next(g2), next(g2)
+    assert len(_take(app.restart(*_args(style="blues")), 3)) == 1 and not watched and not made[0].stopped
+    g2.close()
+
+
+def test_and_a_setting_changed_in_the_play_tab_does_not_start_playing_there_while_the_first_tab_plays(monkeypatch):
+    app, watched, made = _app(), [], []
+    _fake_new_session(app, monkeypatch, watched)
+    _fake_new_instrument(app, monkeypatch, made)
+    g1 = app.play(*_args())
+    next(g1), next(g1)
+    assert len(_take(app.instrument_restart(*_iargs(scope="device:gong")), 3)) == 1 and not made and not watched[0][0].stopped
+    g1.close()
+
+
+def test_stop_empties_the_play_tab_and_a_change_afterwards_starts_nothing(monkeypatch):
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    g = app.instrument_play(*_iargs())
+    next(g), next(g)
+    audio, readout, status = app.instrument_stop()
+    assert audio is None and readout == app.READOUT_WAITING and status == "stopped" and made[0].stopped >= 1
+    assert len(_take(app.instrument_restart(*_iargs(scope="device:gong")), 3)) == 1 and len(made) == 1
+    last = _take(g, 3)
+    assert len(last) == 1 and last[0][0] is None and last[0][2] == "stopped"
+
+
+def test_a_stop_while_the_instrument_is_still_being_built_means_it_never_starts(monkeypatch):
+    app, built = _app(), []
+
+    def slow(scope, style, seed, chips, stereo, cables, evict, knobs, **kw):
+        app.instrument_stop()
+        s = _Instrument(knobs)
+        built.append(s)
+        return s, _Patch()
+    monkeypatch.setattr(app, "new_instrument", slow)
+    outs = _take(app.instrument_play(*_iargs()), 3)
+    assert [o[2] for o in outs] == ["starting", "stopped"] and built and not built[0].started
+
+
+def test_a_scope_that_cannot_be_played_says_why_and_leaves_the_visitor_idle(monkeypatch):
+    app = _app()
+    monkeypatch.setattr(app, "new_instrument", lambda *a, **k: (_ for _ in ()).throw(ValueError("unknown scope 'x'")))
+    outs = _take(app.instrument_play(*_iargs(scope="x")), 4)
+    assert outs[-1][2].startswith("could not start") and "unknown scope" in outs[-1][2]
+    assert not app.visitors.player(app.LOCAL).active
+
+
+def test_a_session_that_stops_with_an_error_says_so(monkeypatch):
+    from tensixinet.ui.instrument import InstrumentSnapshot
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    g = app.instrument_play(*_iargs())
+    next(g), next(g)
+    made[0].snapshot = lambda: InstrumentSnapshot(False, "RuntimeError: no sound today", 0, (), (), ())
+    out = next(g)
+    assert out[2] == "stopped: RuntimeError: no sound today" and not app.visitors.player(app.LOCAL).active
+
+
+def test_two_visitors_have_their_own_knobs_and_sessions_and_a_third_is_told_the_places_are_taken(monkeypatch):
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    from tensixinet.ui.player import Visitors
+    monkeypatch.setattr(app, "visitors", Visitors(limit=2))
+    a, b, c = _Req("a"), _Req("b"), _Req("c")
+    app.knob_setter(0, "power")(50.0, request=a)
+    app.knob_setter(0, "power")(140.0, request=b)
+    ga, gb = app.instrument_play(*_iargs(), request=a), app.instrument_play(*_iargs(), request=b)
+    next(ga), next(ga), next(gb), next(gb)
+    assert made[0].knobs.get(0, "power") == 50.0 and made[1].knobs.get(0, "power") == 140.0 and made[0].knobs is not made[1].knobs
+    app.knob_setter(0, "power")(60.0, request=a)
+    assert made[0].knobs.get(0, "power") == 60.0 and made[1].knobs.get(0, "power") == 140.0
+    out = _take(app.instrument_play(*_iargs(), request=c), 3)
+    assert len(out) == 1 and "busy" in out[0][2] and len(made) == 2
+    ga.close(), gb.close()
+
+
+def test_a_visitor_who_leaves_loses_their_session_and_their_knobs(monkeypatch):
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    app.knob_setter(0, "power")(50.0, request=_Req("a"))
+    g = app.instrument_play(*_iargs(), request=_Req("a"))
+    next(g), next(g)
+    app.leave(_Req("a"))
+    assert made[0].stopped >= 1 and len(app.visitors) == 0 and "a" not in app.knob_store
+    app.leave(_Req("a"))  # twice is harmless
+    g.close()
+
+
+def test_load_chips_returns_a_status_then_the_value_of_every_slider(monkeypatch):
+    from tensixinet.telemetry import mock_telemetry
+    app = _app()
+    seen = []
+    monkeypatch.setattr(app, "read_chip_knobs", lambda knobs: (seen.append(knobs), "loaded 4 chips from tt-smi")[1])
+    out = app.load_chips(request=_Req("a"))
+    assert out[0] == "loaded 4 chips from tt-smi" and len(out) == 1 + 4 * len(app.KNOB_ORDER)
+    knobs = app.knob_store["a"]
+    assert seen == [knobs]
+    knobs.set(2, "aiclk", 1000.0)
+    again = app.load_chips(request=_Req("a"))
+    index = 1 + 2 * len(app.KNOB_ORDER) + app.KNOB_ORDER.index("aiclk")
+    assert again[index] == 1000.0  # the slider values come from the knobs, chip by chip, in KNOB_ORDER
+
+
+def test_the_sliders_on_the_page_are_the_knobs_ranges_four_times_over():
+    from tensixinet.ui.knobs import KNOB_RANGES
+    app = _app()
+    sliders = [(c["props"]["minimum"], c["props"]["maximum"], c["props"]["value"]) for c in app.build().config["components"]
+               if c["type"] == "slider" and str(c["props"].get("label", "")).startswith("chip ")]
+    expected = [KNOB_RANGES[name] for _ in range(4) for name in app.KNOB_ORDER]
+    assert sliders == expected
+
+
+def test_the_play_tab_wires_every_setting_every_knob_and_every_event_and_never_cancels():
+    app = _app()
+    deps = app.build().config["dependencies"]
+    names = [d["api_name"] for d in deps]
+    assert len(set(names)) == len(names)  # Gradio would rename a clash, and the old tests count by name
+    play = [d for d in deps if d["api_name"] == "instrument_play" or d["api_name"].startswith("instrument_restart")]
+    assert len(play) == 1 + 7 + 1  # Play, a change of each of seven settings, and the chip count's slider on release
+    assert all(d["trigger_mode"] == "multiple" for d in play)
+    assert len([n for n in names if n.startswith("knob_")]) == 4 * len(app.KNOB_ORDER)
+    assert len([n for n in names if n.startswith("event_")]) == 4 * 3
+    assert not any(d["cancels"] for d in deps)
+    for d in play:
+        assert "pause()" in d["js"]
+    assert "pause()" in next(d for d in deps if d["api_name"] == "instrument_stop")["js"]
+
+
+def test_gradio_hands_every_new_handler_the_request_so_visitors_can_be_told_apart():
+    app = _app()
+    from gradio.helpers import special_args
+    sentinel = _Req("a visitor")
+    values = list(_iargs())
+    for handler in (app.instrument_play, app.instrument_restart):
+        filled = special_args(handler, list(values), sentinel)[0]
+        assert filled[-1] is sentinel and filled[:-1] == values
+    for handler in (app.instrument_stop, app.load_chips):
+        assert special_args(handler, [], sentinel)[0] == [sentinel]
+    for handler in (app.knob_setter(0, "power"), app.event_trigger(0, "memory_error")):
+        values = [1.0] if handler.__name__ == "set_knob" else []
+        assert special_args(handler, list(values), sentinel)[0] == values + [sentinel]
+
+
+def test_the_status_says_one_chip_in_the_singular(monkeypatch):
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    g = app.instrument_play(*_iargs(chips=1))
+    next(g)
+    assert next(g)[2].endswith("on 1 chip")
+    g.close()
+
+
+def test_a_session_that_has_run_out_ends_the_stream_and_frees_the_place(monkeypatch):
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    g = app.instrument_play(*_iargs())
+    next(g), next(g)
+    made[0].next_audio = lambda timeout=0.0: None
+    made[0].snapshot = lambda: type("S", (), {"running": False, "error": None, "telemetry": (), "playing": (), "notes": ()})()
+    assert _take(g, 3) != [] and not app.visitors.player(app.LOCAL).active
