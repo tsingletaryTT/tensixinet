@@ -14,7 +14,8 @@ from ..music.mapping import C3_HZ, aiclk_to_bpm, chip_pressure, temp_to_pitch_hz
 from ..narrate.color import CHIP_JACKS, JACK_HEX
 from .instrument import InstrumentSnapshot
 
-READOUT_WAITING = '<div style="padding:24px;color:#7d9a98;font:14px ui-monospace,monospace">press Play: each chip\'s pitch, tempo and pressure show here as you move the knobs</div>'
+PANEL = '<div class="readout" style="background:#092221;border-radius:8px;padding:12px 14px">'  # the brand's dark teal: the readout's colours are written for it, whatever the page's theme
+READOUT_WAITING = PANEL + '<div style="color:#7d9a98;font:14px ui-monospace,monospace">press Play: each chip\'s pitch, tempo and pressure show here as you move the knobs</div></div>'
 NOTES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
 
@@ -41,4 +42,4 @@ def readout_html(snapshot: InstrumentSnapshot) -> str:
     playing = ", ".join(escape(n) for n in snapshot.playing) or "nothing (see below)"
     lines = [f'<div style="margin-top:8px;font:12px ui-monospace,monospace;color:#7d9a98">playing: {playing}</div>']
     lines += [f'<div style="font:12px ui-monospace,monospace;color:#f6bc42">{escape(n)}</div>' for n in snapshot.notes]
-    return "".join(rows + lines)
+    return PANEL + "".join(rows + lines) + "</div>"

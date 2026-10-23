@@ -73,3 +73,8 @@ def test_the_devices_playing_and_the_notes_are_listed_and_the_notes_are_escaped(
 
 def test_a_snapshot_with_nothing_playing_says_so():
     assert "nothing" in readout_html(snap(playing=())).lower()
+
+
+def test_the_readout_sits_on_its_own_dark_panel_so_it_reads_on_any_page_theme():
+    for html in (readout_html(snap()), READOUT_WAITING):
+        assert html.startswith('<div class="readout" style="background:#092221') and html.endswith("</div>")
