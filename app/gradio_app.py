@@ -108,6 +108,8 @@ def _ended(player, token):
     just before can reach the browser after Stop's own result, and Gradio's cancel cannot recall it. After a newer Play it says nothing."""
     if not player.active and not player.is_current(token):
         yield STOPPED_FRAME
+    elif player.active and _is_instrument_config(player.config):  # the visitor pressed Play in the other tab
+        yield None, gr.skip(), gr.skip(), "stopped: you started playing in the Play tab"
 
 
 def _chart(snap):
@@ -183,10 +185,13 @@ def play(source, style, seed, chips, load_s, patch_name, kernels, stereo, evict,
     yield from _stream(_key(request), _config(source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables), only_if_changed=False)
 
 
+def _is_instrument_config(config) -> bool:
+    return isinstance(config, tuple) and config[:1] == (INSTRUMENT,)
+
+
 def _plays_instrument(key: str) -> bool:
     """Whether this visitor's running session is the Play tab's."""
-    config = visitors.player(key).config
-    return isinstance(config, tuple) and config[:1] == (INSTRUMENT,)
+    return _is_instrument_config(visitors.player(key).config)
 
 
 def restart(source, style, seed, chips, load_s, patch_name, kernels, stereo, evict, cables, request: gr.Request = None):
@@ -229,6 +234,8 @@ def _instrument_ended(player, token):
     """What a Play-tab stream that is no longer the current one says last (see `_ended`)."""
     if not player.active and not player.is_current(token):
         yield INSTRUMENT_STOPPED
+    elif player.active and not _is_instrument_config(player.config):  # the visitor pressed Play in the first tab
+        yield None, gr.skip(), "stopped: you started playing in the first tab"
 
 
 def _instrument_stream(key, config, only_if_changed):

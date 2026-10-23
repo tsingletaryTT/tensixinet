@@ -525,7 +525,8 @@ def test_playing_in_the_play_tab_ends_what_the_same_visitor_played_in_the_first_
     g2 = app.instrument_play(*_iargs())
     next(g2), next(g2)
     assert watched[0][0].stopped >= 1 and made[0].started
-    assert _take(g1, 3) == []  # the first tab's stream says nothing more: the visitor is on the other tab now
+    said = _take(g1, 3)  # the first tab's stream says one more thing: the visitor is on the other tab now
+    assert len(said) == 1 and said[0][0] is None and said[0][3] == "stopped: you started playing in the Play tab"
     g2.close()
 
 
@@ -538,7 +539,8 @@ def test_playing_in_the_first_tab_ends_the_play_tab_session(monkeypatch):
     g1 = app.play(*_args())
     next(g1), next(g1)
     assert made[0].stopped >= 1 and watched[0][0].started
-    assert _take(g2, 3) == []
+    said = _take(g2, 3)
+    assert len(said) == 1 and said[0][0] is None and said[0][2] == "stopped: you started playing in the first tab"
     g1.close()
 
 
