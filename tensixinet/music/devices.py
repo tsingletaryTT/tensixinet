@@ -194,6 +194,27 @@ def gong_trigger_roll(t: Telemetry, patch: Patch = DEFAULT_PATCH) -> Optional[in
     return draw_gong_trigger(len(ttrollz_network(t).rolls), patch.seed, personality(t))
 
 
+def ttrollz_pulse_sets(t: Telemetry, duration: float, seed: int, patch: Patch = DEFAULT_PATCH, segment: int = 0):
+    """The pulses `ttrollz` renders as blips, with the patch's `roll_rests` already taken out.
+
+    A list of (source_label, lane_index, pulse_times_s, cycle_start_flags). The first entry is the chip's clock
+    (`"clock"`, lane index -1, no cycle starts); then comes one entry per lane that is up (`"lane"`, the lane's own index,
+    and a flag for each pulse that begins a cycle of the roll). `segment` is the segment of the rolls' drift: `ttrollz`
+    passes the one it reads out of its seed, so the pulses here are the ones it plays. The rolls themselves run whole
+    (the gong follows them); only what is returned here has the rests removed."""
+    bpm = aiclk_to_bpm(t.aiclk)
+    clock = ttrollz_pulse_times(bpm, duration)
+    clock = clock[~rest_flags(seed, ROLL_REST_TAG, len(clock), patch.roll_rests)]
+    sets = [("clock", -1, clock, np.zeros(len(clock), dtype=bool))]
+    pulses = roll_pulses(t, duration, patch, segment)
+    for lane in ttrollz_lanes(t):
+        times, downbeats = pulses[lane.index]
+        # a pulse that rests is left out of what is heard (the gong still follows the whole roll), and takes its downbeat blip with it
+        heard = ~rest_flags(seed, ROLL_REST_TAG + 1 + lane.index, len(times), patch.roll_rests)
+        sets.append(("lane", lane.index, times[heard], downbeats[heard]))
+    return sets
+
+
 def ttrollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """The chip's clock, plus one roll per DDR channel and per group of ethernet links.
 
@@ -212,20 +233,15 @@ def ttrollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: P
     Every lane is a roll on its own ttrolzer barre (see ttrolzer.py), so the lanes drift against each other
     and against the bar and never lock into a polyrhythm."""
     n = int(duration * sample_rate)
-    bpm = aiclk_to_bpm(t.aiclk)
     pitch = temp_to_pitch_hz(t.asic_temperature)
-    seg_seed = seed // SEGMENT_SEED_STRIDE
-    clock = ttrollz_pulse_times(bpm, duration)
-    clock = clock[~rest_flags(seed, ROLL_REST_TAG, len(clock), patch.roll_rests)]
+    sets = ttrollz_pulse_sets(t, duration, seed, patch, seed // SEGMENT_SEED_STRIDE)
+    _, _, clock, _ = sets[0]
     out = _blips(clock, pitch, n, sample_rate)
     if "accent" in patch.steam_routes:
         out += ACCENT_GAIN * _blips(accented_pulses(clock, step_times(t, duration)), pitch, n, sample_rate)
-    pulses = roll_pulses(t, duration, patch, seg_seed)
-    for lane in ttrollz_lanes(t):
-        times, downbeats = pulses[lane.index]
-        # a pulse that rests is left out of what is heard (the gong still follows the whole roll), and takes its downbeat blip with it
-        heard = ~rest_flags(seed, ROLL_REST_TAG + 1 + lane.index, len(times), patch.roll_rests)
-        times, downbeats = times[heard], downbeats[heard]
+    lanes = {lane.index: lane for lane in ttrollz_lanes(t)}
+    for _, lane_index, times, downbeats in sets[1:]:
+        lane = lanes[lane_index]
         out += lane.level * _blips(times, pitch * lane.pitch, n, sample_rate, lane.decay_s)
         out += DOWNBEAT_GAIN * lane.level * _blips(times[downbeats], pitch * lane.pitch * 2, n, sample_rate, lane.decay_s)
     return (np.tanh(out)).astype(np.float32)
