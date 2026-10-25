@@ -252,3 +252,86 @@ def test_controls_given_out_of_time_order_are_deduplicated_in_time_order():
     out = to_messages(score(Control(2.0, "power", 0.5, 0), Control(1.0, "power", 0.5, 0),
                             Control(0.0, "power", 0.9, 0)))
     assert [(m[0], m[1][2]) for m in out] == [(0.0, 114), (1.0, 64)]
+
+
+def _wire(out, status):
+    return [(m[0], m[1][0] & 0xF0, m[1][1], m[2]) for m in out if m[1][0] & 0xF0 == status]
+
+
+def test_same_pitch_overlap_across_chips_retriggers_and_drops_the_stale_off():
+    a = Note(0.0, 2.0, 440.0, 1.0, "lead", 0)
+    b = Note(1.0, 2.0, 440.0, 1.0, "lead", 1)
+    out = to_messages(score(a, b))
+    seq = [(m[0], m[1][0] & 0xF0, m[2]) for m in out if m[1][0] & 0xF0 in (0x80, 0x90)]
+    assert seq == [(0.0, 0x90, 0), (1.0, 0x80, 0), (1.0, 0x90, 1), (3.0, 0x80, 1)]
+
+
+def test_overlap_gives_exactly_one_off_per_sounding_note_and_none_mid_note():
+    a = Note(0.0, 3.0, 440.0, 1.0, "lead", 0)
+    b = Note(1.0, 3.0, 440.0, 1.0, "lead", 1)
+    c = Note(2.0, 3.0, 440.0, 1.0, "lead", 2)
+    out = to_messages(score(a, b, c))
+    offs = _wire(out, 0x80)
+    assert [o[0] for o in offs] == [1.0, 2.0, 5.0]
+    assert len(_wire(out, 0x90)) == 3
+
+
+def test_overlap_of_different_numbers_is_left_alone():
+    a = Note(0.0, 2.0, hz(60), 1.0, "lead", 0)
+    b = Note(1.0, 2.0, hz(62), 1.0, "lead", 1)
+    out = to_messages(score(a, b))
+    assert [o[0] for o in _wire(out, 0x80)] == [2.0, 3.0]
+
+
+def test_same_number_on_different_channels_is_not_a_retrigger():
+    a = Note(0.0, 2.0, 440.0, 1.0, "lead", 0)
+    b = Note(1.0, 2.0, 440.0, 1.0, "ttquantus", 1)
+    out = to_messages(score(a, b))
+    assert [o[0] for o in _wire(out, 0x80)] == [2.0, 3.0]
+
+
+def test_a_repeated_degree_one_ulp_apart_still_plays_the_second_note():
+    assert 0.1 + 0.2 != 0.3  # the end of the first note is one ulp after the second's start
+    a = Note(0.1, 0.2, 440.0, 1.0, "lead", 0)
+    b = Note(0.3, 0.2, 440.0, 1.0, "lead", 0)
+    out = to_messages(score(a, b))
+    seq = [m[1][0] & 0xF0 for m in out if m[1][0] & 0xF0 in (0x80, 0x90)]
+    assert seq == [0x90, 0x80, 0x90, 0x80]
+
+
+def test_message_times_are_rounded_to_the_microsecond():
+    out = to_messages(score(Note(0.1, 0.2, 440.0, 1.0, "lead", 0)))
+    assert out[-1][0] == 0.3
+
+
+def test_trigger_off_one_ulp_after_the_next_trigger_on_still_comes_first():
+    r = dataclasses.replace(DEFAULT_ROUTES, pulse_s=0.2)
+    out = to_messages(score(Trigger(0.1, 1.0, "gong", 0), Trigger(0.3, 1.0, "gong", 0)), r)
+    seq = [m[1][0] & 0xF0 for m in out]
+    assert seq == [0x90, 0x80, 0x90, 0x80]
+
+
+def test_cc_comes_after_off_bend_and_on_at_one_time():
+    out = to_messages(score(Note(0.0, 1.0, 440.0, 1.0, "lead", 0),
+                            Control(1.0, "power", 1.0, 0),
+                            Note(1.0, 1.0, 440.0, 1.0, "lead", 0)))
+    assert [m[1][0] & 0xF0 for m in out if m[0] == 1.0] == [0x80, 0xE0, 0x90, 0xB0]
+
+
+def test_times_keep_microsecond_resolution():
+    out = to_messages(score(Note(0.123456, 0.000001, 440.0, 1.0, "lead", 0)))
+    assert [m[0] for m in out] == [0.123456, 0.123456, 0.123457]
+
+
+def test_retrigger_off_carries_the_chip_of_the_note_it_ends():
+    a = Note(0.0, 2.0, 440.0, 1.0, "lead", 2)
+    b = Note(1.0, 2.0, 440.0, 1.0, "lead", 3)
+    out = to_messages(score(a, b))
+    assert _wire(out, 0x80)[0] == (1.0, 0x80, 69, 2)
+
+
+def test_a_bend_point_one_ulp_past_the_end_is_kept_at_the_end():
+    n = Note(0.1, 0.2, 440.0, 1.0, "lead", 0, bend=((0.2, 0.5),))
+    assert 0.1 + 0.2 > 0.3
+    bends = [m for m in to_messages(score(n)) if m[1][0] == 0xE0]
+    assert [m[0] for m in bends] == [0.1, 0.3]

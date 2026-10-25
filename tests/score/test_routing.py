@@ -77,3 +77,40 @@ def test_load_refuses_an_empty_lane_list(tmp_path):
     with pytest.raises(ValueError) as e:
         load_routes(_write(tmp_path, {"roll_lane_notes": []}))
     assert "roll_lane_notes" in str(e.value)
+
+
+@pytest.mark.parametrize("data,key", [
+    ({"control_channel": True}, "control_channel"),
+    ({"trigger_channel": -1}, "trigger_channel"),
+    ({"trigger_channel": False}, "trigger_channel"),
+    ({"control_channel": 1.5}, "control_channel"),
+    ({"pulse_s": 0}, "pulse_s"),
+    ({"pulse_s": -0.1}, "pulse_s"),
+    ({"pulse_s": "fast"}, "pulse_s"),
+    ({"pulse_s": True}, "pulse_s"),
+    ({"bend_range": 0}, "bend_range"),
+    ({"bend_range": -2}, "bend_range"),
+    ({"bend_range": None}, "bend_range"),
+    ({"note_channels": [1, 2]}, "note_channels"),
+    ({"trigger_notes": 5}, "trigger_notes"),
+    ({"control_ccs": "x"}, "control_ccs"),
+    ({"roll_lane_notes": 5}, "roll_lane_notes"),
+    ({"roll_lane_notes": "ab"}, "roll_lane_notes"),
+    ({"roll_lane_notes": [True]}, "roll_lane_notes"),
+    ({"note_channels": {"lead": True}}, "note_channels"),
+])
+def test_load_refuses_wrong_types_with_value_error_naming_the_key(tmp_path, data, key):
+    with pytest.raises(ValueError) as e:
+        load_routes(_write(tmp_path, data))
+    assert key in str(e.value)
+
+
+def test_load_refuses_a_top_level_list(tmp_path):
+    with pytest.raises(ValueError) as e:
+        load_routes(_write(tmp_path, [1, 2]))
+    assert "JSON object" in str(e.value)
+
+
+def test_load_accepts_an_integer_pulse_and_bend(tmp_path):
+    r = load_routes(_write(tmp_path, {"pulse_s": 1, "bend_range": 12}))
+    assert r.pulse_s == 1 and r.bend_range == 12

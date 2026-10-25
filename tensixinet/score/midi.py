@@ -37,13 +37,23 @@ def _into_range(note: int) -> int:
     return note
 
 
+def _grid(t: float) -> float:
+    """Round a time to the microsecond so an end that is one float step after the next start
+    still sorts as an end followed by a start."""
+    return round(t, 6)
+
+
 def to_messages(score: Score, routes: Routes = DEFAULT_ROUTES) -> List[Message]:
+    """Messages for a score, sorted by time. Pitch bend is channel-wide in MIDI, so notes
+    that overlap on one channel with different bends overwrite each other's bend (a known
+    limit). A note that starts on a number already sounding on its channel retriggers it:
+    the earlier note is ended at that moment and its own later off is dropped."""
     # Each entry is (time, class, order, message, chip); sorting on the first three keeps
     # the rules in one place and is stable for equal keys.
     items = []
 
-    def add(t, cls, data, chip):
-        items.append((t, cls, len(items), data, chip))
+    def add(t, cls, data, chip, pair=None):
+        items.append((_grid(t), cls, len(items), data, chip, pair))
 
     for ev in score.events:
         if isinstance(ev, Note):
@@ -52,13 +62,14 @@ def to_messages(score: Score, routes: Routes = DEFAULT_ROUTES) -> List[Message]:
             ch = routes.note_channels[ev.source]
             raw, remainder = note_and_bend(ev.pitch_hz)
             num = _into_range(raw)
-            end = max(ev.t, min(ev.t + ev.dur, score.duration))
+            end = max(_grid(ev.t), min(_grid(ev.t + ev.dur), _grid(score.duration)))
             add(ev.t, _BEND, _bend_bytes(ch, remainder, routes.bend_range), ev.chip)
-            add(ev.t, _ON, bytes([0x90 | ch, num, _velocity(ev.velocity)]), ev.chip)
+            pair = len(items)
+            add(ev.t, _ON, bytes([0x90 | ch, num, _velocity(ev.velocity)]), ev.chip, pair=pair)
             for dt, semis in ev.bend:
-                if ev.t + dt <= end:
+                if _grid(ev.t + dt) <= end:
                     add(ev.t + dt, _BEND, _bend_bytes(ch, remainder + semis, routes.bend_range), ev.chip)
-            add(end, _OFF if end > ev.t else _LATE_OFF, bytes([0x80 | ch, num, 0]), ev.chip)
+            add(end, _OFF if end > _grid(ev.t) else _LATE_OFF, bytes([0x80 | ch, num, 0]), ev.chip, pair=pair)
         elif isinstance(ev, Trigger):
             if ev.source == "ttrollz":
                 # The roll clock is lane -1; the other lanes cycle through the lane notes.
@@ -71,9 +82,10 @@ def to_messages(score: Score, routes: Routes = DEFAULT_ROUTES) -> List[Message]:
             else:
                 raise KeyError(f"no MIDI note for trigger source {ev.source!r}")
             ch = routes.trigger_channel
-            end = max(ev.t, min(ev.t + routes.pulse_s, score.duration))
-            add(ev.t, _ON, bytes([0x90 | ch, num, _velocity(ev.strength)]), ev.chip)
-            add(end, _OFF if end > ev.t else _LATE_OFF, bytes([0x80 | ch, num, 0]), ev.chip)
+            end = max(_grid(ev.t), min(_grid(ev.t + routes.pulse_s), _grid(score.duration)))
+            pair = len(items)
+            add(ev.t, _ON, bytes([0x90 | ch, num, _velocity(ev.strength)]), ev.chip, pair=pair)
+            add(end, _OFF if end > _grid(ev.t) else _LATE_OFF, bytes([0x80 | ch, num, 0]), ev.chip, pair=pair)
     # A controller goes out only when its 0 to 127 value changes, tracked per chip and name.
     last = {}
     for ev in score.controls():
@@ -85,4 +97,22 @@ def to_messages(score: Score, routes: Routes = DEFAULT_ROUTES) -> List[Message]:
         last[(ev.chip, ev.name)] = value
         add(ev.t, _CC, bytes([0xB0 | routes.control_channel, routes.control_ccs[ev.name], value]), ev.chip)
     items.sort(key=lambda i: i[:3])
-    return [(t, data, chip) for t, _, _, data, chip in items]
+    # Walk the sorted list keeping the note each (channel, number) is sounding. An on for a
+    # number that is already sounding first ends the earlier note (a retrigger), and an off
+    # whose note was already ended that way is dropped.
+    sounding = {}
+    out = []
+    for t, _, _, data, chip, pair in items:
+        kind = data[0] & 0xF0
+        if kind == 0x90:
+            key = (data[0] & 0x0F, data[1])
+            if key in sounding:
+                out.append((t, bytes([0x80 | key[0], key[1], 0]), sounding[key][1]))
+            sounding[key] = (pair, chip)
+        elif kind == 0x80:
+            key = (data[0] & 0x0F, data[1])
+            if sounding.get(key, (None,))[0] != pair:
+                continue
+            del sounding[key]
+        out.append((t, data, chip))
+    return out

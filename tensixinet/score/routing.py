@@ -42,8 +42,13 @@ DEFAULT_ROUTES = Routes(
 
 
 def _check_range(key: str, value, allowed: range) -> None:
-    if not isinstance(value, int) or value not in allowed:
+    if isinstance(value, bool) or not isinstance(value, int) or value not in allowed:
         raise ValueError(f"{key}: {value!r} is outside {allowed.start}-{allowed.stop - 1}")
+
+
+def _check_positive(key: str, value) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
+        raise ValueError(f"{key}: {value!r} must be a number above 0")
 
 
 def load_routes(path) -> Routes:
@@ -51,6 +56,8 @@ def load_routes(path) -> Routes:
     Mappings merge key by key. Unknown keys and out-of-range numbers raise `ValueError`."""
     with open(path) as f:
         data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("the file must be a JSON object")
     known = {f.name for f in fields(Routes)}
     for key in data:
         if key not in known:
@@ -58,8 +65,12 @@ def load_routes(path) -> Routes:
     merged = {}
     for key, value in data.items():
         if key in ("note_channels", "trigger_notes", "control_ccs"):
+            if not isinstance(value, dict):
+                raise ValueError(f"{key}: must be a JSON object")
             merged[key] = {**getattr(DEFAULT_ROUTES, key), **value}
         elif key == "roll_lane_notes":
+            if not isinstance(value, list):
+                raise ValueError(f"{key}: must be a list")
             merged[key] = tuple(value)
         else:
             merged[key] = value
@@ -74,6 +85,8 @@ def load_routes(path) -> Routes:
         _check_range("roll_lane_notes", n, DATA_BYTES)
     for name, cc in routes.control_ccs.items():
         _check_range(f"control_ccs[{name}]", cc, DATA_BYTES)
+    _check_positive("pulse_s", routes.pulse_s)
+    _check_positive("bend_range", routes.bend_range)
     if not routes.roll_lane_notes:
         raise ValueError("roll_lane_notes: needs at least one note")
     return routes
