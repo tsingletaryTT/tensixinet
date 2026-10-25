@@ -342,6 +342,38 @@ def test_a_score_sink_gets_a_file_with_notes_and_controls_and_the_audio_is_uncha
     assert str(mid) in line["what"] and "notes" in line["what"] and "triggers" in line["what"] and "controls" in line["what"]
 
 
+def test_an_unwritable_midi_file_is_logged_and_the_wav_is_still_written(tmp_path):
+    import numpy as np
+    from tensixinet.score.sinks import MidiFileSink
+    blocker = tmp_path / "plain_file"
+    blocker.write_text("x")  # a regular file where the MIDI file's parent folder should be
+    log = _log(tmp_path)
+    plain = run(mock_telemetry(2), duration=2.0, out_path=tmp_path / "a.wav", log=log, sample_rate=8000)
+    audio = run(mock_telemetry(2), duration=2.0, out_path=tmp_path / "b.wav", log=log, sample_rate=8000,
+                score_sink=MidiFileSink(blocker / "x.mid"))
+    log.close()
+    assert np.array_equal(plain, audio) and (tmp_path / "b.wav").stat().st_size > 44
+    lines = [json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines()]
+    (line,) = [e for e in lines if e["event"] == "midi file"]
+    assert "could not be written" in line["what"] and str(blocker / "x.mid") in line["what"]
+    assert "audio is unaffected" in line["why"]
+    kinds = [e["event"] for e in lines]
+    assert kinds.index("midi file") < len(kinds) - 1 - kinds[::-1].index("done")  # the second run's WAV was still written after it
+
+
+def test_a_midi_file_that_cannot_be_written_leaves_the_command_exit_code_at_zero(tmp_path):
+    import subprocess, sys
+    blocker = tmp_path / "plain_file"
+    blocker.write_text("x")
+    root = Path(__file__).resolve().parent.parent
+    out = tmp_path / "o.wav"
+    r = subprocess.run([sys.executable, "-m", "tensixinet", "--mock-chips", "2", "--duration", "2", "--sample-rate", "8000", "--out", str(out),
+                        "--no-banner", "--color", "never", "--midi-file", str(blocker / "x.mid")],
+                       cwd=root, capture_output=True, text=True, timeout=120, env={**__import__("os").environ, "PYTHONDONTWRITEBYTECODE": "1"})
+    assert r.returncode == 0, r.stderr[-400:]
+    assert out.exists()
+
+
 def test_only_reaches_the_score_so_an_audition_of_the_gong_has_no_notes(tmp_path):
     from tensixinet.score.sinks import MidiFileSink
     sink = MidiFileSink(tmp_path / "g.mid")

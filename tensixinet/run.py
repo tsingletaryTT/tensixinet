@@ -77,8 +77,16 @@ def report_score_error(sink, log: RunLog) -> None:
 
 def close_score_sink(sink, log: RunLog) -> None:
     """Close a score sink and log one line saying what went into it (and where, for a file).
-    A sink with no `summary()` or no `path` is logged with what it has."""
-    sink.close()
+    A sink with no `summary()` or no `path` is logged with what it has. A sink that cannot write its file (a missing or
+    read-only folder, a path through a regular file) is logged and the run goes on, so the audio is still written."""
+    try:
+        sink.close()
+    except OSError as e:
+        path = getattr(sink, "path", None)
+        where = f" {path}" if path is not None else ""
+        log.event("midi file" if path is not None else "midi", f"the MIDI file{where} could not be written: {e}",
+                  "the audio is unaffected and is written as usual")
+        return
     report_score_error(sink, log)
     path = getattr(sink, "path", None)
     where = f" to {path}" if path is not None else ""
