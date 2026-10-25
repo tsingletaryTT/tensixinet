@@ -319,3 +319,34 @@ def test_a_mono_run_is_one_channel_and_says_nothing_about_space(tmp_path):
     log.close()
     assert audio.ndim == 1 and sf.read(str(tmp_path / "m.wav"))[0].ndim == 1
     assert not [l for l in (tmp_path / "run.jsonl").read_text().splitlines() if '"space"' in l]
+
+
+def test_a_score_sink_gets_a_file_with_notes_and_controls_and_the_audio_is_unchanged(tmp_path):
+    import numpy as np
+    from tensixinet.score.sinks import MidiFileSink
+    from tests.score.test_smf import read_smf
+
+    chips = mock_telemetry(2)
+    log = _log(tmp_path)
+    plain = run(chips, duration=3.0, out_path=tmp_path / "a.wav", log=log, sample_rate=8000)
+    mid = tmp_path / "out" / "r.mid"
+    with_sink = run(chips, duration=3.0, out_path=tmp_path / "b.wav", log=log, sample_rate=8000, score_sink=MidiFileSink(mid))
+    log.close()
+    assert np.array_equal(plain, with_sink)
+    _, _, _, tracks = read_smf(mid)
+    events = [e for track in tracks for _, e in track if e[0] != 0xFF]
+    assert any(e[0] & 0xF0 == 0x90 for e in events), "no note-on"
+    assert any(e[0] & 0xF0 == 0xB0 for e in events), "no control change"
+    lines = [json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines()]
+    (line,) = [e for e in lines if e["event"] == "midi file"]
+    assert str(mid) in line["what"] and "notes" in line["what"] and "triggers" in line["what"] and "controls" in line["what"]
+
+
+def test_only_reaches_the_score_so_an_audition_of_the_gong_has_no_notes(tmp_path):
+    from tensixinet.score.sinks import MidiFileSink
+    sink = MidiFileSink(tmp_path / "g.mid")
+    log = _log(tmp_path)
+    run(mock_telemetry(2), duration=3.0, out_path=tmp_path / "g.wav", log=log, sample_rate=8000, only=["gong"], score_sink=sink)
+    log.close()
+    notes, triggers, _ = sink.summary()
+    assert notes == 0 and triggers > 0

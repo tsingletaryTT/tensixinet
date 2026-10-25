@@ -756,3 +756,67 @@ def test_the_default_worker_for_sim_mode_is_the_simulator_pool_with_no_lease(mon
     from tensixinet.cli import default_make_worker
     w = default_make_worker("sim", 4)
     assert "--sim=/venv/bin/tt-lang-sim" in w.command and "--devices=4" in w.command and "gozer" not in w.command and w.devices == 4
+
+
+def test_midi_file_writes_a_standard_midi_file_and_logs_it(tmp_path):
+    mid = tmp_path / "m" / "run.mid"
+    code = main(args(tmp_path, "--mock-chips", "2", "--duration", "3", "--midi-file", str(mid)))
+    assert code == 0 and mid.read_bytes()[:4] == b"MThd"
+    assert any(e["event"] == "midi file" and str(mid) in e["what"] for e in read_events(tmp_path / "logs"))
+
+
+def test_midi_file_does_not_change_the_audio(tmp_path):
+    import numpy as np
+    import soundfile as sf
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(), b.mkdir()
+    base = ["--mock-chips", "2", "--duration", "2", "--patch-seed", "3"]
+    assert main(args(a, *base)) == 0
+    assert main(args(b, *base, "--midi-file", str(b / "x.mid"))) == 0
+    assert np.array_equal(sf.read(str(a / "o.wav"))[0], sf.read(str(b / "o.wav"))[0])
+
+
+def test_midi_file_is_accepted_with_live_and_the_file_is_written(tmp_path):
+    mid = tmp_path / "live.mid"
+    code = main(args(tmp_path, "--mock-chips", "2", "--duration", "1", "--live", "--player", "none", "--midi-file", str(mid)))
+    assert code == 0 and mid.read_bytes()[:4] == b"MThd"
+
+
+def test_midi_map_needs_a_midi_output_flag(tmp_path, capsys):
+    routes = tmp_path / "r.json"
+    routes.write_text("{}")
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--midi-map", str(routes)))
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "--midi-map needs" in err and "--midi-file" in err
+
+
+def test_a_bad_midi_map_exits_2_and_names_the_key(tmp_path, capsys):
+    routes = tmp_path / "r.json"
+    routes.write_text('{"pulse_s": -1}')
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--midi-file", str(tmp_path / "x.mid"), "--midi-map", str(routes)))
+    assert e.value.code == 2 and "pulse_s" in capsys.readouterr().err
+    assert not (tmp_path / "x.mid").exists()
+
+
+def test_a_midi_map_that_is_not_json_exits_2(tmp_path, capsys):
+    routes = tmp_path / "r.json"
+    routes.write_text("not json")
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--midi-file", str(tmp_path / "x.mid"), "--midi-map", str(routes)))
+    assert e.value.code == 2 and "cannot read" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--midi-file", str(tmp_path / "x.mid"), "--midi-map", str(tmp_path / "missing.json")))
+    assert e.value.code == 2 and "cannot read" in capsys.readouterr().err
+
+
+def test_midi_map_changes_the_routes_in_the_file(tmp_path):
+    from tests.score.test_smf import read_smf
+    routes = tmp_path / "r.json"
+    routes.write_text('{"note_channels": {"lead": 5, "ttquantus": 5}}')
+    mid = tmp_path / "x.mid"
+    code = main(args(tmp_path, "--mock-chips", "2", "--duration", "3", "--midi-file", str(mid), "--midi-map", str(routes)))
+    assert code == 0
+    ons = [e[0] & 0x0F for track in read_smf(mid)[3] for _, e in track if e[0] & 0xF0 == 0x90]
+    assert 5 in ons and 0 not in ons and 1 not in ons
