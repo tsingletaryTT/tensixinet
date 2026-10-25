@@ -336,6 +336,49 @@ def test_an_evicting_chip_is_quieter_than_a_running_one():
     assert total(ev) < total(run)
 
 
+def test_a_fully_dissolved_chip_is_silent_in_the_score_as_in_the_audio():
+    tels = _box(4)
+    run = collect.chorus_score(tels, 20.0, DEFAULT_PATCH, sample_rate=CSR)
+    chip = next(e.chip for e in run.triggers())
+    # long into an eviction every voice of the chip has dissolved, but the phase is still "evicting", not "idle"
+    defrag = [ChipDefrag("evicting", 1000.0) if c == chip else ChipDefrag() for c in range(4)]
+    ev = collect.chorus_score(tels, 20.0, DEFAULT_PATCH, defrag=defrag, sample_rate=CSR)
+    assert chip not in {e.chip for e in ev.events if not isinstance(e, Control)}
+    assert any(e.chip != chip for e in ev.events if not isinstance(e, Control))
+    assert {e.chip for e in ev.controls()} == {0, 1, 2, 3}
+
+
+def test_an_event_is_dropped_exactly_when_its_voices_keep_factor_is_at_or_below_the_threshold():
+    from tensixinet.music.evict import drain_progress
+    tels = _box(4)
+    run = collect.chorus_score(tels, 20.0, DEFAULT_PATCH, sample_rate=CSR)
+    chip = next(e.chip for e in run.triggers())
+    state = ChipDefrag("evicting", 0.0)
+    defrag = [state if c == chip else ChipDefrag() for c in range(4)]
+    ev = collect.chorus_score(tels, 20.0, DEFAULT_PATCH, defrag=defrag, sample_rate=CSR)
+    n_samples = int(20.0 * CSR)
+    # per source, the times at which the voice's keep factor is above the threshold (a chip has at most one slot of each source here)
+    slots = {chorus.assign_device(s).__name__: s for s in range(chorus.n_slots(4)) if chorus.slot_chip(s, 4) == chip}
+    kept_any = dropped_any = False
+    for source in ("lead", "ttquantus", "gong", "ttrollz", "ttsteam"):
+        if source not in slots:
+            continue
+        rank, count, prime = chorus.voice_order(slots[source], 4)
+        keep = (1.0 - drain_progress("evicting", 0.0, n_samples, CSR, rank, count, prime)) ** 2
+        before = [e for e in run.events if not isinstance(e, Control) and e.chip == chip and e.source == source]
+        after = {round(e.t, 6) for e in ev.events if not isinstance(e, Control) and e.chip == chip and e.source == source}
+        for e in before:
+            alive = keep[min(max(int(e.t * CSR), 0), n_samples - 1)] > collect.DISSOLVED_KEEP
+            kept_any |= alive
+            dropped_any |= not alive
+            assert (round(e.t, 6) in after) == alive, (source, e.t)
+    assert kept_any and dropped_any, "the scenario must have events on both sides of the threshold"
+
+
+def test_the_threshold_for_a_dissolved_voice_is_two_percent_and_the_velocity_floor_stays_five_percent():
+    assert collect.DISSOLVED_KEEP == 0.02 and collect.MIN_VELOCITY == 0.05
+
+
 def test_the_segment_moves_gong_and_roll_events():
     tels = _box(4)
     patch = draw_patch(7, tels)

@@ -440,6 +440,32 @@ def test_close_does_not_hang_on_a_port_whose_send_never_returns():
         release.set()
 
 
+def test_a_thread_whose_stuck_send_returns_after_a_timed_out_close_sends_nothing_more():
+    release, entered = threading.Event(), threading.Event()
+    sent = []
+
+    class Stuck(FakePort):
+        def send(self, raw):
+            sent.append(bytes(raw))
+            entered.set()
+            release.wait(10)
+
+    sink = MidiPortSink("stuck", open_output=lambda n: Stuck())
+    sink.CLOSE_WAIT_S = 0.2
+    try:
+        # several notes all due at once, so the loop has queued messages when the first send returns
+        sink.add(score(120.0, *[Note(0.0, 0.1, 440.0 + 10 * i, 0.5, "lead", 0) for i in range(4)]), 0.0)
+        assert entered.wait(3)
+        sink.close()  # the send holds the lock: the close gives up and marks the sink closed
+        assert sink.error is not None and "closing" in sink.error
+        release.set()
+        sink._thread.join(3)
+        assert not sink._thread.is_alive()
+        assert len(sent) == 1, f"the thread sent {len(sent)} messages after the close gave up"
+    finally:
+        release.set()
+
+
 def test_a_tee_shows_the_first_error_of_its_sinks():
     class Bare:
         def add(self, score, start_s): pass

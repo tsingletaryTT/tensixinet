@@ -105,6 +105,16 @@ def test_load_refuses_wrong_types_with_value_error_naming_the_key(tmp_path, data
     assert key in str(e.value)
 
 
+@pytest.mark.parametrize("key", ["pulse_s", "bend_range"])
+@pytest.mark.parametrize("literal", ["Infinity", "NaN", "-Infinity"])
+def test_load_refuses_infinite_and_nan_numbers_which_python_json_accepts(tmp_path, key, literal):
+    p = tmp_path / "routes.json"
+    p.write_text('{"%s": %s}' % (key, literal))
+    with pytest.raises(ValueError) as e:
+        load_routes(p)
+    assert key in str(e.value)
+
+
 def test_load_refuses_a_top_level_list(tmp_path):
     with pytest.raises(ValueError) as e:
         load_routes(_write(tmp_path, [1, 2]))

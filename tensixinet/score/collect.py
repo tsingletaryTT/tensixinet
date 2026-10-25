@@ -32,6 +32,7 @@ from .events import Control, Note, Score, Trigger
 BEND_STEP_S = 0.02  # a note's pitch curve is sampled this often
 GATE_THRESHOLD = 0.5  # a held note plays when the gate, read in the middle of the note, is above this
 MIN_VELOCITY = 0.05  # a quiet voice still sounds
+DISSOLVED_KEEP = 0.02  # an evicting or filling chip's voice whose fade factor is at or below this is gone: it has no events
 ROLL_PULSE_STRENGTH = 0.6  # an ordinary roll pulse; a pulse that starts a cycle is 1.0
 
 
@@ -125,7 +126,8 @@ def chorus_score(telemetry, duration: float, patch: Patch = DEFAULT_PATCH, segme
     Slot `s` plays `assign_device(s)` on chip `slot_chip(s, n)` with seed `segment * SEGMENT_SEED_STRIDE + s`. Each event's velocity
     (or strength) is the extractor's value times the device's balance and the slot's turn gain at the event's time, clamped to
     0.05 to 1. `only` plays the named devices at full level with no turns. A chip that is idle in `defrag` has no notes or triggers;
-    a chip that is evicting or filling scales them by `(1 - dissolve) ** 2`, the render's own fade, read at the event's time.
+    a chip that is evicting or filling scales them by `(1 - dissolve) ** 2`, the render's own fade, read at the event's time, and
+    drops those whose fade is at or below `DISSOLVED_KEEP` (0.02): a voice that has dissolved is silent in MIDI as in the audio.
     Controls are emitted once per chip."""
     if not telemetry:
         raise ValueError("chorus_score needs at least one chip's telemetry")
@@ -163,6 +165,8 @@ def chorus_score(telemetry, duration: float, patch: Patch = DEFAULT_PATCH, segme
             keep = (1.0 - drain_progress(phase, defrag[chip].elapsed, n_samples, sample_rate, rank, count, prime)) ** 2
         for e in extractor(telemetry[chip], chip, duration, sample_rate, seed_base + s, patch):
             i = min(max(int(e.t * sample_rate), 0), n_samples - 1) if n_samples else 0
+            if n_samples and keep[i] <= DISSOLVED_KEEP:
+                continue  # the voice has dissolved in the audio, so it is silent in MIDI too (other quiet voices keep the 0.05 floor)
             scale = balance * (gain[i] * keep[i] if n_samples else 1.0)
             if isinstance(e, Note):
                 events.append(dataclasses.replace(e, velocity=min(1.0, max(MIN_VELOCITY, e.velocity * scale))))

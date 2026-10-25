@@ -5,6 +5,7 @@
 Channels are stored zero-based (0 to 15). The docs and the CLI talk in 1 to 16.
 """
 import json
+import math
 from dataclasses import dataclass, fields, replace
 from typing import Mapping, Tuple
 
@@ -47,8 +48,8 @@ def _check_range(key: str, value, allowed: range) -> None:
 
 
 def _check_positive(key: str, value) -> None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
-        raise ValueError(f"{key}: {value!r} must be a number above 0")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0 or not math.isfinite(value):
+        raise ValueError(f"{key}: {value!r} must be a finite number above 0")
 
 
 def load_routes(path) -> Routes:

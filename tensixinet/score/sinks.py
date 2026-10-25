@@ -225,13 +225,13 @@ class MidiPortSink:
         """Send what is due and return when the next message is due. `port.send` runs under the lock, so an
         `add` that arrives during a send waits for it (rtmidi sends return in microseconds)."""
         with self._lock:
-            while self._heap and self._heap[0][0] <= now and not self._dead:
+            while self._heap and self._heap[0][0] <= now and not self._dead and not self._closed:  # a close that gave up marks it closed
                 _, _, raw = heapq.heappop(self._heap)
                 try:
                     self._send(raw)
                 except Exception as e:
                     self._fail(e)
-            return self._heap[0][0] if self._heap and not self._dead else None
+            return self._heap[0][0] if self._heap and not self._dead and not self._closed else None
 
     def _run(self) -> None:
         while True:
