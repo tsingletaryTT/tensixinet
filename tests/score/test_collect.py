@@ -193,3 +193,155 @@ def test_pressure_rises_as_temperature_rises_toward_the_throttle_point():
 def test_chaos_adds_the_rate_of_change_to_the_pressure():
     by = {c.name: c.value for c in collect.control_events(tel(temp_rate=0.5, asic_temperature=50.0, power=10.0), 0, 1.0)}
     assert by["chaos"] > by["pressure"] + 0.3
+
+
+# --- chorus_score ---
+from tensixinet.music import chorus  # noqa: E402
+from tensixinet.music.evict import ChipDefrag  # noqa: E402
+from tensixinet.music.patch import draw_patch  # noqa: E402
+from tensixinet.telemetry.mock import mock_telemetry  # noqa: E402
+
+CSR = 4000
+
+
+def _box(n, seed=1):
+    return mock_telemetry(n, seed=seed)
+
+
+def _devices_in(score):
+    return {e.source for e in score.events if not isinstance(e, Control)}
+
+
+def test_the_dealt_devices_with_extractors_are_the_ones_present():
+    for n in (1, 4):
+        tels = _box(n)
+        score = collect.chorus_score(tels, 20.0, DEFAULT_PATCH, sample_rate=CSR)
+        dealt = {d.__name__ for c in range(n) for d in chorus.chip_devices(c, n)}
+        assert _devices_in(score) <= dealt & set(collect.EXTRACTORS)
+        assert {e.chip for e in score.controls()} == set(range(n))
+        assert len(score.controls()) == 4 * n  # once per chip whatever devices it plays
+        assert score.bpm == pytest.approx(__import__("tensixinet.music.mapping", fromlist=["x"]).aiclk_to_bpm(tels[0].aiclk))
+    assert "lead" in _devices_in(collect.chorus_score(_box(1), 20.0, sample_rate=CSR))
+
+
+def test_only_gong_gives_full_strength_gong_triggers_and_controls():
+    tels = _box(4)
+    patch = dataclasses.replace(DEFAULT_PATCH, emphasis=(("gong", 0.3),))
+    score = collect.chorus_score(tels, 20.0, patch, only=["gong"], sample_rate=CSR)
+    assert len(score.triggers()) > 0 and not score.notes()
+    assert all(e.source == "gong" and e.strength == 1.0 for e in score.triggers())
+    assert len(score.controls()) == 16
+
+
+def test_a_soloist_is_louder_than_a_non_soloist():
+    tels = _box(4)
+    gong_slot = next(s for s in range(chorus.n_slots(4)) if chorus.assign_device(s).__name__ == "gong")
+    other = next(s for s in range(chorus.n_slots(4)) if chorus.assign_device(s).__name__ == "gong" or s != gong_slot)
+    patch = dataclasses.replace(DEFAULT_PATCH, floor=0.2)
+    solo = collect.chorus_score(tels, 20.0, patch, soloists=[gong_slot], only=None, sample_rate=CSR)
+    quiet = collect.chorus_score(tels, 20.0, patch, soloists=[(gong_slot + 1) % chorus.n_slots(4)], sample_rate=CSR)
+    g = lambda sc: [e.strength for e in sc.triggers() if e.source == "gong"]
+    assert g(solo) and g(quiet)
+    assert max(g(solo)) > max(g(quiet))
+    assert max(g(quiet)) < 0.5 and min(g(quiet)) >= collect.MIN_VELOCITY
+
+
+def test_balance_scales_velocity():
+    tels = _box(4)
+    half = dataclasses.replace(DEFAULT_PATCH, emphasis=(("gong", 0.5),))
+    gong_slot = next(s for s in range(chorus.n_slots(4)) if chorus.assign_device(s).__name__ == "gong")
+    a = collect.chorus_score(tels, 20.0, DEFAULT_PATCH, soloists=[gong_slot], sample_rate=CSR)
+    b = collect.chorus_score(tels, 20.0, half, soloists=[gong_slot], sample_rate=CSR)
+    sa = sorted(e.strength for e in a.triggers() if e.source == "gong")
+    sb = sorted(e.strength for e in b.triggers() if e.source == "gong")
+    assert len(sa) == len(sb) > 0
+    assert all(y == pytest.approx(max(collect.MIN_VELOCITY, x * 0.5)) for x, y in zip(sa, sb))
+
+
+def test_an_idle_chip_has_no_notes_or_triggers_but_keeps_controls():
+    tels = _box(4)
+    base = collect.chorus_score(tels, 20.0, DEFAULT_PATCH, sample_rate=CSR)
+    busy_chips = {e.chip for e in base.events if not isinstance(e, Control)}
+    assert busy_chips
+    idle = busy_chips.pop()
+    defrag = [ChipDefrag("idle" if c == idle else "running") for c in range(4)]
+    score = collect.chorus_score(tels, 20.0, DEFAULT_PATCH, defrag=defrag, sample_rate=CSR)
+    assert idle not in {e.chip for e in score.events if not isinstance(e, Control)}
+    assert {e.chip for e in score.controls()} == {0, 1, 2, 3}
+    assert any(e.chip != idle for e in score.events if not isinstance(e, Control))
+
+
+def test_an_evicting_chip_is_quieter_than_a_running_one():
+    tels = _box(4)
+    run = collect.chorus_score(tels, 20.0, DEFAULT_PATCH, sample_rate=CSR)
+    chip = next(e.chip for e in run.triggers())
+    defrag = [ChipDefrag("evicting", 0.0) if c == chip else ChipDefrag() for c in range(4)]
+    ev = collect.chorus_score(tels, 20.0, DEFAULT_PATCH, defrag=defrag, sample_rate=CSR)
+    total = lambda sc: sum(e.strength for e in sc.triggers() if e.chip == chip)
+    assert total(ev) < total(run)
+
+
+def test_the_segment_moves_gong_and_roll_events():
+    tels = _box(4)
+    patch = draw_patch(7, tels)
+    a = collect.chorus_score(tels, 20.0, patch, segment=0, sample_rate=CSR)
+    b = collect.chorus_score(tels, 20.0, patch, segment=5, sample_rate=CSR)
+    pick = lambda sc, src: [(e.t, e.chip) for e in sc.events if getattr(e, "source", None) == src]
+    assert pick(a, "gong") and pick(a, "ttrollz")
+    assert pick(a, "ttrollz") != pick(b, "ttrollz")
+    moved = False  # a gong on its chip's clock keeps its strikes; one patched to a roll moves with the segment
+    for box in range(1, 8):
+        t2 = _box(4, seed=box)
+        p2 = draw_patch(box, t2)
+        x = collect.chorus_score(t2, 20.0, p2, segment=0, only=["gong"], sample_rate=CSR)
+        y = collect.chorus_score(t2, 20.0, p2, segment=5, only=["gong"], sample_rate=CSR)
+        moved = moved or pick(x, "gong") != pick(y, "gong")
+    assert moved
+
+
+def test_a_duration_shorter_than_a_note_drops_it():
+    tels = _box(1)
+    long = collect.chorus_score(tels, 20.0, DEFAULT_PATCH, only=["lead"], sample_rate=CSR)
+    short = collect.chorus_score(tels, 1.0, DEFAULT_PATCH, only=["lead"], sample_rate=CSR)
+    assert len(short.notes()) < len(long.notes())
+    assert all(n.t < 1.0 for n in short.notes())
+
+
+@pytest.mark.parametrize("segment", [3])
+def test_wiring_gong_and_roll_events_use_the_seeds_the_audio_uses(segment):
+    tels = _box(4, seed=2)
+    patch = draw_patch(11, tels)
+    dur = 20.0
+    score = collect.chorus_score(tels, dur, patch, segment=segment, only=["gong", "ttrollz"], sample_rate=CSR)
+    base = segment * SEGMENT_SEED_STRIDE
+    checked = 0
+    for s in range(chorus.n_slots(4)):
+        name = chorus.assign_device(s).__name__
+        chip = chorus.slot_chip(s, 4)
+        if name == "gong":
+            want = [float(x) for x in devices.strike_times(tels[chip], dur, patch, segment)]
+            got = [e.t for e in score.triggers() if e.source == "gong" and e.chip == chip]
+            assert got == want
+            checked += bool(want)
+        if name == "ttrollz":
+            want = sorted(float(x) for _, _, times, _ in devices.ttrollz_pulse_sets(tels[chip], dur, base + s, patch, segment) for x in times)
+            got = sorted(e.t for e in score.triggers() if e.source == "ttrollz" and e.chip == chip)
+            assert got == want
+            checked += bool(want)
+    assert checked == 2
+
+
+def test_velocity_is_clamped_to_the_floor_and_to_one():
+    tels = _box(4)
+    gong_slot = next(s for s in range(chorus.n_slots(4)) if chorus.assign_device(s).__name__ == "gong")
+    loud = dataclasses.replace(DEFAULT_PATCH, emphasis=(("gong", 3.0),))
+    sc = collect.chorus_score(tels, 20.0, loud, soloists=[gong_slot], sample_rate=CSR)
+    assert max(e.strength for e in sc.triggers() if e.source == "gong") == 1.0
+    tiny = dataclasses.replace(DEFAULT_PATCH, emphasis=(("gong", 0.001),))
+    sc = collect.chorus_score(tels, 20.0, tiny, soloists=[gong_slot], sample_rate=CSR)
+    assert {e.strength for e in sc.triggers() if e.source == "gong"} == {collect.MIN_VELOCITY}
+    for factor, want in ((3.0, 1.0), (0.001, collect.MIN_VELOCITY)):  # notes are clamped too (a soloist in a one-chip box)
+        patch = dataclasses.replace(DEFAULT_PATCH, emphasis=(("lead", factor),))
+        lead_slot = next(s for s in range(chorus.n_slots(1)) if chorus.assign_device(s).__name__ == "lead")
+        sc = collect.chorus_score(_box(1), 20.0, patch, soloists=[lead_slot], sample_rate=CSR)
+        assert {n.velocity for n in sc.notes() if n.source == "lead"} == {want}

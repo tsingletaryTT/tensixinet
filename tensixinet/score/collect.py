@@ -12,21 +12,26 @@ start of the render.
 """
 from __future__ import annotations
 
-from typing import List
+import dataclasses
+from typing import Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
 from ..music import devices
+from ..music.chorus import assign_device, device_names, emphasis_of, n_slots, plan_turns, slot_chip, voice_order
+from ..music.evict import ChipDefrag, drain_progress
+from ..music.turns import turn_gains
 from ..music.lead import lead_notes
-from ..music.mapping import POWER_MAX, chip_chaos, chip_pressure, norm_temp, temp_to_pitch_hz
+from ..music.mapping import POWER_MAX, aiclk_to_bpm, chip_chaos, chip_pressure, norm_temp, temp_to_pitch_hz
 from ..music.patch import DEFAULT_PATCH, Patch
 from ..music.ttrolzer import SEGMENT_SEED_STRIDE
 from ..music.ttsteam import steam_hits
 from ..telemetry import Telemetry
-from .events import Control, Note, Trigger
+from .events import Control, Note, Score, Trigger
 
 BEND_STEP_S = 0.02  # a note's pitch curve is sampled this often
 GATE_THRESHOLD = 0.5  # a held note plays when the gate, read in the middle of the note, is above this
+MIN_VELOCITY = 0.05  # a quiet voice still sounds
 ROLL_PULSE_STRENGTH = 0.6  # an ordinary roll pulse; a pulse that starts a cycle is 1.0
 
 
@@ -99,3 +104,63 @@ def control_events(t: Telemetry, chip: int, segment_seconds: float) -> List[Cont
     power = min(1.0, max(0.0, t.power / POWER_MAX))
     values = (("temperature", norm_temp(t.asic_temperature)), ("power", power), ("pressure", chip_pressure(t)), ("chaos", chip_chaos(t)))
     return [Control(0.0, name, float(v), chip) for name, v in values]
+
+
+# the extractor for each device the chorus deals; every other device contributes only its chip's controls
+EXTRACTORS: Dict[str, Callable] = {
+    "lead": lead_events, "ttquantus": quantus_events, "gong": gong_events, "ttrollz": roll_events, "ttsteam": steam_events,
+}
+
+
+def chorus_score(telemetry, duration: float, patch: Patch = DEFAULT_PATCH, segment: int = 0,
+                 soloists: Optional[Sequence[int]] = None, only: Optional[Sequence[str]] = None,
+                 defrag: Optional[Sequence[ChipDefrag]] = None, sample_rate: int = 44100) -> Score:
+    """The Score of one render, built the way `render_chorus` deals and seeds its devices.
+
+    Slot `s` plays `assign_device(s)` on chip `slot_chip(s, n)` with seed `segment * SEGMENT_SEED_STRIDE + s`. Each event's velocity
+    (or strength) is the extractor's value times the device's balance and the slot's turn gain at the event's time, clamped to
+    0.05 to 1. `only` plays the named devices at full level with no turns. A chip that is idle in `defrag` has no notes or triggers;
+    a chip that is evicting or filling scales them by `(1 - dissolve) ** 2`, the render's own fade, read at the event's time.
+    Controls are emitted once per chip."""
+    if not telemetry:
+        raise ValueError("chorus_score needs at least one chip's telemetry")
+    if only is not None:
+        if not list(only):
+            raise ValueError("only needs at least one device name")
+        unknown = [name for name in only if name not in device_names()]
+        if unknown:
+            raise ValueError(f"unknown device {', '.join(unknown)}; the devices are {', '.join(device_names())}")
+    n = len(telemetry)
+    n_samples = int(duration * sample_rate)
+    if defrag is not None and len(defrag) != n:
+        raise ValueError(f"defrag needs one state for each of the {n} chips, got {len(defrag)}")
+    planned, turn_s = plan_turns(telemetry, duration, patch, defrag)
+    solo_slots = planned if soloists is None else list(soloists)
+    seed_base = segment * SEGMENT_SEED_STRIDE
+    gains = turn_gains(solo_slots, n_slots(n), n_samples, sample_rate, turn_s, floor=patch.floor)
+    events: list = []
+    for chip, t in enumerate(telemetry):
+        events.extend(control_events(t, chip, duration))
+    for s in range(n_slots(n)):
+        name = assign_device(s).__name__
+        extractor = EXTRACTORS.get(name)
+        if extractor is None or (only is not None and name not in only):
+            continue
+        chip = slot_chip(s, n)
+        phase = "running" if defrag is None or only is not None else defrag[chip].phase
+        if phase == "idle":
+            continue
+        balance = 1.0 if only is not None else emphasis_of(patch, name)
+        gain = np.ones(n_samples) if only is not None else gains[s]
+        keep = np.ones(n_samples)
+        if phase != "running":
+            rank, count, prime = voice_order(s, n)
+            keep = (1.0 - drain_progress(phase, defrag[chip].elapsed, n_samples, sample_rate, rank, count, prime)) ** 2
+        for e in extractor(telemetry[chip], chip, duration, sample_rate, seed_base + s, patch):
+            i = min(max(int(e.t * sample_rate), 0), n_samples - 1) if n_samples else 0
+            scale = balance * (gain[i] * keep[i] if n_samples else 1.0)
+            if isinstance(e, Note):
+                events.append(dataclasses.replace(e, velocity=min(1.0, max(MIN_VELOCITY, e.velocity * scale))))
+            else:
+                events.append(dataclasses.replace(e, strength=min(1.0, max(MIN_VELOCITY, e.strength * scale))))
+    return Score(tuple(sorted(events, key=lambda e: e.t)), duration, aiclk_to_bpm(telemetry[0].aiclk))
