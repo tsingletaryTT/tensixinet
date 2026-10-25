@@ -101,17 +101,71 @@ def test_a_smaller_snare_share_plays_fewer_steam_hits_and_none_at_zero():
 
 
 # --- quantus ---
-def test_quantus_notes_start_a_note_length_apart_and_each_pitch_is_its_first_samples_semitones():
+def _mid(e, n):
+    """The sample at the middle of a note, where the extractor reads the held step."""
+    return min(n - 1, int(round((e.t + e.dur / 2) * SR)))
+
+
+def test_quantus_notes_start_a_note_length_apart_and_each_pitch_is_the_held_step_at_its_middle():
     ev = collect.quantus_events(T, CHIP, DUR, SR, SEED, DEFAULT_PATCH)
-    semis = devices.ttquantus_steps(T, DUR, SR, SEED, DEFAULT_PATCH)
+    held = devices.ttquantus_held(T, DUR, SR, SEED, DEFAULT_PATCH)
     note_len = 1.0 / devices._note_rate(T)
     assert len(ev) == int(np.ceil(DUR / note_len - 1e-9))
     for k, e in enumerate(ev):
         assert isinstance(e, Note) and e.source == "ttquantus" and e.chip == CHIP and e.velocity == 1.0
         assert e.t == pytest.approx(k * note_len, abs=1.0 / SR)
-        first = semis[int(round(e.t * SR))]
-        assert e.pitch_hz == pytest.approx(temp_to_pitch_hz(T.asic_temperature) * 2 ** (first / 12))
+        assert e.pitch_hz == pytest.approx(temp_to_pitch_hz(T.asic_temperature) * 2 ** (held[_mid(e, len(held))] / 12))
         assert e.bend == ()
+
+
+def _patches():
+    from tensixinet.music.patch import draw_patch
+    return {"default": DEFAULT_PATCH, "moving": MOVING, "drawn": dataclasses.replace(draw_patch(5, [T]), quantus_mod=0.7)}
+
+
+@pytest.mark.parametrize("name", ["default", "moving", "drawn"])
+def test_each_notes_pitch_is_the_held_step_at_its_middle_and_matches_the_audio_there(name):
+    patch = _patches()[name]
+    ev = collect.quantus_events(T, CHIP, DUR, SR, SEED, patch)
+    held = devices.ttquantus_held(T, DUR, SR, SEED, patch)
+    steps = devices.ttquantus_steps(T, DUR, SR, SEED, patch)
+    base = temp_to_pitch_hz(T.asic_temperature)
+    assert len(ev) > 10
+    near = 0
+    for e in ev:
+        m = _mid(e, len(held))
+        note_semis = 12 * np.log2(e.pitch_hz / base)
+        assert note_semis == pytest.approx(held[m], abs=1e-9)
+        near += abs(note_semis - steps[m]) <= 0.5
+    # the audio at the middle differs from the held step only by the vibrato (at most 0.4 semitone)
+    assert near >= 0.95 * len(ev)
+
+
+@pytest.mark.parametrize("name", ["moving", "drawn"])
+def test_note_plus_bend_is_the_audio_semitones_wherever_the_bend_is_not_clamped(name):
+    patch = _patches()[name]
+    ev = collect.quantus_events(T, CHIP, DUR, SR, SEED, patch)
+    steps = devices.ttquantus_steps(T, DUR, SR, SEED, patch)
+    base = temp_to_pitch_hz(T.asic_temperature)
+    checked = 0
+    for e in ev:
+        i0 = int(round(e.t * SR))
+        note_semis = 12 * np.log2(e.pitch_hz / base)
+        for tau, delta in e.bend:
+            if abs(delta) <= 2.0:
+                checked += 1
+                assert note_semis + delta == pytest.approx(steps[min(len(steps) - 1, i0 + int(round(tau * SR)))], abs=0.01)
+    assert checked > 100
+
+
+def test_a_notes_bend_in_the_middle_of_a_note_is_small_so_it_does_not_clamp():
+    ev = collect.quantus_events(T, CHIP, DUR, SR, SEED, MOVING)
+    note_len = 1.0 / devices._note_rate(T)
+    for e in ev:
+        if e.dur < note_len - 1e-9:
+            continue  # the last note is cut short by the render's end, which also clips the glide's window
+        mid = min(e.bend, key=lambda b: abs(b[0] - e.dur / 2))
+        assert abs(mid[1]) <= 0.5  # only the vibrato (up to 0.4 semitone) is left once the note sits on the held step
 
 
 def test_consecutive_notes_of_one_pitch_stay_separate_notes():
@@ -146,17 +200,18 @@ def test_bend_is_empty_without_pitch_movement_and_present_with_it():
     assert ev and all(e.bend for e in ev)
 
 
-def test_bend_is_the_per_sample_semitones_every_20_ms_relative_to_the_first_sample():
+def test_bend_is_the_per_sample_semitones_every_20_ms_relative_to_the_held_step_at_the_notes_middle():
     ev = collect.quantus_events(T, CHIP, DUR, SR, SEED, MOVING)
     semis = devices.ttquantus_steps(T, DUR, SR, SEED, MOVING)
+    held = devices.ttquantus_held(T, DUR, SR, SEED, MOVING)
     for e in ev[:20]:
         i0 = int(round(e.t * SR))
+        ref = held[_mid(e, len(held))]
         for tau, delta in e.bend:
             assert 0.0 <= tau < e.dur
-            assert delta == pytest.approx(semis[min(len(semis) - 1, i0 + int(round(tau * SR)))] - semis[i0])
+            assert delta == pytest.approx(semis[min(len(semis) - 1, i0 + int(round(tau * SR)))] - ref)
         taus = [tau for tau, _ in e.bend]
         assert taus[0] == 0.0 and taus[1] == pytest.approx(0.02, abs=1.0 / SR)
-        assert e.bend[0][1] == 0.0
     # vibrato and glide make at least one note move
     assert any(abs(d) > 0.05 for e in ev for _, d in e.bend)
 

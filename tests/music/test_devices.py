@@ -1134,3 +1134,25 @@ def test_roll_rests_remove_pulses_from_the_clock_and_every_lane():
 def test_a_lane_downbeat_flag_goes_with_its_pulse_when_the_pulse_rests():
     for _, _, times, flags in _sets(1, patch=dc.replace(_DRAWN, roll_rests=0.5))[1:]:
         assert len(flags) == len(times)
+
+
+# --- ttquantus and quantussy_tone: audio pinned before `ttquantus_held` was split out of `ttquantus_steps` ---
+from tensixinet.music.devices import quantussy_tone as _quantussy_tone, ttquantus as _ttquantus, ttquantus_steps as _ttquantus_steps  # noqa: E402
+
+_QT = dc.replace(_FB, asic_temperature=62.0, aiclk=1000.0, gddr_temps=(30., 34., 29., 38., 31., 27., 36., 30.), eth_mask=0x3F3, tensix_mask=0x2D5A)
+_QT_PATCHES = (DEFAULT_PATCH, dc.replace(DEFAULT_PATCH, quantus_mod=0.8, rests=0.3))
+# SHA-256 of the float bytes of a 6 s render at 22050 Hz, seed 12345, taken from the code before the split.
+_QT_DIGESTS = (
+    # (ttquantus float32, quantussy_tone float64, ttquantus_steps float64)
+    ("c80245301276872862381bd7ee5abaa38601f42bb2e7e75a0e3e3f98a7d40e87", "bf78d09fcb0b220d631662f0158dacb24d5e1c0e79d1f60e50fcf43550f7ebfa", "d0d141398822660dd8c9e5f17bc3d8dd907de8eee931b72f9fa734eab4a12549"),
+    ("a42d57eaff88260d507f1357b8cee47c32da6d63fb4adf2b7e540a45cb297f03", "e45a2f22f639335368eb2ba5b952645fb0d2a2bb81d0f696287d95e74ebcfd3b", "78f80a3de7669cb16e48699cf978e6950f172123c246e30e5e26ea9ccd42ed73"),
+)
+
+
+@pytest.mark.parametrize("i", range(2))
+def test_ttquantus_audio_is_byte_identical_to_the_digests_taken_before_the_split(i):
+    audio = _ttquantus(_QT, 6.0, 22050, 12345, _QT_PATCHES[i])
+    assert audio.dtype == np.float32
+    assert _hashlib.sha256(audio.tobytes()).hexdigest() == _QT_DIGESTS[i][0]
+    assert _hashlib.sha256(_quantussy_tone(_QT, 6.0, 22050, 12345, _QT_PATCHES[i]).tobytes()).hexdigest() == _QT_DIGESTS[i][1]
+    assert _hashlib.sha256(_ttquantus_steps(_QT, 6.0, 22050, 12345, _QT_PATCHES[i]).tobytes()).hexdigest() == _QT_DIGESTS[i][2]

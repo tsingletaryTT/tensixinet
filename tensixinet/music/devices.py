@@ -309,23 +309,35 @@ def _glided(values: np.ndarray, width: int) -> np.ndarray:
     return (c[hi] - c[lo]) / (hi - lo)
 
 
-def ttquantus_steps(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
-    """Per-sample semitone offsets: the first petal's castle on the patch's scale.
+def ttquantus_held(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """Per-sample semitone offsets of the note being held, before any glide or vibrato: the first petal's castle on the patch's scale.
 
     The ttquantussy's first petal turns round twice per eighth note, so a note lasts an eighth. The other four
     petals run at low prime ratios to it (the seed nudges them), so the notes make a pattern that repeats
     and slowly drifts. The chip's identity picks which petal the castle samples.
 
-    With the patch's `quantus_mod` above 0 the line is also moved, in three ways that scale with it: a slow castle shifts the register by whole scale
-    degrees (`ttquantus_register`), each note glides into the next over up to a note's length, and a vibrato sways the pitch, deeper as the chip's
-    pressure rises. With none, every note is a whole scale step held for its note, as before."""
+    With the patch's `quantus_mod` above 0 the held step is the castle's scale degree plus the slow castle's register shift (`ttquantus_register`),
+    a whole number of degrees. With none it is the quantized castle. `ttquantus_steps` glides and sways this line; a MIDI score takes each note's
+    number from it."""
     n = int(duration * sample_rate)
     freqs = [_note_rate(t) / 2 * r for r in petal_ratios(seed)]
     castle = castle_output(0, freqs, petal_phases(seed), np.arange(n) / sample_rate, offset=castle_offset(personality(t)))
     if patch.quantus_mod <= 0.0:
         return quantize_to_scale(castle, patch.scale)
     degrees = scale_degrees(castle, patch.scale) + ttquantus_register(t, duration, sample_rate, seed, patch)
-    semis = _glided(degrees_to_semitones(degrees, patch.scale), int(QUANTUS_GLIDE_NOTES * patch.quantus_mod * sample_rate / _note_rate(t)))
+    return degrees_to_semitones(degrees, patch.scale)
+
+
+def ttquantus_steps(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """Per-sample semitone offsets the audio plays: `ttquantus_held`, moved further when the patch's `quantus_mod` is above 0.
+
+    The line is moved in two ways that scale with `quantus_mod`: each note glides into the next over up to a note's length, and a vibrato sways
+    the pitch, deeper as the chip's pressure rises. With none, every note is a whole scale step held for its note, as before."""
+    held = ttquantus_held(t, duration, sample_rate, seed, patch)
+    if patch.quantus_mod <= 0.0:
+        return held
+    n = int(duration * sample_rate)
+    semis = _glided(held, int(QUANTUS_GLIDE_NOTES * patch.quantus_mod * sample_rate / _note_rate(t)))
     depth = patch.quantus_mod * VIBRATO_MAX_ST * (VIBRATO_BASE + (1.0 - VIBRATO_BASE) * chip_pressure(t))
     return semis + depth * np.sin(2 * math.pi * VIBRATO_HZ * np.arange(n) / sample_rate)
 

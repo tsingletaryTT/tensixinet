@@ -44,10 +44,13 @@ def quantus_events(t: Telemetry, chip: int, duration: float, sample_rate: int, s
     """One note per held note of ttquantus's line that plays. Mirrors `devices.quantussy_tone`.
 
     A note lasts `1 / _note_rate` seconds (an eighth at the reference AXI clock). It plays when `ttquantus_gate`, read at the note's
-    middle, is above 0.5. Its pitch is the chip's pitch moved by the semitone value at the note's first sample. With the patch's
-    `quantus_mod` above 0 the glide and vibrato are kept as `bend`, the semitone value minus the first one every 20 ms."""
+    middle, is above 0.5. Its pitch is the chip's pitch moved by the held scale step (the castle's degree plus the register shift,
+    `devices.ttquantus_held`) at the note's middle sample. The first sample of a note can still hold the previous step, or sit
+    part-way through a glide, so it is not used. With the patch's `quantus_mod` above 0 the glide and vibrato are kept as `bend`,
+    the audio's semitone value minus the held one every 20 ms. A glide wider than the bend range is clamped by the MIDI writer."""
     n = int(duration * sample_rate)
     semis = devices.ttquantus_steps(t, duration, sample_rate, seed, patch)
+    held = devices.ttquantus_held(t, duration, sample_rate, seed, patch)
     gate = devices.ttquantus_gate(t, duration, sample_rate, seed, patch)
     note_len = 1.0 / devices._note_rate(t)
     base = temp_to_pitch_hz(t.asic_temperature)
@@ -60,16 +63,18 @@ def quantus_events(t: Telemetry, chip: int, duration: float, sample_rate: int, s
             break
         k += 1
         dur = min(note_len, duration - start)
-        if gate[min(n - 1, int(round((start + dur / 2) * sample_rate)))] <= GATE_THRESHOLD:
+        middle = min(n - 1, int(round((start + dur / 2) * sample_rate)))
+        if gate[middle] <= GATE_THRESHOLD:
             continue
+        step = float(held[middle])
         bend = ()
         if patch.quantus_mod > 0.0:
             steps = int(np.ceil(dur / BEND_STEP_S - 1e-9))
             bend = tuple(
-                (j * BEND_STEP_S, float(semis[min(n - 1, first + int(round(j * BEND_STEP_S * sample_rate)))] - semis[first]))
+                (j * BEND_STEP_S, float(semis[min(n - 1, first + int(round(j * BEND_STEP_S * sample_rate)))] - step))
                 for j in range(steps)
             )
-        notes.append(Note(start, dur, float(base * 2 ** (semis[first] / 12)), 1.0, "ttquantus", chip, bend))
+        notes.append(Note(start, dur, float(base * 2 ** (step / 12)), 1.0, "ttquantus", chip, bend))
     return notes
 
 
