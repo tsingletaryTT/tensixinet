@@ -666,8 +666,10 @@ def test_a_score_that_cannot_be_built_does_not_stop_the_audio(tmp_path, monkeypa
         raise KeyError("no channel")
     monkeypatch.setattr(live_module, "chorus_score", boom)
     rec = ScoreRecorder()
-    sink, n = _go(tmp_path, steady(), duration=4.0, score_sink=rec)
-    assert n >= 1 and rec.calls == [] and len(sink.audio) > 0
+    sink, n = _go(tmp_path, steady(), duration=7.0, score_sink=rec)
+    assert n == 3 and rec.calls == [] and len(sink.audio) > 0
+    logged = [e for e in _events(tmp_path) if e["event"] == "midi"]
+    assert len(logged) == 1 and "no channel" in logged[0]["what"]
 
 
 def test_run_live_leaves_the_score_sink_open_for_its_owner_to_close(tmp_path):
@@ -679,3 +681,50 @@ def test_run_live_leaves_the_score_sink_open_for_its_owner_to_close(tmp_path):
 def test_no_score_is_built_without_a_score_sink(tmp_path, monkeypatch):
     monkeypatch.setattr(live_module, "chorus_score", lambda *a, **k: pytest.fail("a score was built with no sink"))
     _go(tmp_path, steady(), duration=4.0)
+
+
+class DyingSink(ScoreRecorder):
+    """A sink that, like the port sink, never raises and shows its failure through `error`."""
+
+    @property
+    def error(self):
+        return "the synth was unplugged" if self.calls else None
+
+
+def test_a_sink_that_shows_an_error_is_logged_once_on_the_loop_and_the_audio_is_unchanged(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(), b.mkdir()
+    without, _ = _go(a, steady(), duration=7.0)
+    dying = DyingSink()
+    with_sink, n = _go(b, steady(), duration=7.0, score_sink=dying)
+    stopped = [e for e in _events(b) if e["event"] == "midi" and "port stopped" in e["what"]]
+    assert n == 3 and len(dying.calls) == 3 and len(stopped) == 1  # adds go on; the line comes once
+    assert "unplugged" in stopped[0]["what"] and "without it" in stopped[0]["why"]
+    assert np.array_equal(without.audio, with_sink.audio)
+
+
+def test_a_real_port_sink_with_a_dead_port_gives_one_line_between_the_loop_and_the_close(tmp_path):
+    from tensixinet.run import close_score_sink
+    from tensixinet.score.sinks import MidiPortSink
+
+    class Dead:
+        def send(self, raw):
+            raise OSError("the synth was unplugged")
+
+        def close(self):
+            pass
+
+    sink = MidiPortSink("dead", open_output=lambda name: Dead())
+    log = _log(tmp_path)
+    box = {}
+
+    def target():
+        box["n"] = run_live(steady(), MemorySink(), log, sample_rate=SR, duration=7.0, clock=Clock(), patch=ONE_BAR, eq=False, score_sink=sink)
+
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+    t.join(20)
+    close_score_sink(sink, log)
+    log.close()
+    stopped = [e for e in _events(tmp_path) if e["event"] == "midi" and "port stopped" in e["what"]]
+    assert box["n"] == 3 and len(stopped) == 1

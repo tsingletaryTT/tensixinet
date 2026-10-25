@@ -153,15 +153,6 @@ def main(
     if a.midi_offset_ms and not a.midi_port:
         parser.error("--midi-offset-ms needs --midi-port: it only shifts what goes to a live port")
     file_sink = MidiFileSink(a.midi_file, routes) if a.midi_file else None
-    port_sink = None
-    if a.midi_port:
-        # Opened before any chip is read and before any audio starts, so a missing library or port ends the run at once.
-        try:
-            port_sink = MidiPortSink(a.midi_port, routes=routes, offset_ms=a.midi_offset_ms, **({"open_output": open_midi} if open_midi else {}))
-        except MidiPortError as e:
-            parser.error(str(e))
-    sinks = [x for x in (file_sink, port_sink) if x is not None]
-    score_sink = sinks[0] if len(sinks) == 1 else TeeScoreSink(*sinks) if sinks else None
     stamp = time.strftime("%Y%m%d_%H%M%S")
     out = Path(a.out or f"audio/tensixinet_{stamp}.wav")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -200,6 +191,18 @@ def main(
     else:
         source = "the supplied telemetry source"
 
+    # The port is opened here, after the logs exist and before any chip is read or any audio starts; nothing that can
+    # fail sits between this and the `try` below, whose `finally` closes it.
+    port_sink = None
+    if a.midi_port:
+        # Opened before any chip is read and before any audio starts, so a missing library or port ends the run at once.
+        try:
+            port_sink = MidiPortSink(a.midi_port, routes=routes, offset_ms=a.midi_offset_ms, **({"open_output": open_midi} if open_midi else {}))
+        except MidiPortError as e:
+            log.close()
+            parser.error(str(e))
+    sinks = [x for x in (file_sink, port_sink) if x is not None]
+    score_sink = sinks[0] if len(sinks) == 1 else TeeScoreSink(*sinks) if sinks else None
     worker = None
     score_closed = False
     held_chips = False  # true once the worker is ready, so a failed start does not claim to release anything

@@ -380,3 +380,23 @@ def test_close_score_sink_logs_the_counts_and_the_path_of_a_tee(tmp_path):
     log.close()
     done = [e for e in _events(tmp_path) if e["event"] == "midi file"]
     assert done and "1 notes" in done[0]["what"] and str(path) in done[0]["what"] and path.exists()
+
+
+def test_close_score_sink_reports_a_sink_error_once_and_not_again_when_it_was_already_reported(tmp_path):
+    from tensixinet.run import close_score_sink, report_score_error
+
+    class Failed:
+        error = "the synth was unplugged"
+
+        def close(self):
+            pass
+
+    log = _log(tmp_path)
+    fresh = Failed()
+    close_score_sink(fresh, log)
+    done = Failed()
+    report_score_error(done, log)
+    close_score_sink(done, log)  # already reported by the live loop
+    log.close()
+    stopped = [e for e in _events(tmp_path) if "port stopped" in e["what"]]
+    assert len(stopped) == 2  # one for each sink, never two for the same sink

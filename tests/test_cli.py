@@ -890,10 +890,10 @@ def test_a_missing_midi_library_names_the_extra_and_exits_2(tmp_path, capsys, mo
 
 def test_the_port_gets_the_live_runs_notes_and_is_closed(tmp_path):
     port = FakeMidiPort()
-    code = main(live_args(tmp_path, "--midi-port", "Synth", "--duration", "2"), open_midi=lambda name: port)
+    code = main(live_args(tmp_path, "--midi-port", "Synth", "--duration", "3"), open_midi=lambda name: port)
     assert code == 0 and port.closed == 1
-    # the run ends the moment the last segment is made; only what was due by then has gone out, plus the close's resets
-    assert any(m[0] & 0xF0 == 0xB0 and m[1] == 123 for m in port.sent) or port.sent == []
+    assert any(m[0] & 0xF0 == 0x90 and m[2] > 0 for m in port.sent), "no note-on reached the port"
+    assert any(m[0] & 0xF0 == 0xB0 and m[1] == 123 for m in port.sent)  # the close's all-notes-off
 
 
 def test_the_name_and_offset_reach_the_port_sink_and_the_sink_is_closed(tmp_path, monkeypatch):
@@ -1003,3 +1003,16 @@ def test_a_port_is_closed_when_the_run_ends_before_playing(tmp_path):
     code = main(live_args(tmp_path, "--midi-port", "Synth"), open_midi=lambda name: port,
                 make_sink=lambda *a, **k: (_ for _ in ()).throw(PlayerError("no player")))
     assert code == 3 and port.closed == 1
+
+
+class DyingPort(FakeMidiPort):
+    def send(self, raw):
+        raise OSError("the synth was unplugged")
+
+
+def test_a_port_that_dies_is_one_log_line_and_the_run_still_ends_well(tmp_path):
+    port = DyingPort()
+    code = main(live_args(tmp_path, "--midi-port", "Synth", "--duration", "7"), open_midi=lambda name: port)
+    stopped = [e for e in read_events(tmp_path / "logs") if e["event"] == "midi" and "port stopped" in e["what"]]
+    assert code == 0 and len(stopped) == 1 and "unplugged" in stopped[0]["what"]
+    assert port.closed == 1

@@ -62,10 +62,24 @@ def log_cables(log: RunLog, telemetry: Sequence[Telemetry], patch: Patch, on: bo
         log.event("cable", d.what, d.why)
 
 
+def report_score_error(sink, log: RunLog) -> None:
+    """Log, once for this sink, why its MIDI port stopped (when it has an `error`). Called from the thread that owns
+    the log: the sink's own thread never logs."""
+    error = getattr(sink, "error", None)
+    if error is None or getattr(sink, "error_reported", False):
+        return
+    try:
+        sink.error_reported = True
+    except AttributeError:
+        pass
+    log.event("midi", f"the MIDI port stopped: {error}", "the music goes on without it")
+
+
 def close_score_sink(sink, log: RunLog) -> None:
     """Close a score sink and log one line saying what went into it (and where, for a file).
     A sink with no `summary()` or no `path` is logged with what it has."""
     sink.close()
+    report_score_error(sink, log)
     path = getattr(sink, "path", None)
     where = f" to {path}" if path is not None else ""
     event = "midi file" if path is not None else "midi"

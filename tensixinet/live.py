@@ -36,7 +36,7 @@ from .narrate.runlog import RunLog
 from .media.player import PlayerError
 from .score.collect import chorus_score
 from .score.events import Note, Score
-from .run import describe_readings, log_cables, log_eq, log_only
+from .run import describe_readings, report_score_error, log_cables, log_eq, log_only
 from .telemetry import Telemetry
 
 MIN_SEGMENT_S = 2.0  # a segment is at least this long: the crossfade is a fifth of it
@@ -171,6 +171,7 @@ def run_live(
                     score = chorus_score(chips, seconds + XFADE_S, patch, segment, [soloist], only=only,
                                          defrag=extra.get("defrag"), sample_rate=sample_rate)
                     score_sink.add(cut_score(score, seconds), score_start)
+                    report_score_error(score_sink, log)  # a port that died: said once, here on the render thread
                 except Exception as e:  # the score is a by-product: its trouble never reaches the audio
                     score_failed = True
                     log.event("midi", f"the MIDI output stopped: {e}", "the music goes on without it")

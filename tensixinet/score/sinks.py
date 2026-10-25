@@ -41,6 +41,14 @@ class TeeScoreSink:
         if first is not None:
             raise first
 
+    @property
+    def error(self) -> Optional[str]:
+        """The first error any sink has kept, or `None`."""
+        for sink in self.sinks:
+            if getattr(sink, "error", None) is not None:
+                return sink.error
+        return None
+
     def summary(self) -> Tuple[int, int, int]:
         """The first sink's counts that has any (every sink was handed the same scores), zeros when none has."""
         for sink in self.sinks:
@@ -130,12 +138,17 @@ class MidiPortSink:
     The first `add` fixes `time_base` (the clock then); a message is due at
     `time_base + start_s + t + offset_ms / 1000`. A scheduler thread sends what is due and sleeps until
     the next. `add` never blocks and never raises: a score that cannot be routed, or a port that fails,
-    is reported once through `on_error` and the sink drops everything after that. `close()` drops what is
+    is kept as text in `error` (the first one only, set once) and the sink drops everything after that. The
+    sink never logs: its thread must not touch the run log, so the owner reads `error` (a plain attribute
+    read that takes no lock) and reports it from its own thread. `on_error`, when given, is also called
+    once with the exception. `close()` drops what is
     not yet due, ends every note still sounding, sends all-notes-off (controller 123) on each channel the
     sink used, closes the port and joins the thread.
 
     `_pump(now)` sends what is due and returns when the next message is due (`None` when none is
     waiting). The thread calls it, and tests call it directly with a fake clock (`threaded=False`)."""
+
+    CLOSE_WAIT_S = 2.0  # the longest `close()` waits for the thread, and for the lock, when a send has hung
 
     SLICE_S = 0.02  # the longest the thread sleeps before it looks at the heap again (a new add may be due sooner)
 
@@ -154,6 +167,7 @@ class MidiPortSink:
         self._sounding: set = set()
         self._channels: set = set()
         self._dead = False
+        self._error: Optional[str] = None
         self._closed = False
         self._thread: Optional[threading.Thread] = None
         self.notes = self.triggers = self.controls = 0
@@ -161,6 +175,7 @@ class MidiPortSink:
     def _fail(self, error: BaseException) -> None:
         if not self._dead:
             self._dead = True
+            self._error = str(error) or type(error).__name__
             self._heap.clear()
             try:
                 self._on_error(error)
@@ -200,7 +215,15 @@ class MidiPortSink:
         elif kind in (0x80, 0x90):
             self._sounding.discard((channel, raw[1]))
 
+    @property
+    def error(self) -> Optional[str]:
+        """Why the sink stopped, or `None`. Reads one attribute and takes no lock, so it returns at once even
+        while the scheduler thread is inside a slow `port.send`."""
+        return self._error
+
     def _pump(self, now: float) -> Optional[float]:
+        """Send what is due and return when the next message is due. `port.send` runs under the lock, so an
+        `add` that arrives during a send waits for it (rtmidi sends return in microseconds)."""
         with self._lock:
             while self._heap and self._heap[0][0] <= now and not self._dead:
                 _, _, raw = heapq.heappop(self._heap)
@@ -230,15 +253,29 @@ class MidiPortSink:
         return self.notes, self.triggers, self.controls
 
     def close(self) -> None:
-        with self._lock:
+        """Stop, end every sounding note, send all-notes-off on each channel used, close the port. Waits at
+        most `CLOSE_WAIT_S` for the thread and the lock, so a port whose send never returns cannot hang the
+        exit; the port is then left as it is and `error` says so."""
+        if not self._lock.acquire(timeout=self.CLOSE_WAIT_S):
+            self._closed = True  # a send holds the lock: say so without it
+            if self._error is None:
+                self._error = "the port did not answer when closing"
+            return
+        try:
             if self._closed:
                 return
             self._closed = True
             self._heap.clear()
             self._lock.notify_all()
+        finally:
+            self._lock.release()
         if self._thread is not None and self._thread is not threading.current_thread():
-            self._thread.join()
-        with self._lock:
+            self._thread.join(self.CLOSE_WAIT_S)
+        if not self._lock.acquire(timeout=self.CLOSE_WAIT_S):
+            if self._error is None:
+                self._error = "the port did not answer when closing"
+            return
+        try:
             if not self._dead:
                 try:
                     for channel, number in sorted(self._sounding):
@@ -251,3 +288,5 @@ class MidiPortSink:
                 self._port.close()
             except Exception:
                 pass
+        finally:
+            self._lock.release()

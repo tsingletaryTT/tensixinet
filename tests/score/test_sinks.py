@@ -379,3 +379,93 @@ def test_a_later_add_keeps_the_base_of_the_first_even_when_the_clock_has_moved_o
     sink.add(s, 2.0)  # due at base + 2.5, not at (base + 3) + 2.5
     sink._pump(base + 2.6)
     assert len(ons(port)) == 2
+
+
+# --- the error is kept for the owner to report ------------------------------------------------------------------------
+
+def test_error_is_none_until_a_send_fails_then_the_first_failure_as_text_and_stays_that():
+    sink, port, clock = port_sink(port=FakePort(fail_on=2))
+    assert sink.error is None
+    sink.add(score(120.0, Note(0.1, 0.1, 440.0, 0.5, "lead", 0)), 0.0)
+    sink._pump(clock.now + 5)
+    assert sink.error == "port went away"
+    sink.add(score(120.0, Note(0.1, 0.1, 440.0, 0.5, "nonesuch", 0)), 9.0)  # a later, different failure
+    assert sink.error == "port went away"
+
+
+def test_an_unroutable_score_sets_the_error_too():
+    sink, port, clock = port_sink()
+    sink.add(score(120.0, Note(0.1, 0.1, 440.0, 0.5, "nonesuch", 0)), 0.0)
+    assert "nonesuch" in sink.error
+
+
+def test_the_error_can_be_read_while_the_scheduler_is_stuck_in_a_send():
+    release, entered = threading.Event(), threading.Event()
+
+    class Stuck(FakePort):
+        def send(self, raw):
+            entered.set()
+            release.wait(10)
+
+    sink = MidiPortSink("stuck", open_output=lambda n: Stuck())
+    try:
+        sink.add(score(120.0, Note(0.0, 0.1, 440.0, 0.5, "lead", 0)), 0.0)
+        assert entered.wait(3)
+        started = time.monotonic()
+        assert sink.error is None  # returns at once, with the lock held by the send
+        assert time.monotonic() - started < 1.0
+    finally:
+        release.set()
+        sink.close()
+
+
+def test_close_does_not_hang_on_a_port_whose_send_never_returns():
+    release, entered = threading.Event(), threading.Event()
+
+    class Stuck(FakePort):
+        def send(self, raw):
+            entered.set()
+            release.wait(10)
+
+    sink = MidiPortSink("stuck", open_output=lambda n: Stuck())
+    sink.CLOSE_WAIT_S = 0.2
+    try:
+        sink.add(score(120.0, Note(0.0, 0.1, 440.0, 0.5, "lead", 0)), 0.0)
+        assert entered.wait(3)
+        started = time.monotonic()
+        sink.close()
+        assert time.monotonic() - started < 2.0
+        assert sink.error is not None and "closing" in sink.error
+    finally:
+        release.set()
+
+
+def test_a_tee_shows_the_first_error_of_its_sinks():
+    class Bare:
+        def add(self, score, start_s): pass
+        def close(self): pass
+    bad, _, clock = port_sink(port=FakePort(fail_on=1))
+    bad.add(score(120.0, Note(0.0, 0.1, 440.0, 0.5, "lead", 0)), 0.0)
+    bad._pump(clock.now + 1)
+    assert TeeScoreSink(Bare(), bad).error == "port went away"
+    assert TeeScoreSink(Bare()).error is None
+
+
+def test_close_does_not_hang_on_a_thread_that_is_stuck_outside_a_send():
+    release, sleeping = threading.Event(), threading.Event()
+
+    def stuck_sleep(seconds):
+        sleeping.set()
+        release.wait(10)
+
+    port = FakePort()
+    sink = MidiPortSink("fake", open_output=lambda n: port, sleep=stuck_sleep)
+    sink.CLOSE_WAIT_S = 0.2
+    try:
+        sink.add(score(120.0, Note(5.0, 0.1, 440.0, 0.5, "lead", 0)), 0.0)  # nothing due for 5 s, so the thread sleeps
+        assert sleeping.wait(3)
+        started = time.monotonic()
+        sink.close()
+        assert time.monotonic() - started < 2.0 and port.closed == 1
+    finally:
+        release.set()
