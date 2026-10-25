@@ -63,13 +63,19 @@ def log_cables(log: RunLog, telemetry: Sequence[Telemetry], patch: Patch, on: bo
 
 
 def close_score_sink(sink, log: RunLog) -> None:
-    """Close a score sink and log one line saying what went into it (and where, for a file)."""
+    """Close a score sink and log one line saying what went into it (and where, for a file).
+    A sink with no `summary()` or no `path` is logged with what it has."""
     sink.close()
-    notes, triggers, controls = sink.summary()
     path = getattr(sink, "path", None)
     where = f" to {path}" if path is not None else ""
-    log.event("midi file", f"wrote {notes} notes, {triggers} triggers and {controls} controls{where}",
-              "the events are the ones the devices played in this render, routed to MIDI channels, notes and controllers")
+    event = "midi file" if path is not None else "midi"
+    why = "the events are the ones the devices played, routed to MIDI channels, notes and controllers"
+    summary = getattr(sink, "summary", None)
+    if summary is None:
+        log.event(event, f"closed the MIDI output{where}", why)
+        return
+    notes, triggers, controls = summary()
+    log.event(event, f"wrote {notes} notes, {triggers} triggers and {controls} controls{where}", why)
 
 
 def describe_readings(

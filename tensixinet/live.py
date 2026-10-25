@@ -34,6 +34,8 @@ from .music.turns import pick_soloist
 from .narrate.explain import explain_events
 from .narrate.runlog import RunLog
 from .media.player import PlayerError
+from .score.collect import chorus_score
+from .score.events import Note, Score
 from .run import describe_readings, log_cables, log_eq, log_only
 from .telemetry import Telemetry
 
@@ -73,13 +75,19 @@ def run_live(
     backend=None,
     stereo: bool = False,
     evict: bool = False,
+    score_sink=None,
 ) -> int:
     """Play the chips live for `duration` seconds (until Ctrl-C when `None`). Returns the number of segments.
 
     `sample` returns the current readings, an empty list when they could not be read. `sink` takes the
     audio (see media/player.py). The last segment rings out for `XFADE_S` more seconds, so the sound
     lasts the duration plus that. Raises `ValueError` when the very first reading is empty and
-    `PlayerError` when the player stops early."""
+    `PlayerError` when the player stops early.
+
+    `score_sink` (see score/sinks.py) is handed each segment's events as data, after the segment is rendered:
+    the Score of the same render, cut at the segment's length (the crossfade tail belongs to the next
+    segment), with the segment's start in seconds from the start of the run. The audio never depends on it,
+    and a sink or score that fails is logged once and left alone. The caller closes the sink."""
     audio_queue: "queue.Queue[Optional[np.ndarray]]" = queue.Queue()
     room = threading.Semaphore(LEAD_IN_SEGMENTS)
     failures: List[BaseException] = []
@@ -109,6 +117,8 @@ def run_live(
     soloist: Optional[int] = None
     played = 0.0
     segment = 0
+    score_start = 0.0  # where the segment being made begins in the sound: the sum of the earlier segments' lengths
+    score_failed = False
     try:
         while duration is None or played < duration - 1e-9:
             room.acquire()
@@ -156,6 +166,15 @@ def run_live(
                     log.event(event.kind, event.what, event.why, chip=event.chip, segment=segment)
             audio = render_chorus(chips, seconds + XFADE_S, sample_rate, patch, segment, [soloist], only=only,
                                   cables=None if cables else [], **extra)
+            if score_sink is not None and not score_failed:
+                try:
+                    score = chorus_score(chips, seconds + XFADE_S, patch, segment, [soloist], only=only,
+                                         defrag=extra.get("defrag"), sample_rate=sample_rate)
+                    score_sink.add(cut_score(score, seconds), score_start)
+                except Exception as e:  # the score is a by-product: its trouble never reaches the audio
+                    score_failed = True
+                    log.event("midi", f"the MIDI output stopped: {e}", "the music goes on without it")
+            score_start += seconds
             ready = _finish(stitcher.push(audio), equaliser)
             level = None
             if gain is not None:
@@ -197,6 +216,19 @@ def run_live(
     log.event("done", f"played {played:.1f} s in {_plural(segment, 'segment')}",
               "the chips were read once per segment; the last segment's tail rang out after the duration")
     return segment
+
+
+def cut_score(score: Score, seconds: float) -> Score:
+    """A segment's score cut at `seconds`: events at or after it are dropped (they belong to the crossfade
+    tail, which the next segment plays), and a note that would run past it ends there."""
+    events = []
+    for e in score.events:
+        if e.t >= seconds:
+            continue
+        if isinstance(e, Note) and e.t + e.dur > seconds:
+            e = dataclasses.replace(e, dur=seconds - e.t)
+        events.append(e)
+    return dataclasses.replace(score, events=tuple(events), duration=seconds)
 
 
 def _finish(audio: np.ndarray, equaliser: Optional[Equaliser]) -> np.ndarray:

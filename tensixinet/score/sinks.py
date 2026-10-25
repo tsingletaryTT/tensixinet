@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Where a render's `Score` goes: a Standard MIDI File, or several places at once."""
-from typing import List, Protocol, Tuple
+import heapq
+import threading
+import time
+from typing import Callable, List, Optional, Protocol, Tuple
 
 from .events import Score
 from .midi import Message, to_messages
@@ -28,8 +31,30 @@ class TeeScoreSink:
             sink.add(score, start_s)
 
     def close(self) -> None:
+        """Closes every sink, even when one fails, then raises the first failure."""
+        first = None
         for sink in self.sinks:
-            sink.close()
+            try:
+                sink.close()
+            except Exception as e:
+                first = first or e
+        if first is not None:
+            raise first
+
+    def summary(self) -> Tuple[int, int, int]:
+        """The first sink's counts that has any (every sink was handed the same scores), zeros when none has."""
+        for sink in self.sinks:
+            if hasattr(sink, "summary"):
+                return sink.summary()
+        return 0, 0, 0
+
+    @property
+    def path(self):
+        """The first sink's file path, or `None` when no sink writes a file."""
+        for sink in self.sinks:
+            if getattr(sink, "path", None) is not None:
+                return sink.path
+        return None
 
 
 class MidiFileSink:
@@ -59,3 +84,170 @@ class MidiFileSink:
 
     def close(self) -> None:
         write_midi_file(self.path, self.messages, self.bpm or self.DEFAULT_BPM)
+
+
+class MidiPortError(RuntimeError):
+    """The MIDI port cannot be used. The message is one plain line."""
+
+
+class _MidoPort:
+    """Wraps a mido output so it takes raw bytes."""
+
+    def __init__(self, mido, port) -> None:
+        self._mido, self._port = mido, port
+
+    def send(self, raw: bytes) -> None:
+        self._port.send(self._mido.Message.from_bytes(list(raw)))
+
+    def close(self) -> None:
+        self._port.close()
+
+
+def open_mido_output(name: str):
+    """Open the named MIDI output, or a virtual one called `tensixinet` for the name `virtual`.
+    `mido` is imported here so nothing else needs it."""
+    try:
+        import mido
+        mido.set_backend("mido.backends.rtmidi")
+        names = mido.get_output_names()
+    except ImportError:
+        raise MidiPortError("a live MIDI port needs the mido and python-rtmidi libraries: pip install -e .[midi]") from None
+    try:
+        if name == "virtual":
+            return _MidoPort(mido, mido.open_output("tensixinet", virtual=True))
+        if name not in names:
+            raise MidiPortError(f"no MIDI output called {name!r}; the outputs are {', '.join(repr(n) for n in names) or 'none'}")
+        return _MidoPort(mido, mido.open_output(name))
+    except MidiPortError:
+        raise
+    except Exception as e:  # rtmidi raises its own types
+        raise MidiPortError(f"cannot open the MIDI output {name!r}: {e}") from None
+
+
+class MidiPortSink:
+    """Plays each score's messages on a live MIDI port at their time.
+
+    The first `add` fixes `time_base` (the clock then); a message is due at
+    `time_base + start_s + t + offset_ms / 1000`. A scheduler thread sends what is due and sleeps until
+    the next. `add` never blocks and never raises: a score that cannot be routed, or a port that fails,
+    is reported once through `on_error` and the sink drops everything after that. `close()` drops what is
+    not yet due, ends every note still sounding, sends all-notes-off (controller 123) on each channel the
+    sink used, closes the port and joins the thread.
+
+    `_pump(now)` sends what is due and returns when the next message is due (`None` when none is
+    waiting). The thread calls it, and tests call it directly with a fake clock (`threaded=False`)."""
+
+    SLICE_S = 0.02  # the longest the thread sleeps before it looks at the heap again (a new add may be due sooner)
+
+    def __init__(self, port_name: str, routes: Routes = DEFAULT_ROUTES, offset_ms: float = 0.0, open_output=None,
+                 clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
+                 on_error: Optional[Callable[[BaseException], None]] = None, threaded: bool = True) -> None:
+        self.routes, self.offset_s = routes, offset_ms / 1000.0
+        self._clock, self._sleep = clock, sleep
+        self._on_error = on_error or (lambda e: None)
+        self._threaded = threaded
+        self._port = (open_output or open_mido_output)(port_name)  # raises MidiPortError before anything else happens
+        self._lock = threading.Condition()
+        self._heap: list = []
+        self._seq = 0
+        self._time_base: Optional[float] = None
+        self._sounding: set = set()
+        self._channels: set = set()
+        self._dead = False
+        self._closed = False
+        self._thread: Optional[threading.Thread] = None
+        self.notes = self.triggers = self.controls = 0
+
+    def _fail(self, error: BaseException) -> None:
+        if not self._dead:
+            self._dead = True
+            self._heap.clear()
+            try:
+                self._on_error(error)
+            except Exception:
+                pass
+
+    def add(self, score: Score, start_s: float) -> None:
+        try:
+            with self._lock:
+                if self._dead or self._closed:
+                    return
+                messages = to_messages(score, self.routes)
+                if self._time_base is None:
+                    self._time_base = self._clock()
+                base = self._time_base + start_s + self.offset_s
+                for t, data, _chip in messages:
+                    heapq.heappush(self._heap, (base + t, self._seq, data))
+                    self._seq += 1
+                self.notes += len(score.notes())
+                self.triggers += len(score.triggers())
+                self.controls += len(score.controls())
+                if self._threaded and self._thread is None:
+                    self._thread = threading.Thread(target=self._run, name="tensixinet-midi", daemon=True)
+                    self._thread.start()
+                self._lock.notify_all()
+        except Exception as e:
+            with self._lock:
+                self._fail(e)
+
+    def _send(self, raw: bytes) -> None:
+        """Send one message and keep track of which notes sound and which channels were used. Caller holds the lock."""
+        self._port.send(raw)
+        kind, channel = raw[0] & 0xF0, raw[0] & 0x0F
+        self._channels.add(channel)
+        if kind == 0x90 and raw[2] > 0:
+            self._sounding.add((channel, raw[1]))
+        elif kind in (0x80, 0x90):
+            self._sounding.discard((channel, raw[1]))
+
+    def _pump(self, now: float) -> Optional[float]:
+        with self._lock:
+            while self._heap and self._heap[0][0] <= now and not self._dead:
+                _, _, raw = heapq.heappop(self._heap)
+                try:
+                    self._send(raw)
+                except Exception as e:
+                    self._fail(e)
+            return self._heap[0][0] if self._heap and not self._dead else None
+
+    def _run(self) -> None:
+        while True:
+            with self._lock:
+                if self._closed:
+                    return
+            nxt = self._pump(self._clock())
+            if nxt is None:
+                with self._lock:
+                    if self._closed:
+                        return
+                    if not self._heap or self._dead:
+                        self._lock.wait(self.SLICE_S)
+                continue
+            self._sleep(max(0.0, min(nxt - self._clock(), self.SLICE_S)))
+
+    def summary(self) -> Tuple[int, int, int]:
+        """How many notes, triggers and controls have been added."""
+        return self.notes, self.triggers, self.controls
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._heap.clear()
+            self._lock.notify_all()
+        if self._thread is not None and self._thread is not threading.current_thread():
+            self._thread.join()
+        with self._lock:
+            if not self._dead:
+                try:
+                    for channel, number in sorted(self._sounding):
+                        self._send(bytes([0x80 | channel, number, 0]))
+                    for channel in sorted(self._channels):
+                        self._send(bytes([0xB0 | channel, 123, 0]))
+                except Exception as e:
+                    self._fail(e)
+            try:
+                self._port.close()
+            except Exception:
+                pass

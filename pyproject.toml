@@ -18,6 +18,7 @@ dependencies = ["numpy", "soundfile"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+midi = ["mido", "python-rtmidi"]
 
 [project.scripts]
 tensixinet = "tensixinet.cli:main"

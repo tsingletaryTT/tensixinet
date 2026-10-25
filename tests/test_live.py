@@ -555,3 +555,127 @@ def _run_with_powers(tmp_path, sample, duration, **kw):
     sink = MemorySink()
     _go(tmp_path, sample, duration=duration, sink=sink, clock=Clock(3.0), **kw)
     return _events(tmp_path), sink
+
+
+# --- handing the score to a sink (MIDI out) --------------------------------------------------------------------------
+
+class ScoreRecorder:
+    def __init__(self, fail=False):
+        self.calls, self.closed, self.fail = [], 0, fail
+
+    def add(self, score, start_s):
+        self.calls.append((score, start_s))
+        if self.fail:
+            raise RuntimeError("the sink broke")
+
+    def close(self):
+        self.closed += 1
+
+
+def _segment_lengths(tmp_path):
+    return [e["seconds"] for e in _events(tmp_path) if e["event"] == "live" and "seconds" in e]
+
+
+def test_the_score_sink_gets_one_add_per_segment_starting_where_the_segment_plays(tmp_path):
+    slow = [dataclasses.replace(FALLBACK, aiclk=400.0)]  # 8 s segments
+    rec = ScoreRecorder()
+    _, n = _go(tmp_path, lambda: slow, duration=16.0, clock=Clock(8.0), patch=DEFAULT_PATCH, score_sink=rec)
+    lengths = _segment_lengths(tmp_path)
+    assert n == 2 and len(rec.calls) == 2 and lengths == pytest.approx([8.0, 8.0], abs=0.01)
+    assert [s for _, s in rec.calls] == pytest.approx([0.0, lengths[0]], abs=0.01)
+
+
+def test_a_later_segment_starts_after_the_sum_of_the_segments_before_it(tmp_path):
+    rec = ScoreRecorder()
+    _, n = _go(tmp_path, steady(), duration=7.0, score_sink=rec)
+    lengths = _segment_lengths(tmp_path)
+    assert n == 3 and [s for _, s in rec.calls] == pytest.approx([0.0, lengths[0], lengths[0] + lengths[1]], abs=0.01)
+
+
+def test_each_segments_score_is_cut_at_the_segment_length_not_the_crossfade_tail(tmp_path):
+    rec = ScoreRecorder()
+    _go(tmp_path, steady(), duration=6.0, score_sink=rec)
+    lengths = _segment_lengths(tmp_path)
+    for (score, _), seconds in zip(rec.calls, lengths):
+        assert score.duration == pytest.approx(seconds, abs=0.01)
+        assert score.events
+        assert all(e.t < score.duration for e in score.events)
+        assert all(n.t + n.dur <= score.duration + 1e-9 for n in score.notes())
+
+
+def test_a_note_that_runs_past_the_segment_is_cut_to_end_there_and_one_after_it_is_dropped(tmp_path, monkeypatch):
+    from tensixinet.score.events import Control, Note, Score
+    held = Score((Control(0.0, "power", 0.5, 0), Note(1.0, 5.0, 440.0, 0.5, "lead", 0), Note(2.0, 0.1, 440.0, 0.5, "lead", 0),
+                  Note(2.4, 0.1, 440.0, 0.5, "lead", 0)), duration=2.0 + XFADE_S, bpm=120.0)
+    monkeypatch.setattr(live_module, "chorus_score", lambda *a, **k: held)
+    rec = ScoreRecorder()
+    _go(tmp_path, steady(), duration=2.0, score_sink=rec)
+    score, _ = rec.calls[0]
+    notes = score.notes()
+    assert [(n.t, n.dur) for n in notes] == [(1.0, pytest.approx(1.0))]  # cut to end at 2.0; the notes at 2.0 and 2.4 are gone
+    assert len(score.controls()) == 1 and score.controls()[0].t == 0.0
+
+
+def test_the_score_is_built_with_the_arguments_the_render_got(tmp_path, monkeypatch):
+    seen = []
+    real = live_module.chorus_score
+    monkeypatch.setattr(live_module, "chorus_score", lambda *a, **k: (seen.append((a, k)), real(*a, **k))[1])
+    rendered = []
+    real_render = live_module.render_chorus
+    monkeypatch.setattr(live_module, "render_chorus", lambda *a, **k: (rendered.append((a, k)), real_render(*a, **k))[1])
+    _go(tmp_path, steady(), duration=4.0, score_sink=ScoreRecorder(), only=["lead"], sample_rate=SR)
+    assert len(seen) == len(rendered) >= 1
+    for (sa, sk), (ra, rk) in zip(seen, rendered):
+        assert list(sa[0]) == list(ra[0]) and sa[1] == ra[1] and sa[2] == ra[3] and sa[3] == ra[4]  # chips, length, patch, segment
+        assert sa[4] == ra[5] and sk["only"] == ["lead"] and sk["sample_rate"] == SR
+    assert seen[0][0][1] == pytest.approx(_segment_lengths(tmp_path)[0] + XFADE_S)
+
+
+def test_the_score_gets_the_same_eviction_state_the_render_got(tmp_path, monkeypatch):
+    seen = []
+    real = live_module.chorus_score
+    monkeypatch.setattr(live_module, "chorus_score", lambda *a, **k: (seen.append(k.get("defrag")), real(*a, **k))[1])
+    rendered = []
+    real_render = live_module.render_chorus
+    monkeypatch.setattr(live_module, "render_chorus", lambda *a, **k: (rendered.append(k.get("defrag")), real_render(*a, **k))[1])
+    _go(tmp_path, lambda: [dataclasses.replace(FALLBACK, power=14.0, tdp_limit=125.0)], duration=4.0, score_sink=ScoreRecorder(), evict=True)
+    assert seen and seen == rendered and all(d is not None for d in seen)
+
+
+def test_a_score_sink_does_not_change_the_audio(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(), b.mkdir()
+    without, _ = _go(a, steady(), duration=6.0)
+    with_sink, _ = _go(b, steady(), duration=6.0, score_sink=ScoreRecorder())
+    assert np.array_equal(without.audio, with_sink.audio)
+
+
+def test_a_score_sink_that_raises_does_not_stop_the_audio_and_is_logged_once(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(), b.mkdir()
+    without, _ = _go(a, steady(), duration=7.0)
+    rec = ScoreRecorder(fail=True)
+    broken, n = _go(b, steady(), duration=7.0, score_sink=rec)
+    assert n == 3 and np.array_equal(without.audio, broken.audio) and len(rec.calls) == 1  # one failure ends the attempts
+    logged = [e for e in _events(b) if e["event"] == "midi"]
+    assert len(logged) == 1 and "the sink broke" in logged[0]["what"]
+
+
+def test_a_score_that_cannot_be_built_does_not_stop_the_audio(tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise KeyError("no channel")
+    monkeypatch.setattr(live_module, "chorus_score", boom)
+    rec = ScoreRecorder()
+    sink, n = _go(tmp_path, steady(), duration=4.0, score_sink=rec)
+    assert n >= 1 and rec.calls == [] and len(sink.audio) > 0
+
+
+def test_run_live_leaves_the_score_sink_open_for_its_owner_to_close(tmp_path):
+    rec = ScoreRecorder()
+    _go(tmp_path, steady(), duration=4.0, score_sink=rec)
+    assert rec.closed == 0
+
+
+def test_no_score_is_built_without_a_score_sink(tmp_path, monkeypatch):
+    monkeypatch.setattr(live_module, "chorus_score", lambda *a, **k: pytest.fail("a score was built with no sink"))
+    _go(tmp_path, steady(), duration=4.0)

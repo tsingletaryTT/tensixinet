@@ -350,3 +350,33 @@ def test_only_reaches_the_score_so_an_audition_of_the_gong_has_no_notes(tmp_path
     log.close()
     notes, triggers, _ = sink.summary()
     assert notes == 0 and triggers > 0
+
+
+# --- closing any score sink ---------------------------------------------------------------------------------------------
+
+def test_close_score_sink_copes_with_a_sink_that_has_no_summary_or_path(tmp_path):
+    from tensixinet.run import close_score_sink
+
+    class Bare:
+        closed = 0
+
+        def close(self):
+            self.closed += 1
+
+    sink = Bare()
+    close_score_sink(sink, _log(tmp_path))
+    assert sink.closed == 1
+
+
+def test_close_score_sink_logs_the_counts_and_the_path_of_a_tee(tmp_path):
+    from tensixinet.run import close_score_sink
+    from tensixinet.score.events import Note, Score
+    from tensixinet.score.sinks import MidiFileSink, TeeScoreSink
+    path = tmp_path / "t.mid"
+    tee = TeeScoreSink(MidiFileSink(path))
+    tee.add(Score((Note(0.1, 0.1, 440.0, 0.5, "lead", 0),), 1.0, 120.0), 0.0)
+    log = _log(tmp_path)
+    close_score_sink(tee, log)
+    log.close()
+    done = [e for e in _events(tmp_path) if e["event"] == "midi file"]
+    assert done and "1 notes" in done[0]["what"] and str(path) in done[0]["what"] and path.exists()
