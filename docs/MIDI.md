@@ -4,22 +4,22 @@
 The events come from the same functions that make the sound, so a note in the MIDI is a note you hear (see `docs/DECISIONS.md`).
 
 Status: the tests pass with no MIDI library and no synth. Nothing has been heard through a real synth or DAW. The live port has been tested against a
-fake `mido` module only. The library is not installed on the box this was written on, so no real `mido` or `rtmidi` run has happened.
+fake `mido` module only. `mido` and `python-rtmidi` are installed in `~/.tenstorrent-venv` (the Python that `python3` uses on this box), so the library is present. Nobody has opened a real port and connected a synth to it.
 
 ## What each device sends
 
 | Device | Sends | Notes |
 |---|---|---|
 | `lead` | notes | Pitch and timing are the lead's own, rests removed |
-| `ttquantus` | notes, with pitch bend | One note per held note that plays (the rest gate decides). With `quantus_mod` above 0 the glide and vibrato are a bend curve sampled every 20 ms |
+| `ttquantus` | notes, with pitch bend | One note per held note that plays (the rest gate decides). The note number is the held scale step (the castle's degree plus the register shift) at the note's middle. With `quantus_mod` above 0 the glide and vibrato are a bend curve sampled every 20 ms. A glide wider than the bend range (2 semitones by default) is clamped, so a big jump between two notes is heard in MIDI as a bend that stops at the range |
 | `gong` | triggers | One per strike |
 | `ttrollz` | triggers | The roll clock and each lane that is up. A pulse that starts a roll's cycle has velocity 127 before scaling, any other 0.6 of that |
 | `ttsteam` | triggers | One per register hit the snare plays |
-| every chip | controllers | Temperature, power, pressure and chaos, each 0 to 1, read once at the start of each render and sent only when the 0 to 127 value changes |
+| every chip | controllers | Temperature, power, pressure and chaos, each 0 to 1, read once at the start of each render. Within one score a controller is sent only when its 0 to 127 value changes. In live mode each segment is its own score, so each segment starts by sending all four values again |
 
 The other devices (`ttdrone`, `ttrax`, `ttavdog`, `ttchoir`, `ttcoco`, the shimmer, the cables and the delay bus) send nothing. Velocity is the event's strength times the device's
 balance and the turn gain at that moment (the same gain the audio gets), kept between 0.05 and 1. A chip that is idle under eviction has no notes or triggers. A chip that is
-evicting or filling is scaled by the same fade as its audio. A note still sounding at the end of a render is ended there. In live mode each segment's score is cut where the
+evicting or filling is scaled by the same fade as its audio, and a voice whose fade factor is at or below 0.02 sends nothing (it has dissolved in the audio). A note still sounding at the end of a render is ended there. In live mode each segment's score is cut where the
 crossfade starts, so the crossfade tail is not sent twice.
 
 ## Default routes
@@ -98,10 +98,10 @@ sink beside the file and the port. A route from the control lanes into MIDI CCs 
 
 ## Limits
 
-* Nothing has been heard through a real synth, and no real `mido` or `rtmidi` has run. The offset was never measured against real audio.
+* Nothing has been heard through a real synth, and no one has connected a real port to a synth (the library is installed here). The offset was never measured against real audio.
 * No fast mode: `--interval` lives on another unmerged branch, and joining it to the score is on the roadmap.
 * No MIDI clock, and no events from `ttchoir`.
 * On a live port the chips share channels (every chip's lead plays on channel 1), so two chips' notes on one number retrigger each other. The file keeps chips apart with a track each.
 * Pitch bend is channel-wide in MIDI, so overlapping notes on one channel share one bend.
 * Controllers are sampled once at the start of each render. They are not continuous.
-* A nearly dissolved chip still sends its quiet events until it is idle.
+* A voice that is dissolving sends quiet events until its fade factor reaches 0.02, then none. Other quiet voices keep a velocity floor of 0.05.

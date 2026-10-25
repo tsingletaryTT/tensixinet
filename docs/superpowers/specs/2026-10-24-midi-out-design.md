@@ -14,7 +14,7 @@ that a CV sink can use later.
 ## Goals
 
 - A `Score`: timed, typed events in physical units, produced by the same code paths that make the audio.
-- `--midi-file PATH`: write a Standard MIDI File for an offline run and for a live run (the file grows as segments play).
+- `--midi-file PATH`: write a Standard MIDI File for an offline run and for a live run (the file is written when the run ends, from every segment's events; a process that is killed leaves no file).
 - `--midi-port NAME`: send the same events to a live MIDI output port, with `--midi-offset-ms` to line MIDI up with the audio.
 - `--midi-map FILE`: a JSON file overriding the default routing (channels, trigger note numbers, CC numbers).
 - Controls leave as MIDI CCs on named lanes, so a VCV Rack patch mapped through MIDI-CAT (as `vcv-cv-harness` does) can use them.

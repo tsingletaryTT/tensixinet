@@ -666,6 +666,6 @@ legacy/        first prototype scripts, kept for reference
     the file writer is in the repository and `mido` is an optional extra imported only for `--midi-port`; the port sink never blocks the audio and drops everything after its first error. The CV sink is only a seam (the sink protocol) and is not built.
   * What went wrong: two of the implementers wrote code before the tests. Review found that two notes of the same pitch overlapping on a channel let the first off silence the second (fixed with a retrigger),
     and that a dead port was silent (the sink now keeps `error` and the live loop logs one "midi" line).
-  * Not done and not measured: nothing has been heard through a real synth. No real `mido` or `rtmidi` has run (not installed here; the port opener is tested against a fake module). `--midi-offset-ms` was never measured against real audio.
+  * Not done and not measured: nothing has been heard through a real synth. No real port has been connected to a synth (`mido` and `rtmidi` are installed in `~/.tenstorrent-venv`; the port opener is tested against a fake module). `--midi-offset-ms` was never measured against real audio.
     No MIDI clock, no `ttchoir` events, chips share channels on a live port, pitch bend is channel-wide, fast mode (`--interval`, another unmerged branch) is not joined to the score. All are in `docs/ROADMAP.md` item 10.
 
