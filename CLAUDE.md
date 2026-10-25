@@ -41,6 +41,7 @@ tensixinet/
   narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
   media/       llm (OpenAI-compatible endpoint), mux (WAV under a video), player (live audio out)
   ui/          flow (what is playing as data), chart (it as animated SVG), logview, session (the live loop on a thread), progress (the steps of a start), player (which session the page shows), forms, knobs / scopes / instrument / readout (the Play tab)
+  score/       events (Note, Trigger, Control, Score), collect (the devices' events, from the same code as the audio), routing, midi, smf (the file writer), sinks (file and live port)
   run.py live.py cli.py __main__.py     wiring (offline and live) and the command line
 tensixinet.py  the launcher: standard library only; finds or builds .venv, falls back to synthetic chips, --live/--app/--doctor/--setup
 tests/         mirrors the package: tests/music/test_devices.py tests the music/devices.py module
@@ -658,3 +659,13 @@ legacy/        first prototype scripts, kept for reference
     kill had not worked and the new one could not bind port 7880, so check what answers on the port.
   * Mutation run: 2 survivors in the first battery that were real (the stylesheet's faint rule and an empty heading) plus three in the instrument (the segment, the block's time and the phase carried through a phrase); each got a test. One is equivalent (dropping the `!= "running"` filter).
     Two of my first mutation scripts applied nothing, because their separator had two spaces (the script printed BAD for each; "all caught" with BAD lines means nothing ran). The 2564 tests pass in `.venv-app` (34 skipped).
+* **2026-10-24, "some of the cv outputs are rather musical. what would a MIDI out option look like?" then the DAW route, a MIDI file route and a live MIDI device route, "someday CV route like in ~/code/tt-cv-agency along with VCV.. let's not block ourselves in", then "go ahead, but self-approve your specs and then execute them with sub agent development ... put this all in a PR":**
+  `tensixinet/score/` and `docs/MIDI.md`, built on the branch `midi-out` from a spec and plan in `docs/superpowers/`. `--midi-file`, `--midi-port`, `--midi-offset-ms` and `--midi-map`.
+  The lead, `ttquantus`, the gong, `ttrollz` and `ttsteam` send notes and triggers, and each chip sends four controllers.
+  * Decisions: the events come from the same functions as the audio (the lead and `ttrollz` were split so the audio reads one event list, with SHA-256 characterization tests taken before the split);
+    the file writer is in the repository and `mido` is an optional extra imported only for `--midi-port`; the port sink never blocks the audio and drops everything after its first error. The CV sink is only a seam (the sink protocol) and is not built.
+  * What went wrong: two of the implementers wrote code before the tests. Review found that two notes of the same pitch overlapping on a channel let the first off silence the second (fixed with a retrigger),
+    and that a dead port was silent (the sink now keeps `error` and the live loop logs one "midi" line).
+  * Not done and not measured: nothing has been heard through a real synth. No real `mido` or `rtmidi` has run (not installed here; the port opener is tested against a fake module). `--midi-offset-ms` was never measured against real audio.
+    No MIDI clock, no `ttchoir` events, chips share channels on a live port, pitch bend is channel-wide, fast mode (`--interval`, another unmerged branch) is not joined to the score. All are in `docs/ROADMAP.md` item 10.
+

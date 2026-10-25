@@ -166,3 +166,20 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   changed in the tab that is not playing does nothing.
 * **Cost on a small machine.** One short phrase (4 chips, stereo, system) took at most 0.15 s and a long one 0.34 s with the process pinned to two CPUs, and the same pinned to one. A visitor who
   keeps a slider moving starts a short phrase every block, so about 12% of a core. The Play tab therefore has no chip cap for the Space.
+
+## MIDI out
+
+* **The events come from the code that makes the audio.** The lead and `ttrollz` used to compute their notes and pulses inside the render. They now build an event list
+  (`lead_notes`, `ttrollz_pulse_sets`) and render from it, and `score/collect.py` reads the same lists, so a MIDI note and a heard note cannot disagree. A second copy of the
+  lead's or the rolls' logic would drift. SHA-256 characterization tests, written against the code before the split, pin the lead's and `ttrollz`'s audio to the bytes it had.
+  The other devices' extractors (`ttquantus`, the gong, `ttsteam`) call the helpers their devices use.
+* **The file writer is in this repository and `mido` is optional.** A format 1 file is a short header and a few chunks, so `score/smf.py` writes it with `struct` and the
+  tests need no library. `mido` and `python-rtmidi` are in the `midi` extra and imported only when `--midi-port` opens a port, so the suite and every other run work without them.
+  The cost is that the writer is ours to keep correct. Its tests read the bytes back.
+* **The port sink never blocks the audio and stops after an error.** `MidiPortSink.add` pushes to a heap and returns. A thread sends what is due. A failing port or an unroutable score
+  sets `error` once and drops everything after it. The thread does not log, because the run log belongs to the loop's thread, so the loop reads `error` after each `add` and logs one
+  "the MIDI port stopped" line. A review found that the first version of the sink kept the failure silent, which left a dead port looking like a quiet one. `close` waits a bounded time, so a
+  port whose send hangs cannot hang the exit.
+* **A note that starts on a sounding number retriggers it.** MIDI has one note-on state per channel and number. Review found two overlapping notes of the same pitch whose first note-off
+  silenced the second, so the second note-on now ends the first at that moment and the first's own off is dropped.
+

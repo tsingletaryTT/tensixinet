@@ -279,6 +279,10 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--mono` | One channel, the sound as it was before stereo. By default every voice is placed in a stereo field: a home for each chip, an offset for each device, an orbit that follows the chip's chaos and clock, depth, and movements from inside the devices (see [docs/SOUND.md](docs/SOUND.md#stereo-a-field-and-not-a-pair)) |
 | `--mock-load SECONDS` | With `--mock-chips` and `--live`: take each synthetic chip round a load cycle of this many seconds (rest, a load, rest, the chips staggered) so a chip unloads and the eviction can be heard without a model |
 | `--no-evict` | In live mode, do not dissolve a chip's voices when its model unloads ([Evict](docs/SOUND.md#evict-when-a-chips-model-unloads)) |
+| `--midi-file PATH` | Also write the devices' notes, drum triggers and controllers as a Standard MIDI File, one track per chip. The audio is unchanged. Example: `./tensixinet.py --mock-chips 4 --duration 30 --midi-file out.mid`. See [docs/MIDI.md](docs/MIDI.md) |
+| `--midi-port NAME` | With `--live`: play the same events on a live MIDI output (`virtual` makes one called `tensixinet`). Needs `pip install -e .[midi]`. Example: `./tensixinet.py --live --midi-port virtual`. Not yet heard through a real synth |
+| `--midi-offset-ms MS` | With `--midi-port`: send every message this many milliseconds later (negative is earlier) to line it up with the sound. Never measured against real audio |
+| `--midi-map FILE` | A JSON file that changes the MIDI channels, drum notes and controller numbers. Needs `--midi-file` or `--midi-port` |
 | `--no-banner` | Start with the first log line instead of the opening art and the colour legend |
 | `--no-cables` | Leave out the patch cables. By default five to eight cables, drawn from the patch seed, let one device's sound bend (`fm`), crunch, swell or fold another's, driven harder by chips under pressure |
 | `--no-eq` | Leave the final mix unshaped. By default an EQ lifts the lows (70 to 250 Hz, up to +4 dB), cuts rumble below 35 Hz and takes the shimmer down (-14 dB at 14 kHz, -33 dB at 20 kHz) |
@@ -307,12 +311,13 @@ If the endpoint is down, the music still plays and the log says so.
 |---|---|
 | `tensixinet/telemetry/` | `tt-smi -s` parsing for any chip count, and synthetic chips |
 | `tensixinet/music/` | The mapping table, the eleven devices, patches, turn-taking, the mixer, and live mode's segment joins |
+| `tensixinet/score/` | The notes, triggers and controls the devices play, as data, and the MIDI file and live port they go to ([docs/MIDI.md](docs/MIDI.md)) |
 | `tensixinet/live.py` | The live loop: read, render a turn, play it while the next is made |
 | `tensixinet/narrate/` | The what-and-why log |
 | `tensixinet/media/` | The language model client, the ffmpeg soundtrack step, and the players live mode sends sound to |
 | `tests/` | One test file per module, in a folder that matches the module's |
 | `demo/` | The [tt-demo-maker](https://github.com/tsingletaryTT/tt-demo-maker) manifest and scripts that record the video |
-| `docs/` | [Architecture](docs/ARCHITECTURE.md), [sound design](docs/SOUND.md), [what the instrument guides say](docs/CIRCUITS.md), [decisions](docs/DECISIONS.md), [contributing](docs/CONTRIBUTING.md), [roadmap](docs/ROADMAP.md) |
+| `docs/` | [Architecture](docs/ARCHITECTURE.md), [sound design](docs/SOUND.md), [what the instrument guides say](docs/CIRCUITS.md), [decisions](docs/DECISIONS.md), [contributing](docs/CONTRIBUTING.md), [roadmap](docs/ROADMAP.md), [MIDI out](docs/MIDI.md) |
 | `legacy/` | The first prototype. Some scripts open the device; see its README |
 
 ## Tested without hardware
