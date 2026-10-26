@@ -460,3 +460,12 @@ each turn the chips are read again and compared with the last readings:
 Each turn restarts the devices' clocks, so a gong that rings past the end of its turn fades out instead. The level
 follows the music with a running gain toward -18 dBFS RMS. See `DECISIONS.md` for why it is built this way.
 
+With `--interval MS` the loop is different (see `ARCHITECTURE.md`, "Fast mode"). The chips are read every block (at least 100 ms), rates are
+measured over 0.5 s, and a change past a threshold starts a 1 s phrase without waiting for the end of a turn. A phrase starts at most once a second
+(`MIN_GAP_S`): a change that lands less than a second after the last phrase started waits until that second has passed, so it is heard up to about
+1 s later. On the four real chips the readings cross the thresholds often enough that a phrase starts about every second, so the wait applies most of
+the time. A quiet stretch plays 6 s phrases. Every new phrase restarts every device's clock. The drones, shimmer, lead, choir and the mix follow a change
+with it, and the gong and the rolls start again from their beginning: while the readings keep moving they restart about once a second, and in about
+half of the chip and patch draws the gong has no strike in its first second (`DECISIONS.md` has the count). A quiet stretch's long phrases let them play
+out. The soloist is held for the patch's turn length.
+

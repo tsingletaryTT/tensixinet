@@ -167,6 +167,69 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 * **Cost on a small machine.** One short phrase (4 chips, stereo, system) took at most 0.15 s and a long one 0.34 s with the process pinned to two CPUs, and the same pinned to one. A visitor who
   keeps a slider moving starts a short phrase every block, so about 12% of a core. The Play tab therefore has no chip cap for the Space.
 
+## Fast sampling (`--interval`)
+
+* **hwmon plus `tt-smi`, as tt-toplike's own hybrid backend does it.** Temperature, power, voltage and current come from `/sys/class/hwmon` (milli-degrees, micro-watts, millivolts
+  and milliamps; a read takes well under a millisecond and worked while `tt-smi -s` was hanging). Everything else (clocks, GDDR temperatures, errors, trips, masks) comes from
+  `tt-smi -s` on a background thread about every 1.5 s. The two orders are matched by PCI bus address, never by position. With no hwmon, a different chip count or different
+  addresses, the run uses `tt-smi` alone, says so, and states no delay claim. A chip whose hwmon reads fail keeps its last reading for a while, and the first failure of a stretch
+  is logged with the chip's index and bus address. After ten failures in a row (`REFIND_AFTER`) the chips are searched for again, because a reset can move a chip's hwmon files,
+  and only that chip's entry is replaced, so the pairing of the other chips stands. A chip that still fails then takes `tt-smi`'s values, `fast` turns off and the note names it,
+  so the delay report counts `tt-smi`'s period. A chip that reads again is logged once. Before this a reset could freeze a chip's readings for the rest of the run with no log line. `--interval` is refused with `--kernels` (the kernels hold the chips and the render budget is small).
+* **Budget: a quarter second.** The owner's number. The log reports the worst case (interval, plus read-to-write time, plus queued audio, plus the player's buffer, plus the time a change
+  waited for the minimum gap between phrases) and the typical case, and says when the worst case is over 250 ms. Its floor is interval + lead + player buffer. These are calculated by the run
+  from its own timings and the player buffer it asked for. The delay at the speaker has not been measured: the run cannot see the sound server's own latency, the player's start-up offset or
+  audio waiting in the pipe (a pipe holds up to 64 KB, about 0.74 s at 22050 Hz in stereo). Errors, thermal trips and mask changes arrive with the `tt-smi` reading, about every 1.5 s,
+  and are outside the budget. The run does not change the interval to fit.
+* **Change thresholds and a minimum gap.** A phrase starts when a chip's temperature moves more than 0.5 C, power more than 3 W, voltage more than 0.01 V, aiclk more than 0.5 MHz, or a
+  GDDR temperature more than 0.5 C, or when the chip count, the GDDR channel count or an eviction phase changes. The clock and GDDR figures are whole units in `tt-smi`, so any step of one
+  counts. A change starts a phrase at most once a second (`MIN_GAP_S = 1.0`), and a change held back by the gap is heard when it passes. All of these are starting values to tune by ear.
+  They are not yet tuned: nobody has listened. On the four real chips the readings cross them often enough that a phrase starts about every second, so the gap applies most of the time: a
+  change is heard up to about 1 s plus the delay below after it happens. The session records how long the change it plays waited (`held_s`, from the first reading that crossed a threshold
+  to the reading that starts the phrase), and the `delay` line adds that to its worst case. Shortening the gap would hear a change sooner and restart the gong and the rolls more often
+  (next entry); that is the owner's choice and is not made here.
+* **Head and body.** The plan assumed short renders. Task 8 measured a 6 s phrase at 44.1 kHz at 0.85 to 1.0 s and a 1 s phrase at 0.2 s on the real chips, and the worst delay was 2.10 to
+  2.45 s. A change now plays from a 0.6 s head (`HEAD_S`) rendered on the loop, while the full phrase (short 1.0 s, long 6.0 s, `SHORT_PHRASE_S` and `LONG_PHRASE_S`) renders on a worker thread
+  and takes over at the same sample offset. The head is rendered 0.15 s past its crossfade (`HEAD_MARGIN_S`), because the last 50 ms of a short render differ from a longer render of the
+  same phrase (correlation 0.47 to 0.85 in that window for four of eight cases, 0.95 to 1.000 with the margin). The head and body join with an equal-gain crossfade: they correlate 0.98 to 1.0,
+  and an equal-power fade of correlated signals is up to 3 dB loud in the middle. Joins between phrases keep the equal-power fade, because the devices restart there. A body that is late is
+  replaced by the head's own continuation fading out, then silence, and it comes in when ready. The loop never waits. In a quiet stretch the next long phrase renders ahead once the playing one is half played.
+* **Rate and lead.** The default sample rate with `--interval` is 22050 Hz (44100 Hz without it), because a head renders in 73 to 88 ms there and 138 to 150 ms at 44100 Hz, longer than a 100 ms block.
+  The lead is 0.10 s at 22050 Hz and 0.18 s at 44100 Hz, with a straight line between. At 0.06 s paplay had 2 to 4 gaps of 20 to 30 ms every 5 s, because a head render was longer than the lead.
+  At 0.10 s there were none. A 0.10 s margin measured the same as 0.15 s. Players are asked for small buffers: `paplay --latency-msec=20`, `aplay --buffer-time`, `ffplay` low-delay flags.
+  `ffplay`'s buffer is an estimate of 100 ms and was not measured, which puts it over the budget. `--player auto` picks `paplay` first.
+* **Calculated by the run** (four real chips, read-only, `--interval 100`, 22050 Hz, `paplay` at 20 ms, 30 s): worst case 220 ms (100 interval + 100 lead + 20 buffer), typical 170 ms,
+  0 gaps in every 5 s report. These hold for a change that arrives when the last phrase started more than 1 s earlier; the runs were logged before the `delay` line counted the wait for the
+  gap. A change inside the gap is heard when the gap ends, so up to about 1 s plus that delay. The numbers come from the run's own timings and the player buffer it asked for, and the delay
+  at the speaker has not been measured. At 44100 Hz the head render outruns the block, the loop lengthens it to 200 ms, and the worst case is about 420 ms and the typical about 320 ms.
+  44100 Hz is over budget.
+* **When the block is lengthened, and when it comes back.** A head render at 22050 Hz takes 73 to 88 ms against a 100 ms block, so one stall from another process used to lengthen
+  the block to at least 0.15 s for the rest of the run. The loop now lengthens it only after three head renders in a row outrun it (`OVERRUNS_TO_LENGTHEN`; a render on the loop that
+  fits starts the count again), and returns to the interval asked for after 60 blocks in a row whose render fits that interval (`CALM_BLOCKS_TO_SHORTEN`). Each change is logged and
+  carries the eviction tracker, the held soloist, the gain and the EQ over. Two overruns still make two gaps. Both numbers are starting values.
+* **Eviction smoothing in seconds.** `music/evict.py` weights a power reading 0.5 when it comes at least 1 s after the chip's last one, and `1 - 0.5 ** dt` when closer. Live mode's readings
+  are seconds apart, so it is unchanged. A test feeds one power curve at 1 s and at 0.1 s spacing and gets the same eviction time.
+* **Rates over 0.5 s.** `Tracker(window_s=0.5, hold=True)` in fast mode (live mode keeps 2 s). `hold` carries the last measured rate on the readings between two measurements, because
+  a rate exists only on the reading where a window closes, and four in five readings would have said the chip was still.
+* **A new phrase restarts the rolls and the gong.** A new phrase is rendered from its own start, with a new segment number, as the Play tab's is, and a crossfade carries the old phrase's
+  continuation. So every device's clock restarts with it: the drones, shimmer, lead, choir, the quantus pitch, the levels and the mix follow the change, and the gong and the rolls start again
+  from their beginning. While the readings keep moving a phrase starts about once a second, so the gong and the rolls restart about once a second, and a 6 s phrase in a quiet stretch lets them
+  play out. The owner's wish is the opposite: in the Ciat-Lonbarde instruments the rolls are on their own schedule, and the rest of the system can influence them and be influenced by them only
+  through the links. A phrase that continues from a start offset (`ROADMAP.md`, items 3 and 7d) would deliver that, and it is the open design question of this feature.
+  * Measured (a computation, no hardware): `devices.strike_times(chip, 1.0, patch, segment)` for each chip of three sets (the parsed fixture `tests/fixtures/tt_smi_snapshot.json`,
+    `mock_telemetry(4, 0)` and `mock_telemetry(4, 3)`), segments 0 to 3, gives no gong strike in the first 1.0 s in 24 of 48 cases (50%) with the default patch, and in 305 of 576 (53%) with
+    the patches `draw_patch(seed, chips)` draws for seeds 0 to 11. The first strike over 6 s lands 0.27 to 2.29 s in with the default patch and 0.11 to 3.67 s in with the drawn ones. The
+    reviewer's first count (288 of 576) called `draw_patch` with its arguments the wrong way round, which raised and fell back to the default patch twelve times over.
+* **In fast mode the player runs in its own session.** `PlayerSink(own_session=True)`, which `make_sink` asks for whenever a small buffer is requested (`--interval`), starts `paplay`, `aplay` or `ffplay` with `start_new_session=True`. Plain `--live` leaves the player in Python's group, so a Ctrl-C stops it with Python and queued segments do not play out. In Python's process group a terminal Ctrl-C (or tt-toplike's
+  `send-keys C-c`) reached the player too; `paplay` exits at once on SIGINT, the tail written after it failed with a broken pipe, and the run ended with exit code 3, which kept the
+  synth pane open behind "Press Enter" and tt-toplike's pane with it. Now only Python gets the signal, and `close()` still waits for the player to finish. If a player does stop
+  after a Ctrl-C, fast mode logs it and still ends as stopped (exit 0).
+* **The soloist is held for the patch's turn length** (`turn_seconds`) and chosen the way live mode chooses it. A short phrase started by a change keeps the held soloist.
+* **`--with-tt-toplike` uses tmux, and a command line without abbreviations.** Each pane tags itself (`@tensixinet_role`), and when its program ends it closes or interrupts the pane tagged the other way
+  (tmux resolves `{right-of}` against the window's active pane, whichever pane ran the command). A reviewer found that an abbreviated `--with-tt` would not be stripped from the synth pane's command line and the
+  pane would start another session without end. The parser therefore has `allow_abbrev=False`, and a `TENSIXINET_IN_SESSION` variable in the synth pane refuses a nested start. Abbreviated flags
+  (`--dur 30`) now fail with "unrecognized arguments". Undoing it means restoring abbreviations and stripping the abbreviated forms from the synth command.
+
 ## MIDI out
 
 * **The events come from the code that makes the audio.** The lead and `ttrollz` used to compute their notes and pulses inside the render. They now build an event list

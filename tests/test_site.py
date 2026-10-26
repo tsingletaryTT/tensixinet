@@ -347,3 +347,25 @@ def test_the_app_section_describes_the_play_tab_with_its_screenshot_and_the_numb
     for text in ("Play tab", "flow chart", "memory error", "thermal trip", "load burst", "Load from the chips", f"{MAX_CHIPS} chips", f"{len(KNOB_RANGES)} sliders"):
         assert text in section, text
     assert "rhythm section" in section and "delay and echo" in section  # the modules a visitor can pick
+
+
+def test_the_live_scenario_names_the_fast_flags_and_the_delay_numbers_the_code_budgets_and_the_log_calculated():
+    """The 220 and 170 ms come from the run's own delay line (see CLAUDE.md, 2026-10-23); the interval, the budget, the gap and the rate are the
+    code's. The scenario's own text is checked, so a number elsewhere on the page cannot satisfy it."""
+    from tensixinet import cli, fast
+    from tensixinet.media import toplike
+    start = HTML.index("<b>The loop closes every turn.</b>")
+    scenario = HTML[start: HTML.index('"}', start)]
+    assert "<code>--interval 100</code>" in scenario and "<code>--with-tt-toplike</code>" in scenario
+    assert toplike.DEFAULT_INTERVAL_MS == 100
+    assert f"within {round(fast.DELAY_BUDGET_S * 1000)} ms" in scenario
+    # the 250 ms holds only for a change that comes after the minimum gap between phrases; one inside it waits for the gap to end
+    assert f"started more than {fast.MIN_GAP_S:g} s earlier" in scenario and f"up to about {fast.MIN_GAP_S:g} s later" in scenario
+    assert f"at {cli.FAST_SAMPLE_RATE} Hz" in scenario
+    # the lead, the interval and paplay's buffer add up to the worst case the run calculated
+    assert round((toplike.DEFAULT_INTERVAL_MS / 1000 + fast.LEAD_S_AT_22050 + fast.PLAYER_LATENCY_MS / 1000) * 1000) == 220
+    assert "220 ms" in scenario and "170 ms" in scenario
+    # the run calculates its delay from its own timings; nothing measured it at the speaker
+    assert "calculated" in scenario and "the delay at the speaker has not been measured" in scenario and "measured 220" not in scenario
+    assert "not yet heard by a person" in scenario  # the page must not claim a listening that has not happened
+    assert "tensixinet --live --with-tt-toplike" in HTML

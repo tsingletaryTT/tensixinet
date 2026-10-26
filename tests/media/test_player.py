@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Where live audio goes: a player process, a WAV file, or nowhere at the right speed."""
+import os
 import subprocess
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -17,6 +20,9 @@ from tensixinet.media.player import (
     find_player,
     pcm16,
     player_command,
+    player_buffer_ms,
+    FFPLAY_BUFFER_MS,
+    LATENCY_FLAGS,
 )
 
 SR = 8000
@@ -74,6 +80,38 @@ def test_closing_a_player_sink_waits_for_the_player_to_finish_playing(tmp_path):
     sink.write(np.zeros(100, dtype=np.float32))
     sink.close()
     assert marker.exists()
+
+
+def test_a_player_runs_in_a_session_of_its_own_so_a_terminal_ctrl_c_reaches_only_python():
+    sink = PlayerSink(["sh", "-c", "cat > /dev/null"], own_session=True)
+    try:
+        pid = sink._proc.pid
+        assert os.getsid(pid) == pid != os.getsid(0)  # its own session, so its own process group: the terminal's SIGINT is not sent to it
+    finally:
+        sink.close()
+
+
+def test_a_ctrl_c_to_the_whole_process_group_leaves_the_player_playing(tmp_path):
+    # A child Python starts a player, then sends SIGINT to its own process group, as a terminal's Ctrl-C does (or tmux's send-keys C-c). The
+    # player must still take the audio written after it and finish. The child runs in a session of its own, so the signal stays inside it.
+    out = tmp_path / "heard.raw"
+    script = (
+        "import os, signal, time, numpy as np\n"
+        "from tensixinet.media.player import PlayerSink\n"
+        f"sink = PlayerSink(['sh', '-c', 'cat > {out}'], own_session=True)\n"
+        "try:\n"
+        "    os.killpg(os.getpgrp(), signal.SIGINT)\n"
+        "    time.sleep(2)\n"
+        "except KeyboardInterrupt:\n"
+        "    pass\n"
+        "time.sleep(0.2)\n"
+        "sink.write(np.full(4, 0.5, dtype=np.float32))\n"
+        "sink.close()\n"
+    )
+    done = subprocess.run([sys.executable, "-c", script], start_new_session=True, capture_output=True, text=True, timeout=30,
+                          cwd=Path(__file__).resolve().parents[2])
+    assert done.returncode == 0, done.stderr
+    assert out.read_bytes() == pcm16(np.full(4, 0.5, dtype=np.float32))
 
 
 def test_a_player_that_exits_early_is_reported_not_ignored():
@@ -250,3 +288,84 @@ def test_make_sink_asks_the_player_and_the_wav_for_the_channels_it_was_given(tmp
     quiet.write(np.zeros((50, 2), dtype=np.float32))
     quiet.close()
     assert sf.read(str(tmp_path / "n.wav"))[0].shape == (50, 2)
+
+
+# --- a small player buffer for fast sampling ----------------------------------------------------------------------------------------
+# Checked on this box on 2026-10-23 with one second of zero bytes (head -c 176400 /dev/zero | player ...), 44100 Hz stereo:
+#   paplay ... --latency-msec=50                                  exit 0, no output
+#   aplay -q ... --buffer-time=50000                              exit 0, no output (a sound device was usable)
+#   ffplay ... -fflags nobuffer -flags low_delay -probesize 32 -analyzeduration 0   exit 0, no output
+# All three accepted the flags, so nothing was swapped for a nearer one.
+
+def test_each_player_gets_its_small_buffer_flag_when_a_latency_is_asked_for():
+    assert player_command("paplay", 44100, 2, latency_ms=50) == [
+        "paplay", "--raw", "--format=s16le", "--rate=44100", "--channels=2", "--latency-msec=50"]
+    assert player_command("aplay", 44100, 2, latency_ms=50) == [
+        "aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", "44100", "-c", "2", "--buffer-time=50000"]
+    assert player_command("ffplay", 44100, 2, latency_ms=50) == [
+        "ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet",
+        "-fflags", "nobuffer", "-flags", "low_delay", "-probesize", "32", "-analyzeduration", "0",
+        "-f", "s16le", "-ar", "44100", "-ac", "2", "-i", "pipe:0"]
+
+
+def test_aplay_takes_its_buffer_in_microseconds_so_other_latencies_scale_by_a_thousand():
+    assert player_command("aplay", 44100, latency_ms=120)[-1] == "--buffer-time=120000"
+    assert player_command("paplay", 44100, latency_ms=120)[-1] == "--latency-msec=120"
+
+
+def test_without_a_latency_every_command_line_is_the_old_one():
+    for name in ("paplay", "aplay", "ffplay"):
+        assert player_command(name, 44100, 2, latency_ms=None) == player_command(name, 44100, 2)
+    assert "--latency-msec" not in " ".join(player_command("paplay", 44100))
+    assert "nobuffer" not in player_command("ffplay", 44100)
+
+
+def test_latency_flags_document_every_player():
+    assert set(LATENCY_FLAGS) == {"paplay", "aplay", "ffplay"}
+
+
+def test_player_buffer_ms_says_what_the_delay_report_adds():
+    assert FFPLAY_BUFFER_MS == 100
+    assert player_buffer_ms("paplay", 50) == 50
+    assert player_buffer_ms("aplay", 75) == 75
+    assert player_buffer_ms("ffplay", 50) == 100
+    assert player_buffer_ms("ffplay", 300) == 100  # ffplay has no millisecond setting, so the stated constant is used
+
+
+def test_find_player_passes_the_latency_through():
+    cmd = find_player(44100, which=_installed("aplay"), channels=2, latency_ms=40)
+    assert cmd[-1] == "--buffer-time=40000"
+    assert find_player(44100, which=_installed("aplay"))[-1] == "1"  # no latency: the old line
+
+
+def test_make_sink_passes_the_latency_to_the_player_it_starts(tmp_path):
+    started = []
+    make_sink("paplay", SR, tmp_path / "a.wav", which=_installed("paplay"), start=lambda c, **kw: started.append(c) or FakePlayer(c), latency_ms=30)
+    make_sink("auto", SR, tmp_path / "b.wav", which=_installed("aplay"), start=lambda c, **kw: started.append(c) or FakePlayer(c), latency_ms=30)
+    make_sink("aplay", SR, tmp_path / "c.wav", which=_installed("aplay"), start=lambda c: started.append(c) or FakePlayer(c))
+    assert started[0][-1] == "--latency-msec=30"
+    assert started[1][-1] == "--buffer-time=30000"
+    assert started[2][-1] == "1"
+
+
+def test_a_player_shares_the_terminals_process_group_unless_it_is_given_a_session_of_its_own():
+    plain = PlayerSink(["sh", "-c", "cat > /dev/null"])
+    apart = PlayerSink(["sh", "-c", "cat > /dev/null"], own_session=True)
+    try:
+        assert os.getpgid(plain._proc.pid) == os.getpgid(0)
+        assert os.getpgid(apart._proc.pid) != os.getpgid(0)
+    finally:
+        plain.close()
+        apart.close()
+
+
+def test_make_sink_gives_the_player_its_own_session_only_when_a_small_buffer_is_asked_for(tmp_path):
+    seen = []
+
+    def start(command, **kwargs):
+        seen.append(kwargs)
+        return FakePlayer(command)
+
+    make_sink("paplay", SR, tmp_path / "a.wav", which=_installed("paplay"), start=start)
+    make_sink("paplay", SR, tmp_path / "b.wav", which=_installed("paplay"), start=start, latency_ms=20)
+    assert seen == [{}, {"own_session": True}]

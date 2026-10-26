@@ -1016,3 +1016,375 @@ def test_a_port_that_dies_is_one_log_line_and_the_run_still_ends_well(tmp_path):
     stopped = [e for e in read_events(tmp_path / "logs") if e["event"] == "midi" and "port stopped" in e["what"]]
     assert code == 0 and len(stopped) == 1 and "unplugged" in stopped[0]["what"]
     assert port.closed == 1
+
+
+# --- fast mode: --interval -------------------------------------------------------------------------------------------------------------------
+
+def fast(tmp_path, *extra, sample=None, sink=None, **kw):
+    """Run the CLI with --interval and a memory sink. Returns (exit code, the sink, the keyword arguments make_sink was given)."""
+    sink = sink or MemorySink()
+    asked = []
+    tmp_path.mkdir(exist_ok=True)
+
+    def make_sink(player, rate, out, channels=1, **options):
+        asked.append(dict(player=player, rate=rate, channels=channels, **options))
+        return sink, "a memory sink"
+
+    argv = ["--live", "--sample-rate", "8000", "--out", str(tmp_path / "o.wav"), "--log-dir", str(tmp_path / "logs"), "--no-banner", *extra]
+    if "--duration" not in extra:
+        argv += ["--duration", "1"]
+    if sample is None and "--mock-chips" not in extra:
+        argv += ["--mock-chips", "2"]
+    code = main(argv, sample=sample, make_sink=kw.pop("make_sink", make_sink), **kw)
+    return code, sink, asked
+
+
+@pytest.mark.parametrize("value", ["9", "1001", "0", "-5"])
+def test_an_interval_outside_10_to_1000_ms_is_a_parser_error_naming_the_range(tmp_path, capsys, value):
+    with pytest.raises(SystemExit) as e:
+        fast(tmp_path, "--interval", value)
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "--interval" in err and "10" in err and "1000" in err
+
+
+def test_the_interval_ends_of_the_range_are_allowed():
+    from tensixinet.cli import build_parser
+    assert build_parser().parse_args(["--interval", "10"]).interval == 10
+    assert build_parser().parse_args(["--interval", "1000"]).interval == 1000
+
+
+def test_an_interval_needs_live(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--interval", "100"))
+    assert e.value.code == 2 and "--interval needs --live" in capsys.readouterr().err
+
+
+def test_an_interval_is_refused_with_the_kernels(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        fast(tmp_path, "--interval", "100", "--kernels", "sim")
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "--kernels" in err and "hold the chips" in err and "render budget" in err
+
+
+def test_an_interval_with_mock_chips_plays_and_logs_the_interval(tmp_path):
+    code, sink, asked = fast(tmp_path, "--interval", "100", "--mock-chips", "4", "--player", "none")
+    assert code == 0 and sink.closed == 1 and sum(len(c) for c in sink.chunks) >= 8000
+    assert asked == [dict(player="none", rate=8000, channels=2, latency_ms=20)]  # the player is asked for a small buffer
+    ev = read_events(tmp_path / "logs")
+    assert any("100 ms" in e["what"] for e in ev)
+    assert any("synthetic" in e["what"] for e in ev)  # the note says where the readings come from
+    assert any(e["event"] == "discover" and "4 chips" in e["what"] for e in ev)
+
+
+def test_an_interval_with_a_mock_load_cycle_runs(tmp_path):
+    code, _, _ = fast(tmp_path, "--interval", "200", "--mock-chips", "2", "--mock-load", "40")
+    assert code == 0
+
+
+def test_an_interval_hands_the_flags_to_the_fast_loop(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    seen = {}
+
+    def fake(source, sink, log, sample_rate, interval_s, duration, patch, patch_source, **kw):
+        seen.update(source=source, rate=sample_rate, interval_s=interval_s, duration=duration, **kw)
+        return 0
+
+    monkeypatch.setattr(cli, "run_fast", fake)
+    monkeypatch.setattr(cli, "run_live", lambda *a, **k: pytest.fail("--interval must not call run_live"))
+    code, _, _ = fast(tmp_path, "--interval", "50", "--no-eq", "--no-cables", "--mono", "--no-evict", "--only", "gong", "--player", "aplay",
+                      "--duration", "0")
+    assert code == 0 and seen["interval_s"] == 0.05 and seen["duration"] is None and seen["rate"] == 8000
+    assert (seen["eq"], seen["cables"], seen["stereo"], seen["evict"], seen["only"], seen["normalise"]) == (False, False, False, False, ["gong"], True)
+    assert seen["player_name"] == "aplay" and seen["latency_ms"] == 20
+
+
+def test_without_an_interval_live_mode_is_run_live_as_before(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    monkeypatch.setattr(cli, "run_fast", lambda *a, **k: pytest.fail("no --interval, so no fast loop"))
+    code, _, asked = live(tmp_path)
+    assert code == 0 and asked and len(asked.channels) == 1
+
+
+def test_an_interval_on_real_chips_reads_through_the_fast_source_and_stops_it(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    made = []
+
+    class FakeFast:
+        def __init__(self, fetch=None, **kw):
+            self.fetch, self.started, self.stopped = fetch, 0, 0
+            self.fast, self.note = True, "Readings come from hwmon (2 chips), with tt-smi for the rest."
+            made.append(self)
+
+        def start(self):
+            self.started += 1
+
+        def stop(self):
+            self.stopped += 1
+
+        def sample(self):
+            return mock_telemetry(2)
+
+    monkeypatch.setattr(cli, "FastSource", FakeFast)
+    argv = ["--live", "--interval", "100", "--duration", "0.5", "--sample-rate", "8000", "--out", str(tmp_path / "o.wav"),
+            "--log-dir", str(tmp_path / "logs"), "--no-banner"]
+    code = main(argv, make_sink=lambda player, rate, out, channels=1, **o: (MemorySink(), "a memory sink"))
+    assert code == 0 and len(made) == 1 and made[0].started >= 1 and made[0].stopped >= 1
+    ev = read_events(tmp_path / "logs")
+    assert any("hwmon (2 chips)" in e["what"] for e in ev)
+
+
+def test_the_fast_source_is_stopped_when_the_player_cannot_start(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    made = []
+
+    class FakeFast:
+        fast, note = True, "Readings come from hwmon (2 chips), with tt-smi for the rest."
+
+        def __init__(self, fetch=None, **kw):
+            self.stopped = 0
+            made.append(self)
+
+        def start(self):
+            pass
+
+        def stop(self):
+            self.stopped += 1
+
+        def sample(self):
+            return mock_telemetry(2)
+
+    def make_sink(player, rate, out, channels=1, **options):
+        raise PlayerError("cannot start paplay: not installed")
+
+    monkeypatch.setattr(cli, "FastSource", FakeFast)
+    argv = ["--live", "--interval", "100", "--sample-rate", "8000", "--out", str(tmp_path / "o.wav"), "--log-dir", str(tmp_path / "logs"),
+            "--no-banner"]
+    assert main(argv, make_sink=make_sink) == 3 and made[0].stopped == 1  # its tt-smi thread does not outlive the run
+
+
+def test_ctrl_c_in_fast_mode_closes_the_wav_and_the_log(tmp_path, monkeypatch):
+    import time
+    import soundfile as sf
+    monkeypatch.setattr(time, "sleep", lambda s: None)  # the null sink would otherwise take as long as the music
+    calls = []
+
+    def sample():
+        calls.append(1)
+        if len(calls) == 8:
+            raise KeyboardInterrupt
+        return mock_telemetry(2)
+
+    argv = ["--live", "--interval", "100", "--player", "none", "--duration", "0", "--sample-rate", "8000",
+            "--out", str(tmp_path / "o.wav"), "--log-dir", str(tmp_path / "logs"), "--no-banner"]
+    assert main(argv, sample=sample) == 0
+    audio, rate = sf.read(str(tmp_path / "o.wav"))
+    assert rate == 8000 and len(audio) == 5 * 800 + 400  # five blocks (one read drew the patch, one began the run) and the tail
+    (txt,) = (tmp_path / "logs").glob("*.txt")
+    assert "Ctrl-C" in txt.read_text() and read_events(tmp_path / "logs")[-1]["event"] == "done"
+
+
+def test_a_player_gone_after_ctrl_c_in_fast_mode_still_exits_0_and_is_logged(tmp_path):
+    calls = []
+
+    def sample():
+        calls.append(1)
+        if len(calls) == 8:
+            raise KeyboardInterrupt
+        return mock_telemetry(2)
+
+    class GoneSink(MemorySink):
+        def write(self, audio):  # the player went with the Ctrl-C: the tail, written after it, finds the pipe broken
+            if len(self.chunks) >= 5:
+                raise PlayerError("paplay stopped before the audio was done")
+            super().write(audio)
+
+    sink = GoneSink()
+    code, _, _ = fast(tmp_path, "--interval", "100", "--duration", "0", sample=sample, sink=sink)
+    assert code == 0 and sink.closed == 1
+    assert any(e["event"] == "player" and "after Ctrl-C" in e["what"] for e in read_events(tmp_path / "logs"))
+
+
+def test_an_interval_under_100_ms_is_logged_at_the_100_ms_the_loop_runs(tmp_path):
+    code, _, _ = fast(tmp_path, "--interval", "10", "--mock-chips", "2", "--player", "none")
+    ev = read_events(tmp_path / "logs")
+    assert code == 0 and not any("every 10 ms" in e["what"] + e["why"] for e in ev)
+    # one line states the interval: fast mode's own, which says the interval was raised
+    (stated,) = [e for e in ev if e["event"] == "live" and "read every" in e["what"] + e["why"]]
+    assert stated["what"].startswith("fast mode") and "--interval 10 was raised to 100 ms, the shortest block" in stated["what"]
+
+
+def test_an_interval_of_100_ms_states_the_interval_once_and_the_mock_note_names_the_source(tmp_path):
+    fast(tmp_path, "--interval", "100", "--mock-chips", "2", "--player", "none")
+    ev = read_events(tmp_path / "logs")
+    stated = [e["what"] for e in ev if e["event"] == "live" and "every 100 ms" in e["what"] + e["why"]]  # the delay lines give it as a part
+    assert stated == ["fast mode: the chips are read every 100 ms, in blocks of 0.10 s"]
+    assert any(e["what"] == "The readings are synthetic (--mock-chips): no hardware is read." for e in ev)
+
+
+def _rate_seen(tmp_path, monkeypatch, *argv):
+    """The sample rate the CLI hands to whichever runner it picks (run_fast, run_live or run), and the event log."""
+    import tensixinet.cli as cli
+    seen = []
+    monkeypatch.setattr(cli, "run_fast", lambda source, sink, log, rate, *a, **k: seen.append(("fast", rate)) or 0)
+    monkeypatch.setattr(cli, "run_live", lambda sample, sink, log, rate, **k: seen.append(("live", rate)))
+    monkeypatch.setattr(cli, "run", lambda chips, duration, out, log, rate, **k: seen.append(("run", rate)))
+    rates = []
+
+    def make_sink(player, rate, out, channels=1, **options):
+        rates.append(rate)
+        return MemorySink(), "a memory sink"
+
+    tmp_path.mkdir(exist_ok=True)
+    full = ["--out", str(tmp_path / "o.wav"), "--log-dir", str(tmp_path / "logs"), "--no-banner", "--mock-chips", "2", "--duration", "1", *argv]
+    assert main(full, make_sink=make_sink) == 0
+    ev = read_events(tmp_path / "logs")
+    for f in (tmp_path / "logs").iterdir():
+        f.unlink()
+    return seen, rates, ev
+
+
+def test_fast_mode_plays_at_22050_hz_unless_a_rate_is_given_and_says_which_and_why(tmp_path, monkeypatch):
+    seen, rates, ev = _rate_seen(tmp_path, monkeypatch, "--live", "--interval", "100")
+    assert seen == [("fast", 22050)] and rates == [22050]
+    (line,) = [e for e in ev if e["event"] == "live" and "a memory sink" in e["what"]]
+    assert "22050 Hz" in line["why"] and "--sample-rate" in line["why"]
+    seen, rates, ev = _rate_seen(tmp_path, monkeypatch, "--live", "--interval", "100", "--sample-rate", "44100")
+    assert seen == [("fast", 44100)] and rates == [44100]  # a rate given on the command line wins
+    (line,) = [e for e in ev if e["event"] == "live" and "a memory sink" in e["what"]]
+    assert "44100 Hz" in line["why"] and "as --sample-rate asked" in line["why"]
+
+
+def test_without_an_interval_the_sample_rate_is_still_44100(tmp_path, monkeypatch):
+    seen, rates, _ = _rate_seen(tmp_path, monkeypatch, "--live")
+    assert seen == [("live", 44100)] and rates == [44100]
+    seen, rates, _ = _rate_seen(tmp_path, monkeypatch)
+    assert seen == [("run", 44100)] and rates == []
+    seen, _, _ = _rate_seen(tmp_path, monkeypatch, "--live", "--sample-rate", "8000")
+    assert seen == [("live", 8000)]
+
+
+# --- --with-tt-toplike -----------------------------------------------------------------------------------------------------------------------
+
+def toplike(tmp_path, *extra, which=None, exists=False, monkeypatch=None):
+    """Run the CLI with --with-tt-toplike and a fake tmux. Returns (exit code, the tmux commands that ran)."""
+    ran = []
+
+    def tmux_run(cmd, **kw):
+        ran.append(cmd)
+        return 0 if (cmd[1] == "has-session" and exists) else (1 if cmd[1] == "has-session" else 0)
+
+    code = main(["--live", "--with-tt-toplike", "--log-dir", str(tmp_path / "logs"), *extra],
+                which=which or (lambda name: f"/bin/{name}"), tmux_run=tmux_run)
+    return code, ran
+
+
+def test_with_tt_toplike_builds_the_session_and_returns_the_attach_code(tmp_path, monkeypatch):
+    monkeypatch.delenv("TMUX", raising=False)
+    code, ran = toplike(tmp_path, "--player", "none")
+    verbs = [c[1] for c in ran]
+    assert code == 0 and verbs == ["has-session", "new-session", "split-window", "set-option", "attach-session"]
+    assert not (tmp_path / "logs").exists()  # the panes make the log; this process read no chips and wrote nothing
+    assert "--interval 100" in ran[1][-1] and "--interval 100" in ran[2][-1]
+    assert "--with-tt-toplike" not in ran[1][-1] and "--player none" in ran[1][-1]
+
+
+def test_with_tt_toplike_uses_the_interval_and_toplike_args_it_was_given(tmp_path, monkeypatch):
+    monkeypatch.delenv("TMUX", raising=False)
+    _, ran = toplike(tmp_path, "--interval", "40", "--toplike-args", "--mode arcade")
+    assert "--interval 40" in ran[1][-1] and "--interval 40" in ran[2][-1] and "--mode arcade" in ran[2][-1]
+    assert "--toplike-args" not in ran[1][-1] and "arcade" not in ran[1][-1]
+
+
+def test_a_new_session_takes_the_size_of_the_terminal_it_will_be_attached_to(tmp_path, monkeypatch):
+    import os
+    import shutil
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.setattr(shutil, "get_terminal_size", lambda *a, **k: os.terminal_size((132, 41)))
+    _, ran = toplike(tmp_path)
+    new = ran[1]
+    assert new[1] == "new-session" and new[new.index("-x") + 1] == "132" and new[new.index("-y") + 1] == "41"
+    monkeypatch.setenv("TMUX", "/tmp/tmux-1/default,1,0")  # inside tmux the current window is split, and it has its own size
+    _, ran = toplike(tmp_path)
+    assert all("-x" not in c for c in ran)
+
+
+@pytest.mark.parametrize("extra,words", [
+    (["--only", "nosuch"], "--only: unknown device nosuch"),
+    (["--style", "blues", "--patch", "p.json"], "--style draws a new patch"),
+    (["--mock-load", "30"], "--mock-load needs --mock-chips"),
+])
+def test_the_ordinary_argument_checks_run_before_a_session_is_built(tmp_path, capsys, monkeypatch, extra, words):
+    # otherwise the error would first show inside the synth pane, behind "Press Enter"
+    monkeypatch.delenv("TMUX", raising=False)
+    ran = []
+    with pytest.raises(SystemExit) as e:
+        main(["--live", "--with-tt-toplike", "--log-dir", str(tmp_path / "logs"), *extra], which=lambda n: f"/bin/{n}",
+             tmux_run=lambda c, **k: ran.append(c) or 1)
+    assert e.value.code == 2 and words in capsys.readouterr().err and ran == []
+
+
+def test_inside_tmux_it_splits_without_checking_for_a_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("TMUX", "/tmp/tmux-1/default,1,0")
+    _, ran = toplike(tmp_path, exists=True)  # a session of that name is no obstacle here
+    assert [c[1] for c in ran] == ["split-window", "split-window", "set-option"]
+
+
+@pytest.mark.parametrize("extra,which,exists,words", [
+    ([], lambda n: "/bin/tt-toplike" if n == "tt-toplike" else None, False, "tmux"),
+    ([], lambda n: "/bin/tmux" if n == "tmux" else None, False, "tt-toplike"),
+    (["--mock-chips", "2"], None, False, "different chips"),
+    (["--kernels", "host"], None, False, "--kernels"),
+    ([], None, True, "tensixinet"),
+])
+def test_each_refusal_is_a_parser_error_with_a_sentence(tmp_path, capsys, monkeypatch, extra, which, exists, words):
+    monkeypatch.delenv("TMUX", raising=False)
+    with pytest.raises(SystemExit) as e:
+        toplike(tmp_path, *extra, which=which, exists=exists)
+    assert e.value.code == 2 and words in capsys.readouterr().err
+
+
+def test_an_existing_session_message_says_how_to_end_it(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv("TMUX", raising=False)
+    with pytest.raises(SystemExit):
+        toplike(tmp_path, exists=True)
+    assert "tmux kill-session -t tensixinet" in capsys.readouterr().err
+
+
+def test_with_tt_toplike_needs_live(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(["--with-tt-toplike", "--log-dir", str(tmp_path)], which=lambda n: "/bin/x", tmux_run=lambda *a, **k: 0)
+    assert e.value.code == 2 and "--with-tt-toplike needs --live" in capsys.readouterr().err
+
+
+def test_toplike_args_without_the_flag_are_refused(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(["--live", "--toplike-args", "--mode arcade", "--mock-chips", "2"])
+    assert e.value.code == 2 and "--toplike-args needs --with-tt-toplike" in capsys.readouterr().err
+
+
+def test_an_abbreviated_flag_is_an_unknown_argument(capsys):
+    # --with-tt used to parse as --with-tt-toplike, and the synth pane (which strips only the full spelling) would start sessions without end
+    from tensixinet.cli import build_parser
+    for flag in ("--with-tt", "--toplike-a", "--inter"):
+        with pytest.raises(SystemExit) as e:
+            build_parser().parse_args(["--live", flag, "5"])
+        assert e.value.code == 2
+    assert "unrecognized" in capsys.readouterr().err
+
+
+def test_with_tt_toplike_inside_its_own_session_is_refused(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("TENSIXINET_IN_SESSION", "1")
+    monkeypatch.setenv("TMUX", "/tmp/tmux-1/default,1,0")
+    ran = []
+    with pytest.raises(SystemExit) as e:
+        main(["--live", "--with-tt-toplike"], which=lambda n: "/bin/x", tmux_run=lambda c, **k: ran.append(c) or 0)
+    assert e.value.code == 2 and ran == []
+    assert "started inside its own session; it cannot start another" in capsys.readouterr().err
+
+
+def test_the_session_commands_use_the_found_toplike_path_and_the_callers_path(tmp_path, monkeypatch):
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.setenv("PATH", "/caller/bin")
+    _, ran = toplike(tmp_path, which=lambda n: f"/found/{n}")
+    assert "/found/tt-toplike --interval 100" in ran[2][-1]
+    assert "PATH=/caller/bin" in ran[1] and "TENSIXINET_IN_SESSION=1" in ran[1]

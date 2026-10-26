@@ -14,7 +14,8 @@ Everything else goes to the command line unchanged, so `./tensixinet.py --mock-c
 What it adds to the command line:
   * It finds a Python that has numpy and soundfile. If the one running it does not, it makes `.venv` in this
     folder and installs the repo there once, then runs in it.
-  * With no `tt-smi` on the PATH and no chosen source, it plays four synthetic chips and says so.
+  * With no `tt-smi` on the PATH and no chosen source, it plays four synthetic chips and says so (not with
+    `--with-tt-toplike`, which needs the real chips; it says that instead).
   * `--live` with no `--duration` plays until Ctrl-C (the command line's own default is 60 s).
 """
 from __future__ import annotations
@@ -51,7 +52,10 @@ def with_defaults(args, tt_smi):
         return args, notes
     if "--live" in args and not _has(args, "--duration"):
         args += ["--duration", "0"]
-    if not tt_smi and not _has(args, "--mock-chips") and not _has(args, "--patch"):
+    if not tt_smi and "--with-tt-toplike" in args:
+        # tt-toplike shows the real chips, so synthetic ones would be refused for a flag the user never typed
+        notes.append("--with-tt-toplike needs the real chips; tt-smi was not found")
+    elif not tt_smi and not _has(args, "--mock-chips") and not _has(args, "--patch"):
         args += ["--mock-chips", SYNTHETIC_CHIPS]
         notes.append(f"no tt-smi on the PATH: playing {SYNTHETIC_CHIPS} synthetic chips (--mock-chips)")
     return args, notes

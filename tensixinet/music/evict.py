@@ -33,7 +33,8 @@ LOAD_SURGE_FACTOR = 1.5  # power this many times the learned rest counts as a lo
 RUN_TDP_FRACTION = 0.30  # or this share of the board's TDP limit when no rest has been seen (tt-toplike's RUN_TDP_FRACTION)
 EVICT_MARGIN = 1.2  # a chip is back at rest when power is at most this many times its rest ...
 POWER_IDLE_W = 8.0  # ... and never counts as unloaded above this many watts of floor
-EMA_ALPHA = 0.5  # how far each reading moves the smoothed power (tt-toplike smooths per frame; a reading is seconds apart here)
+EMA_ALPHA = 0.5  # how far a reading moves the smoothed power when it comes EMA_FULL_STEP_S or more after the one before (live mode: 2 s or more)
+EMA_FULL_STEP_S = 1.0  # a closer reading moves it by 1 - 0.5 ** gap instead, so the smoothing takes the same seconds however often chips are read
 RAN_LONG_ENOUGH_S = 10.0  # a chip must have been running this long before it can evict
 STABLE_BAND = 0.10  # rest is learned only from readings within this share of the smoothed power, not from the edge of a fall
 EVICT_SECONDS = 8.0  # the dissolve of the slowest voice
@@ -88,6 +89,7 @@ class _Chip:
         self.idle = 0.0  # learned rest; 0 means none seen yet
         self.saw_load = False
         self.peak = 0.0
+        self.last_reading: Optional[float] = None  # when the previous reading came, to weigh the next one by the gap
 
 
 class EvictTracker:
@@ -109,7 +111,13 @@ class EvictTracker:
 
     def _step(self, index: int, c: _Chip, r: Telemetry, now: float) -> ChipDefrag:
         p = float(r.power)
-        c.ema = p if c.ema is None else (1.0 - EMA_ALPHA) * c.ema + EMA_ALPHA * p
+        if c.ema is None or c.last_reading is None:
+            c.ema = p
+        else:
+            gap = now - c.last_reading
+            alpha = EMA_ALPHA if gap >= EMA_FULL_STEP_S else 1.0 - 0.5 ** max(gap, 0.0)
+            c.ema = (1.0 - alpha) * c.ema + alpha * p
+        c.last_reading = now
         tdp = r.tdp_limit if r.tdp_limit and r.tdp_limit > 0 else None
         by_tdp = bool(tdp and c.ema > tdp * RUN_TDP_FRACTION)
         if not by_tdp and abs(p - c.ema) <= STABLE_BAND * max(c.ema, 1.0):  # a steady reading at rest: the baseline is a running minimum

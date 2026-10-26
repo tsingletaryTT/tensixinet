@@ -58,6 +58,8 @@ tensixinet --duration 60                                  # reads your chips wit
 tensixinet "describe a hardware synth" --duration 60      # prompt a local model first
 tensixinet --patch logs/patch_20261017_120000.json        # replay an earlier run's choices exactly
 tensixinet --live --duration 120                          # play as it goes, reading the chips every turn
+tensixinet --live --interval 100                          # read the chips every 100 ms; how soon a change is heard is under "Fast sampling"
+tensixinet --live --with-tt-toplike                       # tmux: the synth and tt-toplike side by side, reading at the same rate
 ```
 
 Reading telemetry does not open the chips. `tt-smi -s` is read-only, so none of this needs a lease on a shared
@@ -178,6 +180,56 @@ records what was played. `--player none` keeps time with no sound. `--duration 0
 telemetry only, so like the offline run it needs no lease. The limits are in [docs/DECISIONS.md](docs/DECISIONS.md):
 each turn restarts the devices' clocks, so a ringing gong fades at the end of its turn.
 
+### Fast sampling: `--interval`
+
+`--live --interval MS` reads the chips every MS milliseconds (10 to 1000, as in tt-toplike) and plays a change soon after it happens. A change that
+arrives when the last phrase started more than 1 s earlier is heard within about a quarter second. A change that arrives inside that second is
+heard when the second ends, so up to about 1 s later. Without `--interval` live mode is as described above.
+
+* **Where the readings come from.** Temperature, power, voltage and current are read from the chips' Linux hwmon files, which take well under a
+  millisecond. `tt-smi -s` runs on a background thread about every 1.5 s and fills in the slow fields (clocks, GDDR temperatures, errors, thermal
+  trips, masks). The two are matched by PCI bus address. A hung `tt-smi` does not stop the sound. If hwmon is missing or cannot be matched, the run
+  continues at `tt-smi`'s pace and the log says so and makes no quarter-second claim. A chip whose hwmon reads start failing (after a reset, for
+  example) is logged; after ten failures in a row the chips are searched for again, and until the chip reads again its values come from `tt-smi`.
+* **How it plays.** Each block (the interval, but at least 100 ms) reads the latest values. A move past a threshold starts a 1 s phrase, rendered
+  first as a 0.6 s head that plays at once while the rest renders in the background. A change starts a phrase at most once a second, and a change
+  that lands inside that second waits for it to end. On the four real chips the readings cross the thresholds often enough that a phrase starts
+  about every second, so most changes wait. A new phrase restarts every device's clock, the gong and the rolls included. While the readings keep
+  moving, the gong and the rolls therefore restart about once a second, and in about half of the chip and patch draws the gong has no strike in its
+  first second. A quiet stretch plays 6 s phrases, which let them play out. Keeping the rolls on their own schedule needs a phrase that continues
+  from where the last one was (`docs/ROADMAP.md`, item 7d). Errors, thermal trips and mask changes arrive with the `tt-smi` reading, about every
+  1.5 s, and are outside the quarter-second budget.
+* **Sample rate.** The default with `--interval` is 22050 Hz, because a head renders in about 75 to 90 ms at that rate and a block is 100 ms.
+  `--sample-rate 44100` gives the fuller rate and misses the budget.
+* **The log reports its own delay.** Every 5 s a `delay` line gives the worst delay since the last report (the interval, plus render time, queued
+  audio, the player's buffer and any wait for the one-second gap between phrases) and the typical one, and says when it is over 250 ms. The run
+  calculates these from its own timings and the player buffer it asked for. The delay at the speaker has not been measured: the run cannot see the
+  sound server's own latency or audio waiting in the pipe to the player. `paplay` is asked for a 20 ms buffer. `--player auto` picks `paplay`
+  first. `ffplay`'s buffer is an estimate (100 ms) and puts the delay over the budget.
+* **Calculated by the run** (four real chips, read-only, `--interval 100`, 22050 Hz, `paplay`): worst case 220 ms and typical 170 ms for a change
+  that arrives when the last phrase started more than 1 s earlier, and no gaps in the sound over 30 s. These runs were logged before the `delay` line
+  counted the wait for the gap. A change inside the gap is heard when it ends, so up to about 1 s plus that delay. At 44100 Hz the worst case was
+  about 420 ms and the typical about 320 ms. None of it has been heard by a person.
+* `--interval` needs `--live` and cannot be used with `--kernels`. With `--mock-chips` the synthetic chips are read at the same rate. In fast mode
+  `--only` turns eviction off, and the log says so. Live mode without `--interval` still follows and logs evictions with `--only`, and the soloed
+  devices do not fade.
+
+### Side by side with tt-toplike: `--with-tt-toplike`
+
+```bash
+tensixinet --live --with-tt-toplike                          # both read every 100 ms
+tensixinet --live --with-tt-toplike --interval 50 --toplike-args "--mode arcade"
+```
+
+This starts a tmux session named `tensixinet` with the synth in the left pane and tt-toplike in the right, both at the same `--interval` (100 ms when it
+is not given). Inside tmux it splits the current window and leaves your own pane. Ctrl-C in the synth pane ends both, and so does quitting tt-toplike.
+If the synth ends with an error, its pane waits for Enter so the message can be read. `--toplike-args` passes extra arguments to tt-toplike as one quoted
+string. It needs `--live`, tmux and tt-toplike on the PATH, and is refused with `--mock-chips` or `--kernels`. Nothing here opens `/dev/tenstorrent/*`,
+so it needs no gozer lease.
+
+**The command line no longer accepts abbreviated flags** (`--dur 30` was `--duration 30`). An abbreviated `--with-tt-toplike` would start sessions
+without end, because the synth pane would start another. A `TENSIXINET_IN_SESSION` variable also stops a synth pane from starting a session.
+
 ## The Cocoquantus as an effects unit
 
 Beyond its own voices (`ttquantus` and `ttcoco`), the Cocoquantus takes the rest of the band as its audio input, as the real one does: each chip's voices are sent through four
@@ -266,11 +318,14 @@ register. The first prototype read those bytes as independent sensors and lost h
 |---|---|
 | `PROMPT` | Send this to the language model first, so its load is on the chips when they are read |
 | `--duration SECONDS` | Length of the audio (default 60). With `--live`, 0 plays until Ctrl-C |
-| `--sample-rate HZ` | Default 44100. Use 96000 for more ultrasonic headroom |
+| `--sample-rate HZ` | Default 44100 (22050 with `--interval`). Use 96000 for more ultrasonic headroom |
 | `--mock-chips N` | Play N synthetic chips and read no hardware. `--seed` varies them |
 | `--mock-faults` | With `--mock-chips`, give some chips memory errors and thermal trips so the event sounds play |
 | `--patch FILE` / `--patch-seed N` | Replay a saved patch, or draw from a fixed seed |
 | `--live` | Read the chips every turn and play as it goes (see [Live mode](#live-mode)) |
+| `--interval MS` | With `--live`: read the chips every MS ms, 10 to 1000 (blocks are at least 100 ms). See [Fast sampling](#fast-sampling---interval) |
+| `--with-tt-toplike` | With `--live`: start a tmux session with the synth and tt-toplike at the same `--interval` (100 ms by default) |
+| `--toplike-args ARGS` | With `--with-tt-toplike`: extra arguments for tt-toplike, as one quoted string |
 | `--player NAME` | With `--live`: `auto` (the default), `none`, `paplay`, `aplay` or `ffplay` |
 | `--only DEVICES` | Audition: play only these devices (comma separated, for example `--only ttchoir,ttavdog`). The others are silent and there is no turn-taking, so you hear each device as it is |
 | `--kernels [MODE]` | Run the devices that have TT-Lang kernels (the gong, shimmer, drone ripple, AVDog, ttcoco mix and the mixer) on chips. `chip` (the default when no mode is given) takes a gozer lease on one board, `chips` on as many chips as the run plays with each chip's devices on that chip, `host` runs the same kernels' formulas in numpy with no chip, `sim` runs the kernels themselves in the TT-Lang simulator (needs `tt-lang-sim`; set `TT_LANG_SIM` if it is not on the path). The rest of the band stays on the CPU. See [kernels/README.md](kernels/README.md) |
@@ -312,12 +367,13 @@ If the endpoint is down, the music still plays and the log says so.
 
 | Folder | Job |
 |---|---|
-| `tensixinet/telemetry/` | `tt-smi -s` parsing for any chip count, and synthetic chips |
+| `tensixinet/telemetry/` | `tt-smi -s` parsing for any chip count, hwmon readings, the fast source that merges the two, and synthetic chips |
 | `tensixinet/music/` | The mapping table, the eleven devices, patches, turn-taking, the mixer, and live mode's segment joins |
 | `tensixinet/score/` | The notes, triggers and controls the devices play, as data, the MIDI file and live port they go to, and the VCV Rack voice patch in `vcv/` ([docs/MIDI.md](docs/MIDI.md)) |
 | `tensixinet/live.py` | The live loop: read, render a turn, play it while the next is made |
+| `tensixinet/fast.py` | The fast loop for `--interval`: read hwmon every block, play phrases from the Play tab's engine, report the delay |
 | `tensixinet/narrate/` | The what-and-why log |
-| `tensixinet/media/` | The language model client, the ffmpeg soundtrack step, and the players live mode sends sound to |
+| `tensixinet/media/` | The language model client, the ffmpeg soundtrack step, and the players live mode sends sound to, and the tmux session for `--with-tt-toplike` |
 | `tests/` | One test file per module, in a folder that matches the module's |
 | `demo/` | The [tt-demo-maker](https://github.com/tsingletaryTT/tt-demo-maker) manifest and scripts that record the video |
 | `docs/` | [Architecture](docs/ARCHITECTURE.md), [sound design](docs/SOUND.md), [what the instrument guides say](docs/CIRCUITS.md), [decisions](docs/DECISIONS.md), [contributing](docs/CONTRIBUTING.md), [roadmap](docs/ROADMAP.md), [MIDI out](docs/MIDI.md) |
@@ -326,8 +382,11 @@ If the endpoint is down, the music still plays and the log says so.
 ## Tested without hardware
 
 ```bash
-make test        # about 14 s: 1080+ tests, no Tenstorrent packages, no chips
+make test        # about 90 s, no Tenstorrent packages, no chips
 ```
+
+Some tests skip when what they need is missing: the simulator tests skip without `TT_LANG_SIM`, the `tt-smi` comparison test skips without
+`tt_smi.utils`, and the app's tests skip without Gradio (`.venv-app/bin/python -m pytest` runs them).
 
 The tests are written first, then the code is broken on purpose (swap a `min` for a `max`, drop a term, stop
 passing a value down) to check that a test goes red. Every mutant that survived got a new test. A hygiene test

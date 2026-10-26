@@ -4,17 +4,21 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from .kernels.backend import KERNEL_DEVICES, KernelBackend
+from .fast import PLAYER_LATENCY_MS, SampledSource, run_fast
 from .live import run_live
 from .media.chip import ChipError, ChipWorker, chip_command, host_command, simulator_command
 from .music.chorus import chip_devices, device_names
 from .media import llm
+from .media import toplike
 from .media.player import PLAYERS, PlayerError, make_sink as default_make_sink
 from .music.patch import DEFAULT_PATCH, draw_patch, load_patch, save_patch, seed_from_telemetry
 from .music.styles import STYLES, draw_styled_patch
@@ -24,6 +28,7 @@ from .score.sinks import MidiFileSink, MidiPortError, MidiPortSink, TeeScoreSink
 from .narrate.color import Palette, banner, detect, legend
 from .narrate.runlog import RunLog
 from .telemetry import fetch_snapshot, host_fingerprint, mock_telemetry, parse_snapshot
+from .telemetry.fast import FastSource
 
 
 
@@ -35,12 +40,26 @@ def _positive_int(text: str) -> int:
     return n
 
 
+INTERVAL_MS = (10, 1000)  # --interval's range, as tt-toplike's
+DEFAULT_SAMPLE_RATE = 44100  # --sample-rate when it is not given
+FAST_SAMPLE_RATE = 22050  # --sample-rate when it is not given with --interval: the Play tab's rate; the EQ already falls from 8 kHz
+
+
+def _interval_ms(text: str) -> int:
+    n = int(text)
+    if not INTERVAL_MS[0] <= n <= INTERVAL_MS[1]:
+        raise argparse.ArgumentTypeError(f"must be between {INTERVAL_MS[0]} and {INTERVAL_MS[1]} ms, got {n}")
+    return n
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="tensixinet", description="Play your Tenstorrent chips as a chorus.")
+    # No abbreviations: `--with-tt` must not stand for `--with-tt-toplike`, because the synth pane's flags are rebuilt from the full spellings.
+    p = argparse.ArgumentParser(prog="tensixinet", description="Play your Tenstorrent chips as a chorus.", allow_abbrev=False)
     p.add_argument("prompt", nargs="?", help="send this to the LLM first, so its load shows up in the telemetry")
     p.add_argument("--duration", type=float, default=60.0,
                    help="seconds of audio (default 60; with --live, 0 plays until Ctrl-C)")
-    p.add_argument("--sample-rate", type=int, default=44100)
+    p.add_argument("--sample-rate", type=int, default=None,
+                   help=f"samples a second (default {DEFAULT_SAMPLE_RATE}; with --interval, {FAST_SAMPLE_RATE}, which renders in half the time)")
     p.add_argument("--out", help="WAV path (default audio/tensixinet_<time>.wav)")
     p.add_argument("--log-dir", default="logs", help="where the run log goes (default logs/)")
     p.add_argument("--mock-chips", type=_positive_int, metavar="N", help="play N synthetic chips; reads no hardware")
@@ -97,6 +116,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="with --midi-port, send every message this many milliseconds later (negative: earlier) to line it up with the sound")
     p.add_argument("--midi-map", metavar="FILE",
                    help="a JSON file that changes the MIDI routes (channels, drum notes, controller numbers); needs --midi-file or --midi-port")
+    p.add_argument("--interval", type=_interval_ms, metavar="MS",
+                   help="with --live: read the chips every MS milliseconds (10 to 1000) and play a change soon after it (the calculated delay is "
+                        "220 ms at the worst when the last phrase began over a second earlier; a change inside that second waits for it; a block "
+                        "is the interval, at least 100 ms). Temperature, power, voltage and current come from hwmon; tt-smi fills the "
+                        "other fields about every 1.5 s. Every 5 s the log reports the delay the run calculates from its own timings. Without it, live mode reads the "
+                        "chips once a turn")
+    p.add_argument("--with-tt-toplike", action="store_true",
+                   help="with --live: start a tmux session with two panes, this synth on the left and tt-toplike on the right, both "
+                        "reading the chips at the same --interval (100 ms when --interval is not given). Inside tmux it splits the "
+                        "current window instead. Ctrl-C in the synth pane ends both; so does quitting tt-toplike. Refused with "
+                        "--mock-chips and --kernels")
+    p.add_argument("--toplike-args", metavar="ARGS",
+                   help='with --with-tt-toplike: extra arguments for tt-toplike, as one quoted string (for example "--mode arcade")')
     p.add_argument("--no-banner", action="store_true", help="start with the first log line instead of the art and the colour legend")
     p.add_argument("--endpoint", default="http://127.0.0.1:8011", help="OpenAI-compatible LLM endpoint")
     p.add_argument("--model", help="model name (default: whatever the endpoint serves)")
@@ -109,18 +141,33 @@ def default_make_worker(mode: str, chips: int = 1) -> ChipWorker:
     return ChipWorker(command, devices=chips)
 
 
-def main(
-    argv: Optional[Sequence[str]] = None,
-    ask: Optional[Callable] = None,
-    sample: Optional[Callable] = None,
-    entropy: Optional[Callable] = None,
-    make_sink: Optional[Callable] = None,
-    make_worker: Optional[Callable] = None,
-    clock: Optional[Callable[[], float]] = None,
-    open_midi: Optional[Callable] = None,
-) -> int:
-    parser = build_parser()
-    a = parser.parse_args(argv)
+def _with_toplike(parser, a, raw_argv, which, run) -> int:
+    """`--with-tt-toplike`: refuse what cannot work, then run tmux. This process reads no chips and writes no log; the panes do."""
+    if os.environ.get(toplike.IN_SESSION):
+        parser.error("--with-tt-toplike was started inside its own session; it cannot start another")
+    if not a.live:
+        parser.error("--with-tt-toplike needs --live: tt-toplike shows the chips as they are now, so the synth has to follow them")
+    if a.mock_chips:
+        parser.error("--with-tt-toplike cannot be used with --mock-chips: the two would show different chips (tt-toplike the real ones, the synth the synthetic ones)")
+    if a.kernels:
+        parser.error("--with-tt-toplike cannot be used with --kernels: the kernels hold the chips, and tt-toplike and the fast sampler read them")
+    missing = toplike.check_available(which)
+    if missing:
+        parser.error(missing)
+    inside_tmux = bool(os.environ.get("TMUX"))
+    if not inside_tmux and toplike.session_exists(toplike.SESSION, run):
+        parser.error(f"a tmux session named {toplike.SESSION} is already running; end it with `tmux kill-session -t {toplike.SESSION}`, "
+                     f"or attach to it with `tmux attach -t {toplike.SESSION}`")
+    interval = a.interval if a.interval is not None else toplike.DEFAULT_INTERVAL_MS
+    # A detached session starts at tmux's 80x24 and the synth sizes its log to that; give it the terminal it will be attached to.
+    size = None if inside_tmux else tuple(shutil.get_terminal_size())
+    commands = toplike.build_session(raw_argv, interval, toplike.split_toplike_args(a.toplike_args), inside_tmux=inside_tmux,
+                                     cwd=os.getcwd(), environ=os.environ, toplike_path=which("tt-toplike"), size=size)
+    return toplike.run_session(commands, run)
+
+
+def _check_arguments(parser, a) -> tuple:
+    """The checks every run makes of its arguments (a parser error for each problem). Returns the `--only` device list (or None) and the MIDI routes."""
     only = None
     if a.only:
         only = [name.strip() for name in a.only.split(",") if name.strip()]
@@ -136,6 +183,11 @@ def main(
             parser.error("--mock-load needs --live: a load cycle plays out over time, and an offline run reads the chips once")
         if a.mock_load <= 0:
             parser.error("--mock-load needs a positive number of seconds")
+    if a.interval is not None:
+        if not a.live:
+            parser.error("--interval needs --live: it sets how often a live run reads the chips")
+        if a.kernels:
+            parser.error("--interval cannot be used with --kernels: the kernels hold the chips and the render budget is too small")
     routes = DEFAULT_ROUTES
     if a.midi_map:
         if not a.midi_file and not a.midi_port:
@@ -152,6 +204,32 @@ def main(
         parser.error("--midi-port needs --live: an offline run is written to a file (--midi-file)")
     if a.midi_offset_ms and not a.midi_port:
         parser.error("--midi-offset-ms needs --midi-port: it only shifts what goes to a live port")
+    return only, routes
+
+
+def main(
+    argv: Optional[Sequence[str]] = None,
+    ask: Optional[Callable] = None,
+    sample: Optional[Callable] = None,
+    entropy: Optional[Callable] = None,
+    make_sink: Optional[Callable] = None,
+    make_worker: Optional[Callable] = None,
+    clock: Optional[Callable[[], float]] = None,
+    which: Callable = shutil.which,
+    tmux_run: Callable = subprocess.call,
+    open_midi: Optional[Callable] = None,
+) -> int:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)  # --with-tt-toplike rebuilds the synth pane's command line from this
+    parser = build_parser()
+    a = parser.parse_args(raw_argv)
+    if a.toplike_args is not None and not a.with_tt_toplike:
+        parser.error("--toplike-args needs --with-tt-toplike: it gives arguments to the tt-toplike that option starts")
+    only, routes = _check_arguments(parser, a)  # before --with-tt-toplike, so its errors show here and not inside the synth pane
+    if a.with_tt_toplike:
+        return _with_toplike(parser, a, raw_argv, which, tmux_run)
+    rate_given = a.sample_rate is not None
+    if not rate_given:  # resolved here, once, so every use below sees the same rate
+        a.sample_rate = FAST_SAMPLE_RATE if a.interval is not None else DEFAULT_SAMPLE_RATE
     file_sink = MidiFileSink(a.midi_file, routes) if a.midi_file else None
     stamp = time.strftime("%Y%m%d_%H%M%S")
     out = Path(a.out or f"audio/tensixinet_{stamp}.wav")
@@ -176,7 +254,17 @@ def main(
 
     ask = ask or (lambda prompt, endpoint: llm.ask(prompt, endpoint, model=a.model))
     host = [0]  # fingerprint of the machine tt-smi describes; 0 when the readings are not from tt-smi
-    if sample is None:
+    fast_source = None  # with --interval: what each block reads
+    if a.interval is not None and sample is None and not a.mock_chips:
+        def fetch():
+            snapshot = fetch_snapshot()
+            host[0] = host_fingerprint(snapshot)
+            return snapshot
+        fast_source = FastSource(fetch=fetch)
+        fast_source.start()  # its first tt-smi reading starts now, and the patch below is drawn from it
+        sample = fast_source.sample
+        source = "hwmon and tt-smi -s"
+    elif sample is None:
         if a.mock_chips:
             started = (clock or time.monotonic)()
             sample = lambda: mock_telemetry(a.mock_chips, a.seed, faults=a.mock_faults, load_period=a.mock_load,
@@ -268,7 +356,30 @@ def main(
                         log.event("backend", f"chip {index} runs {', '.join(mine) or 'nothing'}{mixer} on its own kernels",
                                   f"the devices dealt to chip {index} do their arithmetic on {'simulated' if a.kernels == 'sim' else 'leased'} chip {index % held}, so all "
                                   f"{held} chips are working at once")
-            if a.live:
+            if a.live and a.interval is not None:
+                # fast mode's own first line says how often the chips are read (and whether --interval was raised to the shortest block)
+                if fast_source is None:
+                    note = ("The readings are synthetic (--mock-chips): no hardware is read." if a.mock_chips
+                            else f"The readings are from {source}.")
+                    fast_source = SampledSource(sample, note)
+                try:
+                    sink, where = (make_sink or default_make_sink)(a.player or "auto", a.sample_rate, out, channels=1 if a.mono else 2,
+                                                                   latency_ms=PLAYER_LATENCY_MS)
+                except PlayerError as e:
+                    log.event("player", f"the audio output could not be used: {e}", "a live run ends when it has nowhere to play")
+                    return 3
+                rate_why = (f"the sound is made at {a.sample_rate} Hz, as --sample-rate asked" if rate_given else
+                            f"the sound is made at {a.sample_rate} Hz, fast mode's default: it renders in half the time of {DEFAULT_SAMPLE_RATE} Hz, "
+                            f"and --sample-rate {DEFAULT_SAMPLE_RATE} gives the fuller rate")
+                log.event("live", f"live mode: {where}", f"each block is played as soon as it is made; {rate_why}")
+                try:
+                    run_fast(fast_source, sink, log, a.sample_rate, a.interval / 1000.0, a.duration or None, patch, patch_source,
+                             normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables, stereo=not a.mono,
+                             evict=not a.no_evict, player_name=a.player or "auto", latency_ms=PLAYER_LATENCY_MS, label=source,
+                             **({"clock": clock} if clock else {}))
+                except PlayerError:
+                    return 3  # run_fast has logged what stopped
+            elif a.live:
                 try:
                     sink, where = (make_sink or default_make_sink)(a.player or "auto", a.sample_rate, out, channels=1 if a.mono else 2)
                 except PlayerError as e:
@@ -303,6 +414,8 @@ def main(
                 port_sink.close()
             except Exception:
                 pass
+        if fast_source is not None:
+            fast_source.stop()  # also stopped by run_fast; this covers a run that ended before it started
         if worker is not None:
             if held_chips and a.kernels in ("chip", "chips"):
                 log.event("backend", "releasing the chips",

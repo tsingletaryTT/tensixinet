@@ -47,6 +47,8 @@ them from its own thread at their time. Neither sink touches the audio path.
 |---|---|---|
 | `telemetry/` | `snapshot.py` | `Telemetry` type (temperatures, clocks, power, limits, harvesting and link masks, error counters, process count), `tt-smi -s` JSON parsing (any chip count, any number of GDDR channels), `fetch_snapshot`, `host_fingerprint` |
 | | `mock.py` | Deterministic synthetic readings for N chips |
+| | `hwmon.py` | The chips' Linux hwmon files (`/sys/class/hwmon`): `find_chips` orders them by PCI address, `read_chip` gives temperature, power, voltage and current in C, W, V and A |
+| | `fast.py` | `FastSource`: the fast fields from hwmon at every read, the slow fields (clocks, GDDR, errors, masks) from `tt-smi -s` on a background thread about every 1.5 s, matched by bus address. With no match it hands back the `tt-smi` readings and a note that says so |
 | `music/` | `mapping.py` | The signal-to-sound table as functions, including pressure, chip identity and turn weight |
 | | `synth.py` | Drone voices for any chip count |
 | | `devices.py` | ttrollz, ttquantus, ttdrone, gong, ultrasonic shimmer, the strike times they share, and the current mixer. Re-exports ttrax. `DEVICE_INPUTS` says which fields each device reads |
@@ -69,7 +71,8 @@ them from its own thread at their time. Neither sink touches the audio path.
 | | `runlog.py` | JSONL for programs, wrapped left-bar text for people |
 | `media/` | `llm.py` | Prompts any OpenAI-compatible endpoint |
 | | `mux.py` | Puts the WAV under a video with ffmpeg |
-| | `player.py` | Where live audio goes: a `paplay`, `aplay` or `ffplay` process, a growing WAV, or no sound at the speed of the music |
+| | `player.py` | Where live audio goes: a `paplay`, `aplay` or `ffplay` process, a growing WAV, or no sound at the speed of the music. `player_command` and `player_buffer_ms` give the small-buffer flags fast mode asks for |
+| | `toplike.py` | `--with-tt-toplike`: builds the tmux commands for a synth pane and a tt-toplike pane at one interval, and runs them. The panes tag themselves so that each ending closes the other |
 | `score/` | `events.py` | `Note`, `Trigger`, `Control` and `Score`, with the Hz-to-MIDI helpers |
 | | `collect.py` | One extractor per device and `chorus_score`, which builds a render's `Score` the way `render_chorus` deals the devices |
 | | `vcv.py` | Builds the VCV Rack voice patch (`vcv/tensixinet-voice.vcv`): one mono voice on the lead's channel; `python -m tensixinet.score.vcv` writes a copy for another channel or port |
@@ -77,6 +80,7 @@ them from its own thread at their time. Neither sink touches the audio path.
 | | `midi.py` | `to_messages`: a `Score` to timed MIDI bytes |
 | | `smf.py` | The Standard MIDI File writer |
 | | `sinks.py` | `MidiFileSink`, `MidiPortSink` (a thread and a heap, never blocks the audio), `TeeScoreSink`, and the lazy `mido` opener |
+| (top) | `fast.py` | `run_fast`, the loop behind `--interval`, and the delay report |
 
 ## The app
 
@@ -95,6 +99,31 @@ them from its own thread at their time. Neither sink touches the audio path.
 
 The Play tab's data flow: sliders and buttons write `Knobs` (per visitor, `knob_store` in the app) → the render thread reads them once a block →
 `to_telemetry` → `render_chorus(only=...)` for a phrase → blocks cut from the phrase, crossfaded where a phrase changes → EQ → loudness → the page.
+
+## Fast mode
+
+`--live --interval MS` does not use `live.py`. `fast.py` reads every block and borrows the Play tab's phrase engine:
+
+```
+ /sys/class/hwmon ─► telemetry/hwmon ─┐
+                                      ├─► telemetry/fast.FastSource ─► Tracker(0.5 s window, hold) ─► read(now)
+ tt-smi -s (thread, ~1.5 s) ──────────┘                                                                  │
+                                                                                                        ▼
+  ui/instrument.InstrumentSession: change detection (thresholds, 1 s minimum gap) ► head (0.6 s) on the loop,
+  body (1 s or 6 s phrase) on a worker thread ► crossfade ► EQ ► loudness ► blocks ► media/player (paplay, 20 ms)
+```
+
+`run_fast` drives `InstrumentSession.render_block` from its own loop and paces itself to stay `lead_for(rate)` ahead of the listener (0.10 s at 22050 Hz,
+0.18 s at 44100 Hz). Each block's delay is the interval, plus the time from reading to writing the block, plus the audio queued in front of it, plus the player's
+buffer, plus, for a change that arrived less than 1 s after the last phrase started, the time it waited for that gap (`InstrumentSession.held_s`). `run_fast`
+logs the worst and typical values every 5 s. They are calculated from the loop's own timings and the player buffer it asked for; the delay at the speaker is
+not measured. If three head renders in a row outrun the block, the loop lengthens the block (and the lead with it) and logs it; after 60 blocks in a row
+whose render fits the interval asked for, it returns to that interval and logs that too. The session keeps the soloist for the patch's turn length (`turn_seconds`). `music/evict.py` smooths power by elapsed seconds, so ten readings a
+second evict at the same time as one reading a second. `InstrumentSession` takes its read function, block, phrase and crossfade lengths, sample rate, `only`, `eq` and
+`normalise` as parameters; the Play tab passes none of them and behaves as before.
+
+`--with-tt-toplike` runs no chips itself. `cli.py` builds a tmux session through `media/toplike.py`, and each pane runs its own program. The synth pane runs
+this same command line without `--with-tt-toplike` and with `TENSIXINET_IN_SESSION=1`.
 
 ## Dependencies run one way
 

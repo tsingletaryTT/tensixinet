@@ -67,6 +67,41 @@ def feed(tracker, powers, start=0.0, step=3.0, chips=1):
     return phases
 
 
+def first_evict_time(step):
+    """When a chip first evicts, feeding it one reading per `step` seconds of: 12 s at rest, 12 s at 150 W, then rest again."""
+    t = EvictTracker()
+    levels = [14.0] * round(12 / step) + [150.0] * round(12 / step) + [14.0] * round(30 / step)
+    for i, p in enumerate(levels):
+        if t.update([chip(p)], i * step)[0].phase == "evicting":
+            return i * step
+    raise AssertionError("never evicted")
+
+
+def test_the_same_power_curve_evicts_at_the_same_time_at_one_second_and_at_a_tenth():
+    assert abs(first_evict_time(1.0) - first_evict_time(0.1)) < 1.5
+
+
+def smoothed_after(dt, first=10.0, second=30.0):
+    t = EvictTracker()
+    t.update([chip(first)], 0.0)
+    t.update([chip(second)], dt)
+    return t._chips[0].ema
+
+
+def test_readings_two_seconds_apart_smooth_exactly_as_before():
+    assert smoothed_after(2.0) == pytest.approx(20.0)
+
+
+def test_a_short_gap_moves_the_average_less():
+    assert 10.0 < smoothed_after(0.1) < 11.5
+    assert smoothed_after(0.1) == pytest.approx(10.0 + 20.0 * (1 - 0.5 ** 0.1))   # the weight is 1 - 0.5 ** dt
+
+
+def test_a_gap_of_one_and_a_half_seconds_has_the_full_weight_not_the_shorter_formula():
+    assert smoothed_after(1.5) == pytest.approx(20.0)      # 1 - 0.5 ** 1.5 would give 0.65, so this fails if the full-weight line moves out
+    assert smoothed_after(1.0) == pytest.approx(20.0)
+
+
 def test_an_idle_chip_that_never_loaded_never_evicts_however_long_it_sits():
     t = EvictTracker()
     phases = feed(t, [14.0 + (i % 3) * 0.5 for i in range(200)])

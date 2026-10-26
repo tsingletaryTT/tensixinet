@@ -13,7 +13,7 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass
-from typing import Callable, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -195,3 +195,11 @@ def fetch_snapshot(run: Callable = subprocess.run) -> dict:
     except (OSError, subprocess.SubprocessError, ValueError):
         pass
     return {}
+
+
+def snapshot_bus_ids(snapshot: dict) -> List[str]:
+    """Each device's PCI address, in the order `parse_snapshot` returns the devices.
+
+    A device with no address gives an empty string, which matches no hwmon chip.
+    """
+    return [str(((d.get("board_info") or {}).get("bus_id")) or "") for d in (snapshot.get("device_info") or [])]

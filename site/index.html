@@ -493,6 +493,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 pip install .
 tensixinet --mock-chips 4 --duration 20          # four synthetic chips, no hardware
 tensixinet --live --duration 120                 # read your chips every turn, play as it goes
+tensixinet --live --with-tt-toplike              # read every 100 ms, tt-toplike beside it in tmux
 tensixinet --only ttchoir,ttavdog --mock-chips 4 # audition devices on their own
 tensixinet --no-cables                           # the band without the patch cables</pre>
 </div></section>
@@ -583,7 +584,7 @@ const SCENARIOS = [
   {name: "Live mode",
    edges: {c0: [1, 1.4], c1: [1, 1.4], c2: [1, 1.4], c3: [1, 1.4], read: [1, 1.4], map: [1, 1.4], dev: [1, 1.2], cab: [1, 1.2], gain: [1, 1.2], out: [1, 1.2], fin: [1, 1.2], weight: [.8, 1.2], chaos: [1, 1.8], events: [.6, 1], loop: [1, 2]},
    hot: [0, 1, 2, 3],
-   text: "<b>The loop closes every turn.</b> With <code>--live</code> the chips are read again before each turn, which lasts a few bars, and the turn is rendered from that reading and played while the next is made. A tracker turns successive readings into rates of change over at least two seconds, so how <i>fast</i> temperature and power move joins pressure in the chaos that drives ttrax and the cables. The sound trails the chips by about one turn."},
+   text: "<b>The loop closes every turn.</b> With <code>--live</code> the chips are read again before each turn, which lasts a few bars, and the turn is rendered from that reading and played while the next is made. A tracker turns successive readings into rates of change over at least two seconds, so how <i>fast</i> temperature and power move joins pressure in the chaos that drives ttrax and the cables. The sound trails the chips by about one turn. With <code>--interval 100</code> the chips are read every 100 ms. A change that arrives when the last phrase started more than 1 s earlier is heard within 250 ms: on four real chips the run calculated a worst delay of 220 ms and a typical 170 ms at 22050 Hz from its own timings and the player buffer it asked for (the delay at the speaker has not been measured, and it is not yet heard by a person). A phrase starts at most once a second, and on real chips the readings move enough to start one about every second, so most changes wait for that gap and are heard up to about 1 s later. Each new phrase also restarts the gong and the rolls. <code>--with-tt-toplike</code> starts tt-toplike beside the synth at the same interval."},
 ];
 const tabs = document.getElementById("scen-tabs");
 const cap = document.getElementById("caption");

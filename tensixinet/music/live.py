@@ -52,18 +52,24 @@ class Tracker:
     least `window_s` old, because the loop can take two readings a fraction of a second apart and a 0.3 degree
     wobble over 0.3 s is not a heating chip. Readings that come sooner than that carry a rate of 0 and the
     baseline waits for them. Once a rate has been measured, the latest reading becomes the new baseline. A
-    different number of chips starts the tracker over."""
+    different number of chips starts the tracker over.
 
-    def __init__(self, window_s: float = RATE_WINDOW_S):
+    With `hold`, a reading inside the window carries the last rate measured instead of 0. Fast mode reads the chips
+    many times a window, and without it most of its readings would say the chips are still."""
+
+    def __init__(self, window_s: float = RATE_WINDOW_S, hold: bool = False):
         self.window_s = window_s
+        self.hold = hold
         self._previous: Optional[List[Telemetry]] = None
         self._baseline: List[Telemetry] = []
         self._baseline_at = 0.0
+        self._rates: Optional[List[tuple]] = None  # with hold: (temp_rate, power_rate) for each chip, as last measured
 
     def update(self, readings: Sequence[Telemetry], now: float) -> List[Telemetry]:
         readings = list(readings)
         if self._previous is None or len(self._previous) != len(readings):
             self._previous, self._baseline, self._baseline_at = readings, readings, now
+            self._rates = None
             return readings
         out = advance(self._previous, readings, 0.0)  # new errors since the last reading; no rates yet
         elapsed = now - self._baseline_at
@@ -71,6 +77,9 @@ class Tracker:
             rated = advance(self._baseline, readings, elapsed)
             out = [dataclasses.replace(o, temp_rate=r.temp_rate, power_rate=r.power_rate) for o, r in zip(out, rated)]
             self._baseline, self._baseline_at = readings, now
+            self._rates = [(r.temp_rate, r.power_rate) for r in rated]
+        elif self.hold and self._rates is not None:
+            out = [dataclasses.replace(o, temp_rate=tr, power_rate=pr) for o, (tr, pr) in zip(out, self._rates)]
         self._previous = readings
         return out
 

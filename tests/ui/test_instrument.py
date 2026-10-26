@@ -9,11 +9,13 @@ import numpy as np
 import pytest
 
 from tensixinet.music.chorus import device_names
+from tensixinet.music.evict import ChipDefrag
 from tensixinet.music.patch import DEFAULT_PATCH
 from tensixinet.ui import instrument
 from tensixinet.ui.instrument import (BLOCK_S, LONG_BLOCKS, SAMPLE_RATE, SHORT_BLOCKS, XFADE_S, InstrumentConfig, InstrumentSession,
-                                      phrase_samples)
-from tensixinet.ui.knobs import Knobs
+                                      phrase_samples, signature_changed)
+from tensixinet.music.live import Tracker
+from tensixinet.ui.knobs import Knobs, to_telemetry
 
 SR = SAMPLE_RATE
 BLOCK_SAMPLES = int(BLOCK_S * SR)  # what a block hands over
@@ -50,12 +52,13 @@ class Render:
         return audio
 
 
-def make(scope="system", chips=2, stereo=True, cables=True, evict=True, lead_s=1.5, render=None, clock=None, knobs=None, patch=DEFAULT_PATCH):
+def make(scope="system", chips=2, stereo=True, cables=True, evict=True, lead_s=1.5, render=None, clock=None, knobs=None, patch=DEFAULT_PATCH,
+         **options):
     clock = clock or Clock()
     render = render or Render()
     knobs = knobs or Knobs(chips)
     config = InstrumentConfig(scope=scope, chips=chips, style="", seed=1, stereo=stereo, cables=cables, evict=evict)
-    return InstrumentSession(config, knobs, patch, render=render, clock=clock, sleep=clock.sleep, lead_s=lead_s), render, knobs, clock
+    return InstrumentSession(config, knobs, patch, render=render, clock=clock, sleep=clock.sleep, lead_s=lead_s, **options), render, knobs, clock
 
 
 def drain(session):
@@ -559,3 +562,689 @@ def test_a_chips_eviction_phase_holds_for_every_block_of_the_phrase_it_began(mon
         phases.append([c.phase for c in session.snapshot().state.chips])
         clock.sleep(BLOCK_S + 0.01)
     assert phases == [["evicting", "evicting"]] * 3
+
+
+# -- the input and the timing as parameters (the fast-sampling work drives this engine from real chips at about 0.1 s a block) --------------------
+
+
+def _readings(n=2):
+    """Readings a caller has already tracked: a power no knob would give, so they can be told from the knobs' own."""
+    return [dataclasses.replace(t, power=77.0 + k) for k, t in enumerate(to_telemetry(Knobs(n), Tracker(), 0.0))]
+
+
+def test_a_session_with_a_read_function_renders_from_what_it_returns():
+    asked = []
+    given = _readings()
+
+    def read(now):
+        asked.append(now)
+        return given
+
+    session, render, _, clock = make(knobs=None, read=read)
+    session.knobs = None  # a caller with a read function has no knobs
+    session.render_block()
+    assert asked == [clock.t]
+    assert [c.power for c in render.calls[0]["chips"]] == [77.0, 78.0]
+    assert render.calls[0]["chips"][0] is given[0]
+
+
+def test_a_read_function_works_when_the_session_is_given_no_knobs():
+    config = InstrumentConfig(scope="system", chips=2, style="", seed=1, stereo=False, cables=False, evict=True)
+    clock, render = Clock(), Render()
+    session = InstrumentSession(config, None, DEFAULT_PATCH, render=render, clock=clock, sleep=clock.sleep, read=lambda now: _readings())
+    session.render_block()
+    assert len(render.calls) == 1 and len(drain(session)) == 1
+
+
+def test_without_a_read_function_the_knobs_are_read_as_before():
+    session, render, knobs, _ = make()
+    knobs.set(0, "power", 55.0)
+    session.render_block()
+    assert render.calls[0]["chips"][0].power == pytest.approx(55.0)
+
+
+def test_block_and_phrase_lengths_follow_the_parameters():
+    session, render, _, clock = make(block_s=0.1, short_s=1.0, long_s=3.0, xfade_s=0.05)
+    session.render_block()
+    for _ in range(10):  # the short phrase's ten blocks; the eleventh asks for a long one
+        clock.sleep(0.1)
+        session.render_block()
+    assert [c["duration"] for c in render.calls] == [pytest.approx(1.05, abs=1e-3), pytest.approx(3.05, abs=1e-3)]
+    assert [len(c["audio"]) for c in render.calls] == [10 * 2205 + 1102, 30 * 2205 + 1102]
+    assert [len(c) for c in drain(session)] == [2205] * 11
+
+
+def test_a_phrase_is_at_least_one_block_long():
+    session, render, _, clock = make(block_s=1.0, short_s=0.1, long_s=0.2, xfade_s=0.1)
+    session.render_block()
+    session.render_block()
+    assert [len(c["audio"]) for c in render.calls] == [22050 + 2205, 22050 + 2205]  # both round to a block; the second is the long one
+
+
+def test_the_crossfade_is_never_longer_than_a_block():
+    session, render, knobs, _ = make(block_s=0.1, short_s=0.2, long_s=0.4, xfade_s=0.5, stereo=False)
+    session.render_block()
+    knobs.set(0, "power", 90.0)
+    session.render_block()  # a new phrase crossfades in: it must not run past the block
+    assert [len(c["audio"]) for c in render.calls] == [2 * 2205 + 2205] * 2
+    assert [len(c) for c in drain(session)] == [2205, 2205]
+
+
+def test_the_sample_rate_reaches_the_render_and_the_audio():
+    session, render, _, _ = make(sample_rate=8000, stereo=False)
+    session.render_block()
+    assert session.sample_rate == 8000
+    assert render.calls[0]["sample_rate"] == 8000
+    assert len(render.calls[0]["audio"]) == 2 * int(BLOCK_S * 8000) + int(XFADE_S * 8000)
+    assert [len(c) for c in drain(session)] == [int(BLOCK_S * 8000)]
+
+
+def test_the_pacing_counts_seconds_at_the_sessions_own_sample_rate():
+    session, _, _, _ = make(sample_rate=8000, stereo=False)
+    session.render_block()
+    assert session._delivered == pytest.approx(BLOCK_S)
+
+
+def test_the_charts_block_time_uses_the_sessions_block_length():
+    session, _, _, clock = make(block_s=0.1, short_s=0.3, long_s=0.5, xfade_s=0.05)
+    for _ in range(4):
+        session.render_block()
+        clock.sleep(0.1)
+    clock.sleep(10.0)
+    assert session.snapshot().state.seconds == pytest.approx(0.3)  # the fourth block, number 3
+
+
+def test_only_replaces_the_scopes_devices_and_plays_them_with_nobody_on_the_floor():
+    session, render, _, _ = make(scope="system", only=["gong", "lead"])
+    session.render_block()
+    assert render.calls[0]["only"] == ["gong", "lead"] and render.calls[0]["soloists"] is None
+    assert session._evictor is None  # a session that plays some devices ignores eviction
+    session2, render2, _, _ = make(scope="device:gong", only=["lead"])
+    session2.render_block()
+    assert render2.calls[0]["only"] == ["lead"]
+
+
+def test_without_only_the_scope_decides():
+    session, render, _, _ = make(scope="device:gong")
+    session.render_block()
+    assert render.calls[0]["only"] == ["gong"]
+
+
+class _Constant(Render):
+    def __init__(self, level):
+        super().__init__()
+        self.level = level
+
+    def __call__(self, chips, duration, sample_rate=44100, **kw):
+        super().__call__(chips, duration, sample_rate, **kw)
+        return np.full(int(duration * sample_rate), self.level, dtype=np.float32)
+
+
+def test_eq_false_skips_the_equaliser():
+    session, _, _, _ = make(render=_Constant(0.2), stereo=False, eq=False, normalise=False)
+    session.render_block()
+    assert np.allclose(drain(session)[0], 0.2, atol=1e-6)  # nothing filtered, nothing scaled
+    session, _, _, _ = make(render=_Constant(0.2), stereo=False, normalise=False)
+    session.render_block()
+    assert not np.allclose(drain(session)[0], 0.2, atol=1e-3)  # the default equaliser does change a constant's start
+
+
+def test_normalise_false_skips_the_level_but_the_output_is_still_clipped():
+    session, _, _, _ = make(render=_Constant(0.01), stereo=False, eq=False, normalise=False)
+    session.render_block()
+    assert np.allclose(drain(session)[0], 0.01, atol=1e-6)  # no gain lifted a quiet render
+    session, _, _, _ = make(render=_Constant(0.01), stereo=False, eq=False)
+    session.render_block()
+    assert np.abs(drain(session)[0]).max() > 0.05  # the default level does lift it
+    session, _, _, _ = make(render=_Constant(5.0), stereo=False, eq=False, normalise=False)
+    session.render_block()
+    assert np.allclose(drain(session)[0], 1.0)  # clipped to full scale
+    session, _, _, _ = make(render=_Constant(-5.0), stereo=False, eq=False, normalise=False)
+    session.render_block()
+    assert np.allclose(drain(session)[0], -1.0)
+
+
+def test_the_equaliser_is_built_for_the_sessions_sample_rate():
+    from tensixinet.music.eq import Equaliser
+    session, render, _, _ = make(sample_rate=8000, stereo=False, normalise=False)
+    session.render_block()
+    block = render.calls[0]["audio"][:int(BLOCK_S * 8000)].astype(np.float64)
+    assert np.allclose(drain(session)[0], Equaliser(8000).process(block).astype(np.float32), atol=1e-6)
+    assert not np.allclose(Equaliser(8000).process(block), Equaliser(SR).process(block), atol=1e-4)  # the two rates really differ here
+
+
+# -- change detection with a minimum gap, and a held soloist (fast sampling reads the chips about ten times a second) -------------------------------
+
+
+_GAP_TIMING = dict(block_s=0.25, short_s=5.0, long_s=5.0, xfade_s=0.05)  # quarter seconds are exact in binary, so the gap's boundary is exact
+
+
+def _sig(temp=40.0, aiclk=1000.0, power=50.0, voltage=0.8, gddr=(30.0,) * 8, phases=()):
+    """A one-chip signature as `_signature` builds it."""
+    return (((temp, aiclk, power, voltage, tuple(gddr)),), tuple(phases))
+
+
+def test_signature_changed_ignores_moves_at_or_under_each_threshold():
+    base = _sig(voltage=0.0)
+    assert not signature_changed(base, _sig(voltage=0.0))
+    assert not signature_changed(base, _sig(temp=40.5, voltage=0.0))  # exactly the temperature threshold
+    assert not signature_changed(base, _sig(power=53.0, voltage=0.0))  # exactly the power threshold
+    assert not signature_changed(base, _sig(voltage=0.01))  # exactly the voltage threshold
+    assert not signature_changed(base, _sig(aiclk=1000.5, voltage=0.0))  # exactly the clock tolerance
+    assert not signature_changed(base, _sig(gddr=(30.5,) + (30.0,) * 7, voltage=0.0))  # exactly the GDDR tolerance
+
+
+def test_signature_changed_sees_each_move_over_its_threshold():
+    base = _sig()
+    assert signature_changed(base, _sig(temp=40.51))
+    assert signature_changed(base, _sig(temp=39.49))  # a fall counts as much as a rise
+    assert signature_changed(base, _sig(power=53.01))
+    assert signature_changed(base, _sig(power=46.99))
+    assert signature_changed(base, _sig(voltage=0.8 + 0.0101))
+    assert signature_changed(base, _sig(aiclk=1001.0))
+    assert signature_changed(base, _sig(gddr=(30.0,) * 7 + (31.0,)))
+    assert signature_changed(base, _sig(phases=("evicting",))) and signature_changed(_sig(phases=("running",)), _sig(phases=("evicting",)))
+    assert signature_changed(base, (base[0] * 2, ()))  # a chip more
+    assert signature_changed(None, base)  # nothing played yet
+
+
+def test_signature_changed_takes_its_temperature_and_power_thresholds_as_arguments():
+    assert signature_changed(_sig(), _sig(temp=40.3), temp_c=0.2)
+    assert not signature_changed(_sig(), _sig(power=55.0), power_w=6.0)
+
+
+def _fast(changed=signature_changed, evict=False, **options):
+    """A session driven by a read function whose readings the test sets, with the gap timing."""
+    values = {"power": 50.0, "asic_temperature": 40.0, "voltage": 0.8, "thermal_trips": 0}
+    base = to_telemetry(Knobs(2), Tracker(), 0.0)
+    timing = dict(_GAP_TIMING)
+    timing.update(options)
+    session, render, _, clock = make(knobs=None, evict=evict, read=lambda now: [dataclasses.replace(t, **values) for t in base], changed=changed,
+                                     **timing)
+    session.knobs = None
+    return session, render, values, clock
+
+
+def _blocks(session, clock, n, step=0.25):
+    for _ in range(n):
+        session.render_block()
+        clock.sleep(step)
+
+
+def test_noise_under_the_thresholds_does_not_start_a_phrase():
+    session, render, values, clock = _fast(block_s=0.1, short_s=0.3, long_s=1.2)
+    for k in range(10):
+        wobble = 1 if k % 2 else -1
+        values.update(asic_temperature=40.0 + 0.2 * wobble, power=50.0 + 1.4 * wobble, voltage=0.8 + 0.004 * wobble)  # each swing under its threshold
+        session.render_block()
+        clock.sleep(0.1)
+    assert [len(c["audio"]) // 2205 for c in render.calls] == [3, 12]  # the first short phrase, then the long one when it ran out; no restarts
+    session2, render2, values2, clock2 = _fast(changed=None, block_s=0.1, short_s=0.3, long_s=1.2)
+    for k in range(4):
+        values2["power"] = 50.0 + (1 if k % 2 else -1)
+        session2.render_block()
+        clock2.sleep(0.1)
+    assert len(render2.calls) == 4  # without `changed` any difference starts a phrase, as the Play tab's knobs need
+
+
+def test_a_step_in_power_over_the_threshold_starts_a_short_phrase_in_the_next_block():
+    session, render, values, clock = _fast(short_s=0.5, long_s=2.0)
+    _blocks(session, clock, 3)  # a short phrase of two blocks, then a long one of eight
+    values["power"] = 53.5
+    session.render_block()
+    assert len(render.calls) == 3
+    assert [c.power for c in render.calls[2]["chips"]] == [53.5, 53.5]
+    assert len(render.calls[2]["audio"]) == phrase_samples(2, int(0.25 * SR), int(0.05 * SR))  # short: a change is heard quickly
+
+
+def test_two_changes_inside_the_gap_make_one_phrase():
+    session, render, values, clock = _fast(min_gap_s=1.0)
+    session.render_block()  # t = 100.0: the first phrase
+    clock.sleep(0.25)
+    values["power"] = 60.0
+    _blocks(session, clock, 2)  # t = 100.25 and 100.5: held back by the gap
+    values["power"] = 70.0
+    session.render_block()  # t = 100.75: still held
+    assert len(render.calls) == 1
+    clock.sleep(0.25)
+    session.render_block()  # t = 101.0: the gap has passed and nothing moved this block, but the playing phrase was made from 50 W
+    assert len(render.calls) == 2
+    assert [c.power for c in render.calls[1]["chips"]] == [70.0, 70.0]  # one phrase, carrying the latest reading
+    assert len(render.calls[1]["audio"]) == phrase_samples(20, int(0.25 * SR), int(0.05 * SR))
+    clock.sleep(0.25)
+    session.render_block()
+    assert len(render.calls) == 2  # and the change is not heard twice
+    values["power"] = 80.0
+    _blocks(session, clock, 3)  # t = 101.25 to 101.75: the gap counts from the phrase that started at 101.0
+    assert len(render.calls) == 2
+    session.render_block()  # t = 102.0
+    assert len(render.calls) == 3 and render.calls[2]["chips"][0].power == 80.0
+
+
+def test_a_change_that_comes_and_goes_inside_the_gap_starts_nothing():
+    session, render, values, clock = _fast(min_gap_s=1.0)
+    session.render_block()
+    clock.sleep(0.25)
+    values["power"] = 60.0
+    _blocks(session, clock, 2)
+    values["power"] = 50.0
+    _blocks(session, clock, 4)
+    assert len(render.calls) == 1
+
+
+def test_a_trip_inside_the_gap_still_starts_a_phrase():
+    session, render, values, clock = _fast(min_gap_s=1.0)
+    session.render_block()
+    clock.sleep(0.25)
+    values["thermal_trips"] = 1
+    session.render_block()  # t = 100.25, well inside the gap
+    assert len(render.calls) == 2 and render.calls[1]["chips"][0].thermal_trips == 1
+
+
+class _Phases:
+    """Stands in for the EvictTracker: hands back the phases the test sets."""
+
+    def __init__(self, phases):
+        self.phases = phases
+
+    def update(self, chips, now):
+        return [ChipDefrag(p) for p in self.phases]
+
+    def take_events(self):
+        return []
+
+
+def test_an_eviction_phase_change_inside_the_gap_still_starts_a_phrase():
+    session, render, values, clock = _fast(min_gap_s=1.0)
+    session._evictor = _Phases(["running", "running"])
+    session.render_block()
+    clock.sleep(0.25)
+    session._evictor.phases = ["evicting", "running"]
+    session.render_block()
+    assert len(render.calls) == 2 and render.calls[1]["defrag"][0].phase == "evicting"
+
+
+def test_the_soloist_is_held_for_the_turn_length_and_survives_a_change(monkeypatch):
+    picks = []
+
+    def fake(weights, segment, previous):
+        picks.append((segment, previous))
+        return 3 + segment  # a different soloist every time it is asked
+
+    monkeypatch.setattr(instrument, "pick_soloist", fake)
+    asked = []
+    session, render, values, clock = _fast(hold_soloist=lambda chips: (asked.append(len(chips)), 6.0)[1])
+    for k in range(4):  # t = 100.0, 100.5, 101.0, 101.5: each block a change, so each starts a phrase
+        values["power"] = 50.0 + 10.0 * k
+        session.render_block()
+        clock.sleep(0.5)
+    assert [c["soloists"] for c in render.calls] == [[3]] * 4
+    assert picks == [(0, None)] and asked == [2]
+    clock.t = 105.75  # 5.75 s after the soloist was chosen
+    values["power"] = 100.0
+    session.render_block()
+    assert render.calls[-1]["soloists"] == [3]
+    clock.t = 106.0  # the turn is over: the next phrase picks again, with the phrase number as the turn
+    values["power"] = 110.0
+    session.render_block()
+    assert render.calls[-1]["soloists"] == [3 + 5] and picks[-1] == (5, 3)
+
+
+# -- the calculated delay: interval + (read to queued) + the player's buffer ----------------------------------------------------------
+
+class _SlowRender(Render):
+    """A render that takes `step` seconds of the fake clock, which the test can change between blocks."""
+
+    def __init__(self, clock, step):
+        super().__init__()
+        self.clock, self.step = clock, step
+
+    def __call__(self, *args, **kwargs):
+        self.clock.sleep(self.step)
+        return super().__call__(*args, **kwargs)
+
+
+def test_the_delay_is_the_interval_plus_the_time_from_reading_to_queueing_plus_the_buffer():
+    clock = Clock()
+    session, _, _, _ = make(clock=clock, render=_SlowRender(clock, 0.07))
+    session.render_block()
+    assert session.delay_s(buffer_s=0.05, interval_s=0.1) == pytest.approx(0.22, abs=1e-9)
+
+
+def test_the_delay_is_none_before_the_first_block():
+    session, _, _, _ = make()
+    assert session.delay_s(buffer_s=0.05, interval_s=0.1) is None
+
+
+def test_the_delay_follows_the_latest_block():
+    clock = Clock()
+    render = _SlowRender(clock, 0.07)
+    session, _, _, _ = make(clock=clock, render=render)
+    session.render_block()  # starts a phrase: the render takes 0.07 s
+    render.step = 0.5  # a second block played out of the same phrase never calls the render, so it is quick
+    session.render_block()
+    assert session.delay_s(buffer_s=0.05, interval_s=0.1) == pytest.approx(0.15, abs=1e-9)
+
+
+# -- the tail a run hands over when it stops (fast mode, tensixinet/fast.py) ------------------------------------------------------
+
+def test_the_tail_is_empty_before_the_first_block():
+    session, _, _, _ = make(stereo=False)
+    assert len(session.tail()) == 0
+
+
+def test_the_tail_is_the_playing_phrases_continuation_for_one_crossfade_faded_out():
+    session, render, _, _ = make(stereo=False)
+    session._equaliser, session._gain = _Identity(), None  # no level gain, so the tail is the phrase's own samples
+    session.render_block()
+    phrase = render.calls[0]["audio"]
+    k = (np.arange(XFADE_SAMPLES) + 0.5) / XFADE_SAMPLES
+    expected = phrase[BLOCK_SAMPLES: BLOCK_SAMPLES + XFADE_SAMPLES] * np.cos(0.5 * np.pi * k)
+    tail = session.tail()
+    assert tail.dtype == np.float32 and np.allclose(tail, expected, atol=1e-6)
+
+
+def test_the_tail_is_stereo_when_the_session_is_and_takes_the_gain_the_music_ended_on():
+    session, _, _, _ = make(stereo=True)
+    session._equaliser = _Identity()
+    session.render_block()
+    gain = session._gain.gain
+    assert gain is not None and gain != 1.0
+    session._gain = None  # the same tail without the gain
+    plain = session.tail()
+    session._gain = type("G", (), {"gain": gain})()
+    assert plain.shape == (XFADE_SAMPLES, 2) and np.allclose(session.tail(), np.clip(plain * gain, -1, 1), atol=1e-6)
+
+
+# -- heads and bodies: a change is heard from a short head while the full phrase renders in the background (fast mode) -------------
+#
+# The render below gives every call its own audio (a level for the call plus a slow ramp), so a test can tell which render a block was cut
+# from and at which offset. A call can be held on an Event, which is how a test decides when a background render finishes. No test here
+# waits on the wall clock except a bounded wait on an Event.
+
+HB = int(0.1 * SR)  # a 0.1 s block
+HX = int(0.05 * SR)  # its crossfade
+HEAD_BLOCKS = 3  # head_s = 0.3 at a 0.1 s block
+HEAD_END = HEAD_BLOCKS * HB
+
+
+class Calls(Render):
+    """A render whose every call is told apart: call i is 0.01 * (i + 1) plus a ramp of 1e-6 a sample. `hold[i]` (an Event) holds call i until it
+    is set; `entered[i]` is set when call i begins. `fail` names calls that raise. Calls can come from two threads, so the count is locked."""
+
+    def __init__(self, hold=None, fail=()):
+        super().__init__()
+        self.hold, self.fail = dict(hold or {}), set(fail)
+        self.entered = {i: threading.Event() for i in range(64)}
+        self._lock = threading.Lock()
+
+    def __call__(self, chips, duration, sample_rate=44100, patch=None, segment=0, soloists=None, only=None, cables=None, stereo=False,
+                 defrag=None, **extra):
+        with self._lock:
+            i = len(self.calls)
+            self.calls.append(dict(chips=list(chips), duration=duration, segment=segment, soloists=soloists, thread=threading.current_thread()))
+        self.entered[i].set()
+        if i in self.hold:
+            assert self.hold[i].wait(5.0), "the test never let this render finish"
+        if i in self.fail:
+            raise RuntimeError("the body render broke")
+        n = int(duration * sample_rate)
+        audio = (0.01 * (i + 1) + 1e-6 * np.arange(n)).astype(np.float32)
+        self.calls[i]["audio"] = audio
+        return audio
+
+
+def _headed(render=None, **options):
+    """A mono session with no EQ and no level gain, 0.1 s blocks, a 0.6 s short phrase, a 1.2 s long one and a 0.3 s head."""
+    timing = dict(block_s=0.1, short_s=0.6, long_s=1.2, xfade_s=0.05, head_s=0.3, eq=False, normalise=False)
+    timing.update(options)
+    session, render, knobs, clock = make(stereo=False, render=render or Calls(), **timing)
+    return session, render, knobs, clock
+
+
+def _ramp_in():
+    return (np.arange(HX) + 0.5) / HX
+
+
+def _returns_promptly(fn):
+    """Run `fn` on a thread and require it to return within a second (an Event wait, not a sleep): a loop that waited for a held render would not."""
+    done = threading.Event()
+    threading.Thread(target=lambda: (fn(), done.set()), daemon=True).start()
+    assert done.wait(1.0), "the call waited for the render in the background"
+
+
+def test_a_change_hands_over_a_head_at_once_and_the_body_takes_over_at_the_same_offset():
+    session, render, _, _ = _headed()
+    for _ in range(HEAD_BLOCKS):
+        session.render_block()
+    assert session.wait_render(2.0)
+    session.render_block()  # the head's blocks are played: the body takes over
+    blocks = drain(session)
+    head, body = render.calls[0], render.calls[1]
+    # the head is rendered past its crossfade by HEAD_MARGIN_S, because the last samples of a render differ from a longer render's
+    assert len(head["audio"]) == HEAD_END + HX + 3307  # 0.15 s at 22050 Hz
+    assert len(body["audio"]) == phrase_samples(6, HB, HX)  # the full short phrase
+    assert (body["segment"], body["soloists"], body["chips"]) == (head["segment"], head["soloists"], head["chips"])  # the same phrase
+    assert body["thread"] is not threading.current_thread()  # rendered in the background
+    for k in range(HEAD_BLOCKS):
+        assert np.allclose(blocks[k], head["audio"][k * HB:(k + 1) * HB], atol=1e-7)
+    h, b, r = head["audio"], body["audio"], _ramp_in()
+    # the body joins at the same time offset (its samples from head_s on), so the slow devices keep their timeline; the two are the same
+    # music, so the join is a straight (equal-gain) crossfade
+    assert np.allclose(blocks[3][:HX], b[HEAD_END:HEAD_END + HX] * r + h[HEAD_END:HEAD_END + HX] * (1 - r), atol=1e-7)
+    assert np.allclose(blocks[3][HX:], b[HEAD_END + HX:HEAD_END + HB], atol=1e-7)
+    session.render_block()
+    assert np.allclose(drain(session)[0], b[HEAD_END + HB:HEAD_END + 2 * HB], atol=1e-7) and len(render.calls) == 2
+
+
+def test_the_loop_does_not_wait_for_the_body_render():
+    gate = threading.Event()
+    session, render, _, _ = _headed(render=Calls(hold={1: gate}))
+    try:
+        for _ in range(HEAD_BLOCKS):
+            session.render_block()  # each returns while the body is held
+        assert render.entered[1].wait(2.0) and not session.wait_render(0.0)
+        assert len(drain(session)) == HEAD_BLOCKS
+    finally:
+        gate.set()
+    assert session.wait_render(2.0)
+    session.render_block()
+    (joined,) = drain(session)
+    assert np.allclose(joined[HX:], render.calls[1]["audio"][HEAD_END + HX:HEAD_END + HB], atol=1e-7) and session.late_blocks == 0
+
+
+def test_a_body_that_is_late_is_counted_as_a_gap_and_does_not_stall_the_loop():
+    gate = threading.Event()
+    session, render, _, _ = _headed(render=Calls(hold={1: gate}))
+    try:
+        for _ in range(HEAD_BLOCKS):
+            session.render_block()
+        for _ in range(2):  # two blocks with the body still rendering: each comes back without waiting for it
+            _returns_promptly(session.render_block)
+        blocks = drain(session)
+        assert len(blocks) == HEAD_BLOCKS + 2 and session.late_blocks == 2
+        h = render.calls[0]["audio"]
+        k = (np.arange(HX) + 0.5) / HX
+        # the first late block plays the head's own continuation faded out, then silence until the body is ready
+        assert np.allclose(blocks[3][:HX], h[HEAD_END:HEAD_END + HX] * np.cos(0.5 * np.pi * k), atol=1e-7)
+        assert not blocks[3][HX:].any() and not blocks[4].any()
+    finally:
+        gate.set()
+    assert session.wait_render(2.0)
+    session.render_block()  # the body comes in where the listener has got to, faded in from the silence
+    (back,) = drain(session)
+    b, at = render.calls[1]["audio"], HEAD_END + 2 * HB
+    k = (np.arange(HX) + 0.5) / HX
+    assert np.allclose(back[:HX], b[at:at + HX] * np.sin(0.5 * np.pi * k), atol=1e-7)
+    assert np.allclose(back[HX:], b[at + HX:at + HB], atol=1e-7) and session.late_blocks == 2
+
+
+def test_a_second_change_discards_the_body_still_rendering():
+    gate = threading.Event()
+    session, render, knobs, _ = _headed(render=Calls(hold={1: gate}))
+    try:
+        session.render_block()  # head A; body A is held
+        assert render.entered[1].wait(2.0)
+        knobs.set(0, "power", 90.0)
+        session.render_block()  # head B, crossfaded in; body B waits behind body A
+    finally:
+        gate.set()
+    assert session.wait_render(2.0)
+    for _ in range(HEAD_BLOCKS):
+        session.render_block()
+    blocks = drain(session)
+    body_b = render.calls[3]
+    assert render.calls[2]["chips"][0].power == 90.0 and body_b["chips"][0].power == 90.0 and len(render.calls) == 4
+    # head B's blocks, then body B at head B's offset: body A never reaches the sound
+    assert np.allclose(blocks[-1][HX:], body_b["audio"][HEAD_END + HX:HEAD_END + HB], atol=1e-7)
+    assert not any(np.allclose(block[HX:], render.calls[1]["audio"][HEAD_END + HX:HEAD_END + HB], atol=1e-7) for block in blocks)
+
+
+def test_a_quiet_stretch_renders_the_next_long_phrase_ahead_and_a_change_discards_it():
+    session, render, knobs, _ = _headed(render_ahead=True)
+    for _ in range(HEAD_BLOCKS):
+        session.render_block()
+    assert session.wait_render(2.0)
+    session.render_block()  # the body takes over at 0.3 s of a 0.6 s phrase: half played, so the next long phrase is started
+    assert render.entered[2].wait(2.0) and len(render.calls) == 3 and render.calls[2]["duration"] == pytest.approx((phrase_samples(12, HB, HX) + 0.5) / SR)
+    assert render.calls[2]["segment"] == 1 and render.calls[2]["thread"] is not threading.current_thread()
+    assert session.wait_render(2.0)
+    session.render_block()
+    session.render_block()  # the short phrase's last block
+    drain(session)
+    session.render_block()  # it ran out: the long phrase rendered ahead takes over, with no render on the loop
+    (taken,) = drain(session)
+    assert len(render.calls) == 3
+    body, ahead = render.calls[1]["audio"], render.calls[2]["audio"]
+    k = (np.arange(HX) + 0.5) / HX
+    assert np.allclose(taken[:HX], ahead[:HX] * np.sin(0.5 * np.pi * k) + body[6 * HB:6 * HB + HX] * np.cos(0.5 * np.pi * k), atol=1e-7)
+    assert np.allclose(taken[HX:], ahead[HX:HB], atol=1e-7)
+    for _ in range(4):  # the long phrase is twelve blocks: nothing more is rendered until half of it is played
+        session.render_block()
+    assert len(render.calls) == 3
+    session.render_block()
+    assert render.entered[3].wait(2.0) and render.calls[3]["segment"] == 2
+
+    # a change while the next phrase is rendering ahead throws that render away
+    gate = threading.Event()
+    session, render, knobs, _ = _headed(render=Calls(hold={2: gate}), render_ahead=True)
+    try:
+        for _ in range(HEAD_BLOCKS):
+            session.render_block()
+        assert session.wait_render(2.0)
+        session.render_block()  # the ahead render (call 2) starts and is held
+        assert render.entered[2].wait(2.0)
+        knobs.set(0, "power", 90.0)
+        session.render_block()  # a change: a new head (call 3) and its body (call 4)
+    finally:
+        gate.set()
+    assert session.wait_render(2.0)
+    for _ in range(12):
+        session.render_block()
+        session.wait_render(2.0)
+    discarded = render.calls[2]["audio"][HX:HB]
+    assert not any(np.allclose(block[HX:], discarded, atol=1e-7) for block in drain(session))
+    assert len(render.calls) > 5 and all(c["chips"][0].power == 90.0 for c in render.calls[3:])  # nothing later is made from the old readings
+
+
+def test_stop_ends_the_render_worker():
+    gate = threading.Event()
+    session, render, _, _ = _headed(render=Calls(hold={1: gate}))
+    session.render_block()
+    assert render.entered[1].wait(2.0)
+    worker = session._worker
+    session.stop(timeout=0.05)  # the body is still rendering
+    job = session._body
+    gate.set()
+    worker._thread.join(2.0)
+    assert not worker._thread.is_alive()  # the worker thread ends once its render returns
+    assert job.done.is_set() and job.result is None  # and the render that finished after the stop is dropped
+
+
+def test_a_render_that_raises_in_the_worker_ends_the_session_with_the_error():
+    session, render, _, _ = _headed(render=Calls(fail={1}), lead_s=0.0)
+    session._clock, session._sleep = time.monotonic, time.sleep  # the thread paces itself on the real clock: a block every 0.1 s
+    session.start()
+    session._thread.join(3.0)
+    snap = session.snapshot()
+    assert not session._thread.is_alive() and not snap.running and snap.error and "the body render broke" in snap.error
+    session.stop()
+
+
+def test_without_head_and_render_ahead_nothing_changed():
+    session, render, knobs, clock = make()  # the Play tab's defaults
+    for k in range(8):
+        if k == 4:
+            knobs.set(0, "power", 90.0)
+        session.render_block()
+        clock.sleep(1.0)
+    assert session._worker is None and session.late_blocks == 0  # no background thread at all
+    assert all(c is render.calls[0] or len(c["audio"]) in (phrase_samples(SHORT_BLOCKS), phrase_samples(LONG_BLOCKS)) for c in render.calls)
+
+
+def test_carry_from_takes_over_the_eviction_tracker_the_soloist_the_gain_and_the_eq():
+    old, _, _, _ = make()
+    old.render_block()
+    new, _, _, _ = make()
+    new.carry_from(old)
+    assert new._evictor is old._evictor and new._gain is old._gain and new._equaliser is old._equaliser
+    assert (new._soloist, new._soloist_until, new._phrases) == (old._soloist, old._soloist_until, old._phrases) and old._soloist is not None
+
+
+def test_a_phrase_rendered_ahead_that_is_not_ready_when_it_is_due_becomes_the_body_of_a_head_rendered_then():
+    gate = threading.Event()
+    session, render, _, _ = _headed(render=Calls(hold={2: gate}), render_ahead=True)
+    try:
+        for _ in range(HEAD_BLOCKS):
+            session.render_block()
+        assert session.wait_render(2.0)
+        session.render_block()  # the body takes over and the phrase ahead (call 2) starts, held
+        assert render.entered[2].wait(2.0)
+        session.render_block()
+        session.render_block()
+        session.render_block()  # the short phrase ran out with the phrase ahead still rendering: a head of it now, on the loop
+        assert len(render.calls) == 4 and render.calls[3]["thread"] is threading.current_thread()
+        assert (render.calls[3]["segment"], render.calls[3]["chips"]) == (render.calls[2]["segment"], render.calls[2]["chips"])
+    finally:
+        gate.set()
+    assert session.wait_render(2.0)
+    for _ in range(HEAD_BLOCKS):
+        session.render_block()
+    last = drain(session)[-1]
+    # no second render of that phrase: the one rendered ahead is the head's body, joined at the head's offset
+    assert len(render.calls) == 4
+    assert np.allclose(last[HX:], render.calls[2]["audio"][HEAD_END + HX:HEAD_END + HB], atol=1e-7)
+
+
+
+def test_a_body_still_missing_when_its_phrase_runs_out_is_dropped_so_the_worker_never_renders_it():
+    """The worker renders one job at a time. A body forgotten without being dropped stays queued, takes the worker's time and, if it raises, its
+    error is lost. Here body 1 is held, so body 2 waits behind it; both phrases run out first, and body 2 must never be rendered."""
+    gate = threading.Event()
+
+    class Held(Calls):
+        def __call__(self, chips, duration, *a, segment=0, **k):
+            if threading.current_thread() is not main:
+                background.append(segment)
+                if segment == 0:
+                    started.set()
+                    assert gate.wait(5.0)
+                if segment == 1:
+                    raise RuntimeError("a forgotten body was rendered")
+            return super().__call__(chips, duration, *a, segment=segment, **k)
+
+    main, background, started = threading.current_thread(), [], threading.Event()
+    session, render, _, _ = _headed(render=Held())
+    try:
+        session.render_block()
+        assert started.wait(2.0)  # body 0 is on the worker and held there
+        for _ in range(5):  # phrase 0: three head blocks and three late ones
+            session.render_block()
+        for _ in range(12):  # phrase 1 (long), its body queued behind the held one: three head blocks and nine late ones
+            session.render_block()
+        session.render_block()  # phrase 2 starts: body 1 is forgotten
+    finally:
+        gate.set()
+    assert session.wait_render(2.0)
+    session.render_block()  # a background error, if one was kept, would surface here
+    assert background[0] == 0 and 1 not in background and session.snapshot().error is None

@@ -53,6 +53,21 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    and let a slow device sound during a gesture; the kernels in the Play tab (a worker's start is far longer than a phrase); a lead shorter than 3 s, which needs a look at how Gradio's
    streaming audio buffers; saving a knob setting as a patch or a recorded gesture; a recorded demo of the tab. Gradio's `None` for streaming audio (see `DECISIONS.md`) was found by
    this work; the first tab's old comment that it "empties the audio player" no longer holds.
+7d. **Fast sampling, part B: tt-toplike publishes its readings and its view.** Not started. tt-toplike is ours, but changes to it follow a review process, so this ships on its own. tt-toplike
+   would publish its fast readings and its current view on its `--serve` stream (today that stream carries `tt-smi` frames every 1.5 s, with no fast readings and nothing about the view), and the synth would
+   take both from it. The view is the new signal: a change of view in tt-toplike could change the music, and the Defrag view could have a dedicated defrag song. Part A (`--interval`) reads hwmon itself and does not need this.
+   Open items from part A:
+   * **The open design question: the rolls on their own schedule.** Every new phrase restarts every device's clock, so while the readings keep moving the gong and the rolls restart about
+     once a second, and in about half of the chip and patch draws the gong has no strike in its first second (50% of 48 cases with the default patch, 53% of 576 with drawn patches;
+     `DECISIONS.md`, fast sampling). The owner wants the rolls on their own schedule, influenced and influencing only through the links. A phrase that continues from a start offset
+     (item 3) would deliver that, and would also let a change be heard sooner by shortening the one-second gap between phrases without restarting the rolls more often.
+   * Done: the block is lengthened only after three head renders in a row outrun it, and returns to the interval after 60 blocks in a row whose render fits it.
+     The two numbers (`OVERRUNS_TO_LENGTHEN`, `CALM_BLOCKS_TO_SHORTEN`) are starting values and have not been tried on the real chips.
+   * 44100 Hz is over the 250 ms budget (worst about 420 ms) because a head render there is longer than a 100 ms block.
+   * The lead is set per sample rate. A player with a different buffer would want its own.
+   * `ffplay`'s buffer (100 ms) is an estimate. Measure it.
+   * Tune the change thresholds and the minimum gap by ear.
+   * The first listening. The delay numbers come from the run's own log; no person has heard it.
 8. **Loudness.** Done in `music/loudness.py`: one gain to -18 dBFS RMS. A perceptual measure (LUFS, with
    K-weighting) would match the level of runs with very different spectra more closely.
 9. **More of the guides.** The Gongue's Trad and Gonz filter modes, the shift register's feedback taps and buttons,

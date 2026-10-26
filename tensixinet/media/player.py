@@ -22,6 +22,20 @@ import soundfile as sf
 # In the order they are tried. Each reads raw signed 16-bit little-endian samples from standard input, mono or interleaved stereo.
 PLAYERS = ("paplay", "aplay", "ffplay")
 
+# What each player is given to keep its own buffer small, for fast sampling. `latency_ms` is the buffer asked for.
+#   paplay  --latency-msec=N        N milliseconds.
+#   aplay   --buffer-time=N*1000    its unit is microseconds.
+#   ffplay  four low-delay flags    it has no millisecond setting, so its buffer is the constant below.
+# Each was checked with one second of silence (see tests/media/test_player.py).
+LATENCY_FLAGS = {
+    "paplay": "--latency-msec=<ms>",
+    "aplay": "--buffer-time=<ms * 1000>",
+    "ffplay": "-fflags nobuffer -flags low_delay -probesize 32 -analyzeduration 0",
+}
+
+# The buffer the delay report counts for ffplay, which cannot be told a size. A stated estimate, not a measurement.
+FFPLAY_BUFFER_MS = 100
+
 
 class PlayerError(RuntimeError):
     """The player is missing, or it stopped while there was still audio to play."""
@@ -32,32 +46,53 @@ def pcm16(audio: np.ndarray) -> bytes:
     return np.round(np.clip(audio, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
 
-def player_command(name: str, sample_rate: int, channels: int = 1) -> List[str]:
-    """The command line that plays raw 16-bit audio with `channels` channels at `sample_rate` from standard input."""
+def player_command(name: str, sample_rate: int, channels: int = 1, latency_ms: Optional[int] = None) -> List[str]:
+    """The command line that plays raw 16-bit audio with `channels` channels at `sample_rate` from standard input.
+
+    With `latency_ms` the player is also asked for a small buffer (see `LATENCY_FLAGS`). Without it the line is the plain one."""
     if name == "paplay":
-        return ["paplay", "--raw", "--format=s16le", f"--rate={sample_rate}", f"--channels={channels}"]
+        extra = [f"--latency-msec={latency_ms}"] if latency_ms is not None else []
+        return ["paplay", "--raw", "--format=s16le", f"--rate={sample_rate}", f"--channels={channels}"] + extra
     if name == "aplay":
-        return ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", str(sample_rate), "-c", str(channels)]
+        extra = [f"--buffer-time={latency_ms * 1000}"] if latency_ms is not None else []
+        return ["aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", str(sample_rate), "-c", str(channels)] + extra
     if name == "ffplay":
-        return ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-f", "s16le", "-ar", str(sample_rate), "-ac", str(channels), "-i", "pipe:0"]
+        extra = ["-fflags", "nobuffer", "-flags", "low_delay", "-probesize", "32", "-analyzeduration", "0"] if latency_ms is not None else []
+        return ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet"] + extra + ["-f", "s16le", "-ar", str(sample_rate), "-ac", str(channels), "-i", "pipe:0"]
     raise ValueError(f"unknown player {name!r}; known: {', '.join(PLAYERS)}")
 
 
-def find_player(sample_rate: int, which: Callable[[str], Optional[str]] = shutil.which, channels: int = 1) -> Optional[List[str]]:
-    """The command for the first installed player, or None when there is none."""
+def player_buffer_ms(name: str, latency_ms: int) -> int:
+    """The buffer, in milliseconds, that the delay report adds for this player when it was started with `latency_ms`."""
+    if name == "ffplay":
+        return FFPLAY_BUFFER_MS
+    if name in ("paplay", "aplay"):
+        return latency_ms
+    raise ValueError(f"unknown player {name!r}; known: {', '.join(PLAYERS)}")
+
+
+def find_player(sample_rate: int, which: Callable[[str], Optional[str]] = shutil.which, channels: int = 1,
+                latency_ms: Optional[int] = None) -> Optional[List[str]]:
+    """The command for the first installed player, or None when there is none. `latency_ms` asks for a small buffer."""
     for name in PLAYERS:
         if which(name):
-            return player_command(name, sample_rate, channels)
+            return player_command(name, sample_rate, channels, latency_ms)
     return None
 
 
 class PlayerSink:
-    """Raw audio into a player's standard input."""
+    """Raw audio into a player's standard input.
 
-    def __init__(self, command: Sequence[str]):
+    With `own_session` the player runs in a session of its own (`start_new_session=True`), so a Ctrl-C in the terminal (or tmux's
+    `send-keys C-c`) reaches only Python. A player in Python's own process group would get the SIGINT too, exit at once, and the run's last
+    writes (the fading tail) would fail with a broken pipe. Fast mode asks for this. Plain live mode leaves the player in the group, so a
+    Ctrl-C stops it with Python and does not let queued segments play out. `close()` still lets the player finish what it was given."""
+
+    def __init__(self, command: Sequence[str], own_session: bool = False):
         self.command = list(command)
         try:
-            self._proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                          start_new_session=own_session)
         except OSError as e:
             raise PlayerError(f"cannot start {self.command[0]}: {e}") from e
 
@@ -132,18 +167,19 @@ def make_sink(
     which: Callable[[str], Optional[str]] = shutil.which,
     start: Callable[[Sequence[str]], object] = PlayerSink,
     channels: int = 1,
+    latency_ms: Optional[int] = None,
 ):
     """(the sink for a `--player` choice, a sentence saying where the sound goes).
 
     `player` is `auto` (the first installed of `PLAYERS`, or silence at the speed of the music when none is
     installed), `none` (silence), or the name of one player, which must be installed. Every sink also records
-    what is played to `wav_path`. `channels` is 1 for mono audio and 2 for stereo. Raises `PlayerError` for a named player that is
+    what is played to `wav_path`. `latency_ms` asks the player for a small buffer (None keeps its own). `channels` is 1 for mono audio and 2 for stereo. Raises `PlayerError` for a named player that is
     missing or will not start."""
     record = f"recording to {wav_path}"
     if player == "none":
         return TeeSink(WavSink(wav_path, sample_rate, channels), NullSink(sample_rate)), f"no sound, at the speed of the music; {record}"
     if player == "auto":
-        command = find_player(sample_rate, which, channels)
+        command = find_player(sample_rate, which, channels, latency_ms)
         if command is None:
             return (
                 TeeSink(WavSink(wav_path, sample_rate, channels), NullSink(sample_rate)),
@@ -152,10 +188,10 @@ def make_sink(
     else:
         if not which(player):
             raise PlayerError(f"{player} is not installed")
-        command = player_command(player, sample_rate, channels)
+        command = player_command(player, sample_rate, channels, latency_ms)
     wav = WavSink(wav_path, sample_rate, channels)
     try:
-        process = start(command)
+        process = start(command, own_session=True) if latency_ms is not None else start(command)
     except PlayerError:
         wav.close()
         raise

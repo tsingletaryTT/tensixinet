@@ -254,3 +254,31 @@ def test_a_stereo_segment_is_crossfaded_in_both_ears_like_a_mono_one():
 
 def test_a_stitcher_that_has_taken_nothing_flushes_nothing_in_either_shape():
     assert Stitcher(SR, 0.25).flush().shape == (0,)
+
+
+def test_with_hold_a_reading_inside_the_window_carries_the_last_measured_rate():
+    tracker = Tracker(window_s=0.5, hold=True)  # fast mode reads ten times a second, so most readings fall inside the window
+    tracker.update(_t(power=40.0, asic_temperature=50.0), 0.0)
+    (early,) = tracker.update(_t(power=41.0, asic_temperature=50.1), 0.1)
+    (measured,) = tracker.update(_t(power=45.0, asic_temperature=50.5), 0.5)
+    (inside,) = tracker.update(_t(power=46.0, asic_temperature=50.6), 0.6)
+    assert (early.power_rate, early.temp_rate) == (0.0, 0.0)  # nothing measured yet
+    assert measured.power_rate == pytest.approx(10.0) and measured.temp_rate == pytest.approx(1.0)
+    assert inside.power_rate == pytest.approx(10.0) and inside.temp_rate == pytest.approx(1.0)
+
+
+def test_without_hold_a_reading_inside_the_window_has_no_rate_as_before():
+    tracker = Tracker(window_s=0.5)
+    tracker.update(_t(power=40.0), 0.0)
+    tracker.update(_t(power=45.0), 0.5)
+    (inside,) = tracker.update(_t(power=46.0), 0.6)
+    assert inside.power_rate == 0.0
+
+
+def test_a_held_rate_is_dropped_when_the_number_of_chips_changes():
+    tracker = Tracker(window_s=0.5, hold=True)
+    tracker.update(_t(power=40.0), 0.0)
+    tracker.update(_t(power=45.0), 0.5)
+    now = tracker.update(_t(power=46.0) * 2, 0.6)
+    later = tracker.update(_t(power=46.0) * 2, 0.7)
+    assert [c.power_rate for c in now + later] == [0.0] * 4

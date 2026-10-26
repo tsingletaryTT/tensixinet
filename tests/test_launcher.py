@@ -66,6 +66,23 @@ def test_a_chosen_source_is_never_replaced():
         assert not notes
 
 
+def test_an_interval_is_passed_through_unchanged_with_the_open_ended_duration():
+    args, notes = L.with_defaults(["--interval", "100", "--live"], tt_smi=True)
+    assert args == ["--interval", "100", "--live", "--duration", "0"] and notes == []
+
+
+def test_with_tt_toplike_is_passed_through():
+    args, notes = L.with_defaults(["--live", "--with-tt-toplike", "--interval", "50"], tt_smi=True)
+    assert args == ["--live", "--with-tt-toplike", "--interval", "50", "--duration", "0"] and notes == []
+
+
+def test_with_tt_toplike_and_no_tt_smi_adds_no_synthetic_chips_and_says_why():
+    # synthetic chips would be refused by --with-tt-toplike, for a flag the user never typed; the command line's own refusal names tt-toplike
+    args, notes = L.with_defaults(["--live", "--with-tt-toplike"], tt_smi=False)
+    assert "--mock-chips" not in args and args == ["--live", "--with-tt-toplike", "--duration", "0"]
+    assert notes == ["--with-tt-toplike needs the real chips; tt-smi was not found"]
+
+
 def test_help_is_passed_through_untouched():
     args, notes = L.with_defaults(["--help"], tt_smi=False)
     assert args == ["--help"] and not notes

@@ -195,3 +195,15 @@ def test_a_hung_tt_smi_is_given_up_on_well_inside_one_live_segment():
     assert fetch_snapshot(fake_run) == {}
     assert seen["timeout"] == SNAPSHOT_TIMEOUT_S == 1.5
     assert SNAPSHOT_TIMEOUT_S < MIN_SEGMENT_S
+
+
+def test_bus_ids_follow_the_parse_order(snapshot):
+    from tensixinet.telemetry.snapshot import snapshot_bus_ids
+
+    assert snapshot_bus_ids(snapshot) == ["0000:01:00.0", "0000:02:00.0", "0000:03:00.0", "0000:04:00.0"]
+
+
+def test_a_device_with_no_bus_id_gives_an_empty_string():
+    from tensixinet.telemetry.snapshot import snapshot_bus_ids
+
+    assert snapshot_bus_ids({"device_info": [{}, {"board_info": {"bus_id": "0000:05:00.0"}}]}) == ["", "0000:05:00.0"]
