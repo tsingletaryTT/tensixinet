@@ -14,7 +14,7 @@ chips runs its own gong, shimmer, drone ripple, AVDog and delay mix as TT-Lang k
 
 Two earlier demos are in the repo: a 50-second one that starts from a prompt to the language model
 (`demo/assets/chorus.final.mp4`), and a 2-minute one of every feature at once, with the kernel devices on the chips
-(`demo/assets/features.final.mp4`). The site also has the stereo and evict recording, the style samples, a recording of a chip reset, and tt-bio-demo folding proteins on all four chips with the band playing the chips.
+(`demo/assets/features.final.mp4`). The site also has the stereo and evict recording, the style samples, a recording of a chip reset, tt-bio-demo folding proteins on all four chips with the band playing the chips, and a VCV Rack voice playing the lead's MIDI on top of tensixinet (`site/assets/voice.mp4`, in the site's "A second instrument" section).
 
 Every chip reports its temperature, clock, power, current, memory temperatures, DDR status, harvesting and
 more. tensixinet turns those readings into music. Each chip joins a small band of synthesizers inspired by
@@ -290,7 +290,7 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--out`, `--log-dir` | Where the WAV and the log go (`audio/`, `logs/`) |
 | `--endpoint`, `--model` | Any OpenAI-compatible endpoint (default `http://127.0.0.1:8011`). The model name is read from it |
 
-**Play a second instrument on top.** `vcv/tensixinet-voice.vcv` is a VCV Rack (Free) patch with one monophonic voice, a dark low-pass filter and a lot of resonance, that plays the lead's MIDI channel.
+**Play a second instrument on top** (a two-minute recording of this is in `site/assets/voice.mp4` and on the site). `vcv/tensixinet-voice.vcv` is a VCV Rack (Free) patch with one monophonic voice, a dark low-pass filter and a lot of resonance, that plays the lead's MIDI channel.
 Start `./tensixinet.py --live --midi-port virtual`, open the patch in Rack and pick the `tensixinet` MIDI input. `demo/vcv_record.sh` records the pair (tensixinet's log, its MIDI and Rack, with sound) on a private display. Steps, what was measured and what was not are in [docs/MIDI.md](docs/MIDI.md#a-voice-on-top-in-vcv-rack).
 
 If the endpoint is down, the music still plays and the log says so.

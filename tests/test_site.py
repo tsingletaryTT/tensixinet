@@ -287,6 +287,29 @@ def test_the_pitch_movement_has_a_held_and_a_moving_clip_from_the_same_patch_and
     assert 'd["quantus_mod"]=0.0' in script and "--mock-chips 4 --seed 3" in script    # the held clip is the moving one's patch with the modulation off
 
 
+# --- the VCV Rack voice on top of the MIDI --------------------------------------------------------------------------------------
+
+def test_the_voice_section_has_the_recording_its_poster_and_the_patchs_own_numbers():
+    from tensixinet.score import vcv
+    from tensixinet.score.routing import DEFAULT_ROUTES
+    section = HTML[HTML.index('id="voice"'): HTML.index('id="bio"')]
+    assert 'href="#voice"' in HTML and HTML.index('id="space"') < HTML.index('id="voice"') < HTML.index('id="bio"')
+    assert 'src="assets/voice.mp4"' in section and 'poster="assets/voice-frame.png"' in section
+    for name in ("voice.mp4", "voice-frame.png"):
+        assert (SITE / "assets" / name).is_file(), name
+    assert (SITE.parent / "vcv" / "tensixinet-voice.vcv").is_file() and "vcv/tensixinet-voice.vcv" in section
+    for text in (f"MIDI channel {DEFAULT_ROUTES.note_channels['lead'] + 1}", f"cutoff is at {vcv.CUTOFF:.2f}", f"resonance at {vcv.RESONANCE:.2f}",
+                 f"by {DEFAULT_ROUTES.bend_range:g} semitones", "--midi-port virtual", "--device auto", "--midi-offset-ms"):
+        assert text in section, text
+
+
+def test_the_voice_section_says_what_was_measured_and_what_was_not_built():
+    section = HTML[HTML.index('id="voice"'): HTML.index('id="bio"')]
+    for text in ("440.0 Hz", "493.8 Hz", "392.0 Hz", "30 ms", "first guess", "demo/vcv_record.sh", "is not built"):
+        assert text in section, text
+    assert 'href="https://github.com/tsingletaryTT/tt-cv-agency"' in section and "docs/MIDI.md" in section
+
+
 # --- the tt-bio-demo recording ------------------------------------------------------------------------------------------------
 
 def test_the_bio_section_has_the_recording_its_poster_and_the_patch_it_replays_with_the_patchs_own_numbers():

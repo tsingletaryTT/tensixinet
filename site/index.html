@@ -120,7 +120,7 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
 
 <nav><div class="wrap">
   <b>tensixinet</b>
-  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#colour">Colour</a><a href="#rhythm">Rhythm</a><a href="#bus">Delay and rests</a><a href="#styles">Styles</a><a href="#space">Space</a><a href="#bio">With tt-bio</a><a href="#app">The app</a><a href="#band">The band</a>
+  <a href="#idea">The idea</a><a href="#routing">Routing</a><a href="#cables">Cables</a><a href="#colour">Colour</a><a href="#rhythm">Rhythm</a><a href="#bus">Delay and rests</a><a href="#styles">Styles</a><a href="#space">Space</a><a href="#voice">A voice on top</a><a href="#bio">With tt-bio</a><a href="#app">The app</a><a href="#band">The band</a>
   <a href="#listen">Listen</a><a href="#new">Is it new?</a><a href="#kernels">On the chip</a><a href="#hardware">Get hardware</a><a href="#credits">Credits</a>
 </div></nav>
 
@@ -340,6 +340,22 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3>Stereo and evictions</h3><p>Sixty seconds from that run, with chip 1's eviction and fill and chip 2's blip. Best on headphones.</p><audio controls preload="none" src="assets/audio/stereo.mp3"></audio></div>
   </div>
   <p class="src" style="margin-top:10px">Try <code>tensixinet --live --mock-chips 4 --mock-load 60</code> to hear an eviction without a model (<code>--mock-load</code> is the cycle length in seconds). <code>--no-evict</code> turns the eviction off. Measured, not yet judged by ear: over 20 s on four chips the two channels correlate at 0.27 and the left-right balance moves between -3 and +7 dB.</p>
+</div></section>
+
+<section id="voice"><div class="wrap">
+  <div class="kicker">MIDI out</div>
+  <h2>A second instrument playing on top of the chips</h2>
+  <p>The lead, the gong, the rolls and the snare can leave tensixinet as MIDI: a file for a DAW, or a live port for any synth. Here the port feeds VCV Rack Free, where a single monophonic voice plays the lead's notes: a saw wave through a dark low-pass filter with a lot of resonance, an envelope that opens the cutoff on each note, and the pitch wheel carrying the lead's glides. tensixinet keeps playing its own sound underneath.</p>
+  <div class="diagram" style="margin-top:20px">
+    <video controls preload="none" poster="assets/voice-frame.png" src="assets/voice.mp4" style="width:100%;border-radius:8px"></video>
+    <p class="caption">Two minutes, with the sound of both. Top left: <code>tensixinet --live --midi-port virtual</code> reading the four real chips. Top right: the MIDI it sends, as <code>aseqdump</code> prints it. Bottom: Rack with the voice and its scope. The gate light, the envelope curve and the scope follow the notes.</p>
+  </div>
+  <div class="grid" style="margin-top:20px">
+    <div class="card"><h3>The voice</h3><p>MIDI channel 1, where the lead plays. The filter cutoff is at 0.30 and the resonance at 0.80 of their knobs, and the envelope opens the cutoff on every note and sets the level. The wheel bends the pitch by 2 semitones, the same span the score uses. It needs only Rack Free's own Core and Fundamental modules. The patch is <code>vcv/tensixinet-voice.vcv</code>.</p></div>
+    <div class="card"><h3>Play it yourself</h3><p>Install the extra with <code>pip install -e .[midi]</code> and start <code>./tensixinet.py --live --midi-port virtual</code>. Open the patch in Rack and pick the <code>tensixinet</code> MIDI input on the MIDI-CV module. <code>python -m tensixinet.score.vcv my-voice.vcv --device auto --audio-device NAME</code> writes a copy that already names the port and the audio output.</p></div>
+    <div class="card"><h3>What was measured</h3><p>In Rack, A4 plays at 440.0 Hz, a full wheel up gives 493.8 Hz and down 392.0 Hz, and a note on another channel makes no sound. The voice sits about 30 ms ahead of tensixinet's own lead, so <code>--midi-offset-ms</code> stays at 0. The filter and envelope values are a first guess to tune by ear in Rack.</p></div>
+  </div>
+  <p class="src" style="margin-top:10px">Made with <code>demo/vcv_record.sh</code>, which runs on a private display and sound sink. The route table, the file and port options and the limits are in <a href="https://github.com/tsingletaryTT/tensixinet/blob/main/docs/MIDI.md">docs/MIDI.md</a>. A control-voltage output, as in <a href="https://github.com/tsingletaryTT/tt-cv-agency">tt-cv-agency</a>, is not built.</p>
 </div></section>
 
 <section id="bio"><div class="wrap">
