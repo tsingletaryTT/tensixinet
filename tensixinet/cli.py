@@ -188,6 +188,9 @@ def _check_arguments(parser, a) -> tuple:
             parser.error("--interval needs --live: it sets how often a live run reads the chips")
         if a.kernels:
             parser.error("--interval cannot be used with --kernels: the kernels hold the chips and the render budget is too small")
+        if a.midi_file or a.midi_port:
+            parser.error("--interval cannot be used with --midi-file or --midi-port yet: fast mode's phrases restart the devices' clocks, so it builds no score "
+                         "(docs/ROADMAP.md item 10)")
     routes = DEFAULT_ROUTES
     if a.midi_map:
         if not a.midi_file and not a.midi_port:

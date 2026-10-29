@@ -81,6 +81,6 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    * MIDI clock out, from the tempo `aiclk_to_bpm` gives.
    * Events from `ttchoir` (vowel changes as notes or CCs).
    * A channel for each chip on a live port, so two chips' lead notes do not share channel 1.
-   * Joining fast mode (`--interval`, on another unmerged branch) to the score: its phrases are shorter and restart the devices' clocks, so the score has to follow the phrases.
+   * Joining fast mode (`--interval`) to the score (the two are refused together for now): its phrases are shorter and restart the devices' clocks, so the score has to follow the phrases.
    * A CV sink: either the control lanes as MIDI CCs into `~/code/vcv-cv-harness` through MIDI-CAT, or a direct CV output as in `~/code/tt-cv-agency`. Neither has been tried.
    * MIDI in: a controller or clock that changes the patch or the readings.

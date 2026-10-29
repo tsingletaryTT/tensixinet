@@ -127,7 +127,7 @@ sink beside the file and the port. A route from the control lanes into MIDI CCs 
 ## Limits
 
 * Nothing has been heard through a real synth, and no one has connected a real port to a synth (the library is installed here). The offset was never measured against real audio.
-* No fast mode: `--interval` lives on another unmerged branch, and joining it to the score is on the roadmap.
+* No fast mode: `--interval` with `--midi-file` or `--midi-port` is refused with a message, because fast mode builds no score. Joining them is on the roadmap.
 * No MIDI clock, and no events from `ttchoir`.
 * On a live port the chips share channels (every chip's lead plays on channel 1), so two chips' notes on one number retrigger each other. The file keeps chips apart with a track each.
 * Pitch bend is channel-wide in MIDI, so overlapping notes on one channel share one bend.

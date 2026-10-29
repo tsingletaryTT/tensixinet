@@ -1059,6 +1059,15 @@ def test_an_interval_needs_live(tmp_path, capsys):
     assert e.value.code == 2 and "--interval needs --live" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("flag", [["--midi-file", "x.mid"], ["--midi-port", "virtual"]])
+def test_an_interval_is_refused_with_a_midi_output(tmp_path, capsys, flag):
+    # fast mode does not build a score yet, so the MIDI flags would be accepted and write nothing
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--live", "--interval", "100", *flag))
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "--interval cannot be used with --midi-file or --midi-port" in err
+
+
 def test_an_interval_is_refused_with_the_kernels(tmp_path, capsys):
     with pytest.raises(SystemExit) as e:
         fast(tmp_path, "--interval", "100", "--kernels", "sim")
