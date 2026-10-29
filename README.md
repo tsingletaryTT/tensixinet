@@ -290,6 +290,9 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--out`, `--log-dir` | Where the WAV and the log go (`audio/`, `logs/`) |
 | `--endpoint`, `--model` | Any OpenAI-compatible endpoint (default `http://127.0.0.1:8011`). The model name is read from it |
 
+**Play a second instrument on top.** `vcv/tensixinet-voice.vcv` is a VCV Rack (Free) patch with one monophonic voice, a dark low-pass filter and a lot of resonance, that plays the lead's MIDI channel.
+Start `./tensixinet.py --live --midi-port virtual`, open the patch in Rack and pick the `tensixinet` MIDI input. Steps, what was measured and what was not are in [docs/MIDI.md](docs/MIDI.md#a-voice-on-top-in-vcv-rack).
+
 If the endpoint is down, the music still plays and the log says so.
 
 ## How it is built
@@ -311,7 +314,7 @@ If the endpoint is down, the music still plays and the log says so.
 |---|---|
 | `tensixinet/telemetry/` | `tt-smi -s` parsing for any chip count, and synthetic chips |
 | `tensixinet/music/` | The mapping table, the eleven devices, patches, turn-taking, the mixer, and live mode's segment joins |
-| `tensixinet/score/` | The notes, triggers and controls the devices play, as data, and the MIDI file and live port they go to ([docs/MIDI.md](docs/MIDI.md)) |
+| `tensixinet/score/` | The notes, triggers and controls the devices play, as data, the MIDI file and live port they go to, and the VCV Rack voice patch in `vcv/` ([docs/MIDI.md](docs/MIDI.md)) |
 | `tensixinet/live.py` | The live loop: read, render a turn, play it while the next is made |
 | `tensixinet/narrate/` | The what-and-why log |
 | `tensixinet/media/` | The language model client, the ffmpeg soundtrack step, and the players live mode sends sound to |

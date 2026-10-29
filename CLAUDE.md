@@ -41,7 +41,7 @@ tensixinet/
   narrate/     explain (what and why), runlog (JSONL plus the left-bar text view)
   media/       llm (OpenAI-compatible endpoint), mux (WAV under a video), player (live audio out)
   ui/          flow (what is playing as data), chart (it as animated SVG), logview, session (the live loop on a thread), progress (the steps of a start), player (which session the page shows), forms, knobs / scopes / instrument / readout (the Play tab)
-  score/       events (Note, Trigger, Control, Score), collect (the devices' events, from the same code as the audio), routing, midi, smf (the file writer), sinks (file and live port)
+  score/       events (Note, Trigger, Control, Score), collect (the devices' events, from the same code as the audio), routing, midi, smf (the file writer), sinks (file and live port), vcv (the VCV Rack voice patch in `vcv/`)
   run.py live.py cli.py __main__.py     wiring (offline and live) and the command line
 tensixinet.py  the launcher: standard library only; finds or builds .venv, falls back to synthetic chips, --live/--app/--doctor/--setup
 tests/         mirrors the package: tests/music/test_devices.py tests the music/devices.py module
@@ -668,4 +668,10 @@ legacy/        first prototype scripts, kept for reference
     and that a dead port was silent (the sink now keeps `error` and the live loop logs one "midi" line).
   * Not done and not measured: nothing has been heard through a real synth. No real port has been connected to a synth (`mido` and `rtmidi` are installed in `~/.tenstorrent-venv`; the port opener is tested against a fake module). `--midi-offset-ms` was never measured against real audio.
     No MIDI clock, no `ttchoir` events, chips share channels on a live port, pitch bend is channel-wide, fast mode (`--interval`, another unmerged branch) is not joined to the score. All are in `docs/ROADMAP.md` item 10.
+* **2026-10-29, "bring midi-out into a state where we can share it. proof of concept is midi out leads to vcv rack and we can listen to an instrument playing ON TOP OF tensixinet ... a monophonic voice with lots of LPF and resonance":**
+  `vcv/tensixinet-voice.vcv` and `tensixinet/score/vcv.py` (the builder; `python -m tensixinet.score.vcv OUT [--device auto|NAME] [--channel N] [--bend-range ST]`): Core MIDI-CV (mono, channel 1) into a Fundamental VCO saw, a low cutoff (0.30) and high resonance (0.80) VCF that an ADSR opens, and a VCA on the same ADSR.
+  * Run for real: Rack Free 2.6.6 headless (`Rack -h`, stdin held open) into a null PulseAudio sink, notes from `mido` into the virtual port. A4 = 440.0 Hz, wheel up 493.8 Hz, wheel down 392.0 Hz, C4 = 261.7 Hz, a channel 2 note silent. A live run on four synthetic chips made sound (RMS 0.04). Nobody has listened to it.
+  * Found on the way: the virtual port's ALSA name is `RtMidiOut Client:tensixinet 128:0` (the first matcher looked for a name that started with `tensixinet:` and found nothing); Rack's module slug for MIDI-CV is `MIDIToCVInterface`; with the resonance at 0.8 an autocorrelation pitch tracker reports the filter's ring (249 Hz for A4), so the pitch check ran with the resonance at 0 and the cutoff open;
+    a Rack killed with SIGTERM leaves its log without `END` and the next start shows a crash dialog that blocks it (the harness's `vcv-stack` documents this).
+  * Process slip: I wrote `vcv.py` before its tests, then ran a 23-mutant battery. Two survivors (the bend range through the command line, the DC filter flag) got assertions.
 

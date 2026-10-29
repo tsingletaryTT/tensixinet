@@ -182,4 +182,8 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   port whose send hangs cannot hang the exit.
 * **A note that starts on a sounding number retriggers it.** MIDI has one note-on state per channel and number. Review found two overlapping notes of the same pitch whose first note-off
   silenced the second, so the second note-on now ends the first at that moment and the first's own off is dropped.
-
+* **The first synth is a VCV Rack patch the code builds.** The proof of concept is a monophonic voice with a dark, resonant low-pass filter on the lead's channel, played on top of tensixinet's own sound.
+  `score/vcv.py` builds the patch as data and `vcv/tensixinet-voice.vcv` is its output, with a test that the two agree, so the bend knob, the channel and the numbers cannot drift from `Routes`.
+  The patch names no MIDI device and no audio output, because the ALSA name of the virtual port carries a client number that changes each run; `--device auto` writes a copy for the running port.
+  The wheel's 5 V swing and the module and port numbers were measured by playing the patch in Rack (440.0 Hz for A4, 493.8 and 392.0 Hz at the wheel's ends). They were not read from Rack's source.
+  The filter and envelope values are a first guess. The alternative, MIDI-CAT as in `~/code/vcv-cv-harness`, is for CCs onto knobs and is not needed to play notes.

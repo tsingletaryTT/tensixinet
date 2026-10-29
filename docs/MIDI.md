@@ -63,7 +63,7 @@ It has never been measured against real audio, so the default is 0 and the right
 
 ### How to hear it
 
-None of this has been tried with this code. The setup is the usual one for a virtual port.
+The VCV Rack route below has been run end to end. The synth and DAW routes in this list have not been tried with this code; the setup is the usual one for a virtual port.
 
 1. Install the extra: `pip install -e .[midi]`.
 2. Start a software synth or a DAW that listens for MIDI input. For FluidSynth with a General MIDI soundfont, `~/code/tt-midi-maker` has a worked setup (see its README and `INSTALL.md`).
@@ -72,6 +72,25 @@ None of this has been tried with this code. The setup is the usual one for a vir
 4. Channel 10 is the General MIDI drum channel, so the gong, snare and rolls play as drums on a GM synth. Channel 16 carries controllers, which a synth ignores unless it maps CC 20 to 23.
 
 To use other channels, notes or controllers, pass a map.
+
+## A voice on top, in VCV Rack
+
+`vcv/tensixinet-voice.vcv` is a Rack patch with one monophonic voice. It listens on MIDI channel 1, where the lead plays. A note makes a saw wave. The wave passes through a low-pass filter with the cutoff
+low (0.30) and the resonance high (0.80). An envelope opens the cutoff on each note and also sets the level. The pitch wheel bends the voice by the score's two semitones. It uses only VCV's free modules
+(Core and Fundamental).
+
+1. Install the extra (`pip install -e .[midi]`) and start tensixinet with a virtual port: `./tensixinet.py --live --midi-port virtual`.
+2. Open `vcv/tensixinet-voice.vcv` in VCV Rack (Free is enough). Click the MIDI-CV module's device line and pick `RtMidiOut Client:tensixinet` (the number after it changes). Pick the audio output on the Audio module.
+   To skip the first click, write a copy that already names the port: `python -m tensixinet.score.vcv my-voice.vcv --device auto` while tensixinet is running.
+3. The voice plays over tensixinet's own sound. If the two drift apart, move the voice with `--midi-offset-ms` (positive is later).
+
+Other channels: `--channel N` and `--bend-range SEMITONES` on `python -m tensixinet.score.vcv` write a patch for another channel or a `--midi-map` with a different `bend_range`. Point it at `ttquantus` with `--channel 2`.
+The patch is made by `score/vcv.py` and a test checks that the file in the repository is what the builder writes.
+
+What was measured, on this box with Rack Free 2.6.6 running without a window (`Rack -h`) into a null audio sink, and notes sent with `mido` into the virtual port: A4 plays at 440.0 Hz, a full wheel up plays 493.8 Hz
+and down 392.0 Hz (two semitones either side), C4 plays at 261.7 Hz, and a note on channel 2 makes no sound. A live run of four synthetic chips into the voice produced sound (RMS 0.04, peak 0.20); the notes
+in that run were not compared with the audio one by one. Nobody has listened to it. The cutoff, resonance and envelope times are a first guess and are best set by ear in Rack. The chips share the lead's channel, so on a live port two chips'
+lead notes can overlap on a single voice. What the voice does then was not checked.
 
 ## `--midi-map`
 

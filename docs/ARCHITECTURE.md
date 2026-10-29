@@ -72,6 +72,7 @@ them from its own thread at their time. Neither sink touches the audio path.
 | | `player.py` | Where live audio goes: a `paplay`, `aplay` or `ffplay` process, a growing WAV, or no sound at the speed of the music |
 | `score/` | `events.py` | `Note`, `Trigger`, `Control` and `Score`, with the Hz-to-MIDI helpers |
 | | `collect.py` | One extractor per device and `chorus_score`, which builds a render's `Score` the way `render_chorus` deals the devices |
+| | `vcv.py` | Builds the VCV Rack voice patch (`vcv/tensixinet-voice.vcv`): one mono voice on the lead's channel; `python -m tensixinet.score.vcv` writes a copy for another channel or port |
 | | `routing.py` | The route table (`Routes`, `DEFAULT_ROUTES`) and `load_routes` for `--midi-map` |
 | | `midi.py` | `to_messages`: a `Score` to timed MIDI bytes |
 | | `smf.py` | The Standard MIDI File writer |
