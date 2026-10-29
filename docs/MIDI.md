@@ -84,8 +84,17 @@ low (0.30) and the resonance high (0.80). An envelope opens the cutoff on each n
    To skip the first click, write a copy that already names the port: `python -m tensixinet.score.vcv my-voice.vcv --device auto` while tensixinet is running.
 3. The voice plays over tensixinet's own sound. If the two drift apart, move the voice with `--midi-offset-ms` (positive is later).
 
+The patch also has a scope on the voice's output. `--audio-device NAME` on the same command names the PulseAudio or PipeWire output, so the copy needs no clicks at all.
+
 Other channels: `--channel N` and `--bend-range SEMITONES` on `python -m tensixinet.score.vcv` write a patch for another channel or a `--midi-map` with a different `bend_range`. Point it at `ttquantus` with `--channel 2`.
 The patch is made by `score/vcv.py` and a test checks that the file in the repository is what the builder writes.
+
+**Timing.** `--midi-offset-ms` was measured once for this route. With tensixinet playing only the lead (`--only lead`) into one null sink and the Rack voice into another, both recorded at once for 38 s, the correlation of the two sounds' loudness
+curves peaked at 0.67 with the voice 30 ms ahead of the lead (0.65 at 20 ms, 0.64 at 40 ms; the two sounds have different attacks, so the real figure is within a few tens of milliseconds). The default of 0 stays. A player that buffers more, or a Rack audio buffer other than 512 samples at 48 kHz, moves this.
+
+**A recording.** `demo/vcv_record.sh` records the pair in one 1080p frame with the sound of both: tensixinet's log top left, the MIDI it sends (`aseqdump`) top right, Rack with the voice and its scope along the bottom. It runs on a private X server (Xvfb, software GL),
+a private sound sink and a private Rack user folder, so it does not touch your desktop or your Rack settings, and needs no screen-share dialog. `VCV_SECONDS=45 demo/vcv_record.sh` for a shorter take; the file is `build/vcv_rec/vcv.mp4`. The sound is what the two programs played together
+(mean level -17 dB, peak -0.5 dB over a two-minute take).
 
 What was measured, on this box with Rack Free 2.6.6 running without a window (`Rack -h`) into a null audio sink, and notes sent with `mido` into the virtual port: A4 plays at 440.0 Hz, a full wheel up plays 493.8 Hz
 and down 392.0 Hz (two semitones either side), C4 plays at 261.7 Hz, and a note on channel 2 makes no sound. A live run of four synthetic chips into the voice produced sound (RMS 0.04, peak 0.20); the notes

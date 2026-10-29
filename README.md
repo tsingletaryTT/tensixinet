@@ -291,7 +291,7 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--endpoint`, `--model` | Any OpenAI-compatible endpoint (default `http://127.0.0.1:8011`). The model name is read from it |
 
 **Play a second instrument on top.** `vcv/tensixinet-voice.vcv` is a VCV Rack (Free) patch with one monophonic voice, a dark low-pass filter and a lot of resonance, that plays the lead's MIDI channel.
-Start `./tensixinet.py --live --midi-port virtual`, open the patch in Rack and pick the `tensixinet` MIDI input. Steps, what was measured and what was not are in [docs/MIDI.md](docs/MIDI.md#a-voice-on-top-in-vcv-rack).
+Start `./tensixinet.py --live --midi-port virtual`, open the patch in Rack and pick the `tensixinet` MIDI input. `demo/vcv_record.sh` records the pair (tensixinet's log, its MIDI and Rack, with sound) on a private display. Steps, what was measured and what was not are in [docs/MIDI.md](docs/MIDI.md#a-voice-on-top-in-vcv-rack).
 
 If the endpoint is down, the music still plays and the log says so.
 

@@ -186,4 +186,6 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   `score/vcv.py` builds the patch as data and `vcv/tensixinet-voice.vcv` is its output, with a test that the two agree, so the bend knob, the channel and the numbers cannot drift from `Routes`.
   The patch names no MIDI device and no audio output, because the ALSA name of the virtual port carries a client number that changes each run; `--device auto` writes a copy for the running port.
   The wheel's 5 V swing and the module and port numbers were measured by playing the patch in Rack (440.0 Hz for A4, 493.8 and 392.0 Hz at the wheel's ends). They were not read from Rack's source.
+  The demo recording runs on a private Xvfb display, a null sink and a private Rack user folder (`-u`), which `ffmpeg -f x11grab` can read, where the desktop is Wayland and a screen grab there is black or needs a share dialog. Rack Free renders there with Mesa's software GL.
+  The first attempts failed because display :99 belonged to another agent's `xvfb-run` and Rack died with "Could not initialize GLFW"; `Xvfb -displayfd` now picks a free number.
   The filter and envelope values are a first guess. The alternative, MIDI-CAT as in `~/code/vcv-cv-harness`, is for CCs onto knobs and is not needed to play notes.

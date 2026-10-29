@@ -37,6 +37,7 @@ def test_the_signal_path_is_wired_as_a_mono_voice():
         ("ADSR", 0, "VCA", 1),  # envelope -> level
         ("VCA", 0, "AudioInterface2", 0),
         ("VCA", 0, "AudioInterface2", 1),
+        ("VCA", 0, "Scope", 0),  # the picture of the sound
     }
 
 
@@ -76,6 +77,13 @@ def test_the_voice_has_a_dark_filter_with_a_lot_of_resonance():
     assert _param(vcf, 0) == pytest.approx(0.30)  # cutoff
     assert _param(vcf, 2) == pytest.approx(0.80)  # resonance
     assert _param(vcf, 3) == pytest.approx(0.40)  # how far the envelope opens the cutoff
+
+
+def test_the_scope_shows_a_few_dozen_periods_of_the_voice_large():
+    scope = _mods(vcv.voice_patch())["Scope"]
+    assert _param(scope, 0) == 1.0  # gain 1: without it the trace is a thin line
+    assert _param(scope, 4) == 2.5  # time base: 1.0 is a solid band, -2.0 shows a whole note
+    assert vcv.voice_patch()["zoom"] == 1.25
 
 
 def test_the_envelope_is_a_plucked_one_that_sustains():
@@ -163,3 +171,18 @@ def test_the_shipped_patch_is_what_the_builder_makes():
     shipped = Path(__file__).resolve().parents[2] / "vcv" / "tensixinet-voice.vcv"
     out = subprocess.run(["tar", "--zstd", "-xOf", str(shipped), "patch.json"], capture_output=True, text=True, check=True).stdout
     assert json.loads(out) == vcv.voice_patch()
+
+
+def test_pulse_audio_block_names_the_output_and_the_pulse_driver():
+    assert vcv.pulse_audio("sink") == {"driver": 2, "deviceName": "sink", "sampleRate": 48000.0, "blockSize": 512, "inputOffset": 0, "outputOffset": 0}
+    assert vcv.pulse_audio("s", 44100.0, 256)["sampleRate"] == 44100.0
+    assert vcv.pulse_audio("s", 44100.0, 256)["blockSize"] == 256
+
+
+def test_main_audio_device_flag_fills_the_audio_block(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(vcv, "write_vcv", lambda path, patch, run=None: seen.update(patch=patch))
+    vcv.main([str(tmp_path / "a.vcv"), "--audio-device", "tsx_demo"])
+    assert _mods(seen["patch"])["AudioInterface2"]["data"]["audio"] == vcv.pulse_audio("tsx_demo")
+    vcv.main([str(tmp_path / "a.vcv")])
+    assert "audio" not in _mods(seen["patch"])["AudioInterface2"]["data"]

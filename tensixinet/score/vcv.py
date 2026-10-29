@@ -23,7 +23,7 @@ RACK_VERSION = "2.6.4"
 ALSA = 2  # RtMidi's ALSA backend, the driver number Rack saves
 
 # Module ids in the patch.
-MIDI, VCO, VCF, ADSR, VCA, OUT = 1, 2, 3, 4, 5, 6
+MIDI, VCO, VCF, ADSR, VCA, OUT, SCOPE = 1, 2, 3, 4, 5, 6, 7
 
 # Core MIDI-CV outputs, Fundamental VCO / VCF / ADSR / VCA ports and parameters.
 MIDI_PITCH, MIDI_GATE, MIDI_BEND = 0, 1, 4
@@ -34,12 +34,15 @@ VCF_CUTOFF_PARAM, VCF_RES_PARAM, VCF_CUTOFF_CV_PARAM = 0, 2, 3
 ADSR_GATE_IN, ADSR_OUT = 4, 0
 VCA_AUDIO_IN, VCA_OUT = 2, 0
 VCA_LEVEL_IN = 1
+SCOPE_X_IN = 0
+SCOPE_GAIN_PARAM, SCOPE_TIME_PARAM = 0, 4  # gain 1 and the time base; the rest are Rack's defaults
 
 # The wheel's full swing is 5 V on MIDI-CV (measured in Rack: with the VCO's FM knob at 2 / 12 / 5, a full bend up from A4 plays B4).
 BEND_VOLTS = 5.0
 
 CUTOFF = 0.30  # knob position, 0 to 1
 RESONANCE = 0.80
+ZOOM = 1.25  # the modules fill a 540 pixel high window
 ENVELOPE_TO_CUTOFF = 0.40
 
 
@@ -77,6 +80,7 @@ def voice_patch(device: Optional[str] = None, audio: Optional[dict] = None, chan
         _module(ADSR, "Fundamental", "ADSR", 32, _param({0: 0.10, 1: 0.40, 2: 0.50, 3: 0.35}, 9)),
         _module(VCA, "Fundamental", "VCA", 38, _param({0: 1.0, 1: 1.0}, 2)),
         _module(OUT, "Core", "AudioInterface2", 44, [], out_data),
+        _module(SCOPE, "Fundamental", "Scope", 53, _param({SCOPE_GAIN_PARAM: 1.0, SCOPE_TIME_PARAM: 2.5, 7: 1.0}, 8)),
     ]
     wires = [
         (MIDI, MIDI_PITCH, VCO, VCO_PITCH_IN),
@@ -88,12 +92,13 @@ def voice_patch(device: Optional[str] = None, audio: Optional[dict] = None, chan
         (ADSR, ADSR_OUT, VCA, VCA_LEVEL_IN),
         (VCA, VCA_OUT, OUT, 0),
         (VCA, VCA_OUT, OUT, 1),
+        (VCA, VCA_OUT, SCOPE, SCOPE_X_IN),
     ]
     cables = [
         {"id": 100 + i, "outputModuleId": a, "outputId": b, "inputModuleId": c, "inputId": d, "color": "#1b8eb1"}
         for i, (a, b, c, d) in enumerate(wires)
     ]
-    return {"version": RACK_VERSION, "zoom": 1.0, "gridOffset": [0.0, 0.0], "modules": modules, "cables": cables}
+    return {"version": RACK_VERSION, "zoom": ZOOM, "gridOffset": [0.0, 0.0], "modules": modules, "cables": cables}
 
 
 def write_vcv(path: Path, patch: dict, run: Callable = subprocess.run) -> None:
@@ -101,6 +106,14 @@ def write_vcv(path: Path, patch: dict, run: Callable = subprocess.run) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "patch.json").write_text(json.dumps(patch, indent=1))
         run(["tar", "--zstd", "-cf", str(path), "-C", tmp, "patch.json"], check=True)
+
+
+PULSE = 2  # RtAudio's PulseAudio backend, the driver number Rack saves
+
+
+def pulse_audio(device: str, sample_rate: float = 48000.0, block_size: int = 512) -> dict:
+    """An AudioInterface2 `audio` block for the PulseAudio (or PipeWire) output called `device`."""
+    return {"driver": PULSE, "deviceName": device, "sampleRate": sample_rate, "blockSize": block_size, "inputOffset": 0, "outputOffset": 0}
 
 
 def alsa_input_name(prefix: str = "tensixinet", names: Optional[List[str]] = None) -> Optional[str]:
@@ -123,6 +136,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("out", help="the .vcv file to write")
     ap.add_argument("--channel", type=int, default=DEFAULT_ROUTES.note_channels["lead"] + 1, help="MIDI channel to play, 1 to 16 (default: the lead's)")
     ap.add_argument("--bend-range", type=float, default=DEFAULT_ROUTES.bend_range, help="semitones the full pitch wheel covers; match --midi-map's bend_range")
+    ap.add_argument("--audio-device", help="name of the PulseAudio or PipeWire output for the Audio module; default: pick it in Rack")
     ap.add_argument("--device", help="ALSA name of the MIDI input; 'auto' finds the running tensixinet port; default: pick it in Rack")
     args = ap.parse_args(argv)
     device = args.device
@@ -134,7 +148,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not 1 <= args.channel <= 16:
         print("--channel must be 1 to 16")
         return 2
-    write_vcv(Path(args.out), voice_patch(device, channel=args.channel - 1, bend_range=args.bend_range))
+    audio = pulse_audio(args.audio_device) if args.audio_device else None
+    write_vcv(Path(args.out), voice_patch(device, audio, channel=args.channel - 1, bend_range=args.bend_range))
     print(f"wrote {args.out}" + (f" listening to {device}" if device else ""))
     return 0
 
