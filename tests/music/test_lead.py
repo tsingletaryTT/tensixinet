@@ -231,3 +231,77 @@ def test_a_note_that_rests_is_not_replaced_by_its_neighbour_the_phrase_keeps_its
     t = tel((30.0,) * 4)
     patch = dataclasses.replace(DEFAULT_PATCH, lead_rests=0.5)
     assert lead(t, 7.3, SR, 1, patch=patch).shape == (int(7.3 * SR),)
+
+
+# --- characterization: the lead's audio is fixed byte for byte (MIDI-out task 2 split it into events and a renderer) ---
+import hashlib as _hashlib  # noqa: E402
+
+from tensixinet.music.patch import draw_patch as _draw_patch  # noqa: E402
+from tensixinet.music.lead import lead_notes  # noqa: E402
+
+_CHAR_TELEMETRY = (
+    FALLBACK,
+    dataclasses.replace(FALLBACK, asic_temperature=62.0, aiclk=1000.0, gddr_temps=(30., 34., 29., 38., 31., 27., 36., 30.), eth_mask=0x3F3, tensix_mask=0x2D5A),
+    dataclasses.replace(FALLBACK, asic_temperature=85.0, aiclk=500.0, power=110.0, gddr_temps=(55., 50., 61., 48., 52., 59., 47., 53.), eth_mask=0x7FF, tensix_mask=0x3002),
+)
+_DRAWN = dataclasses.replace(_draw_patch(7, _CHAR_TELEMETRY), lead_rests=0.5, roll_rests=0.5, steam_routes=("accent",))
+_CHAR_PATCHES = (DEFAULT_PATCH, _DRAWN, _DRAWN)
+# SHA-256 of the float32 bytes of a 6 s render at 22050 Hz, taken from the code before the split.
+_LEAD_DIGESTS = (
+    "56300987641dc644ffeda8450c9eb36dc9ecd74d3a81488aaa32cb45b4799a1d",
+    "ed161af13781f047b18a16cc8998dd2b908caa11aed04afd687880ce87e918ac",
+    "360695e8287fd7d87ef491289fb568029bb0d1a152025cca3147f712ce27ff81",
+)
+
+
+@pytest.mark.parametrize("i", range(3))
+def test_lead_audio_is_byte_identical_to_the_digest_taken_before_the_split(i):
+    audio = lead(_CHAR_TELEMETRY[i], 6.0, 22050, 12345 + i * (1 << 20), _CHAR_PATCHES[i])
+    assert audio.dtype == np.float32
+    assert _hashlib.sha256(audio.tobytes()).hexdigest() == _LEAD_DIGESTS[i]
+
+
+# --- lead_notes: the events the lead's audio is rendered from ---
+def _notes(t, patch, seed=5, duration=6.0, sr=22050):
+    return lead_notes(t, duration, sr, seed, patch)
+
+
+def test_lead_notes_have_one_entry_per_motif_note_when_nothing_rests():
+    t = tel((30.0,) * 8)  # 120 BPM: an eighth is 0.25 s, a bar is len(motif) eighths
+    notes = _notes(t, DEFAULT_PATCH)
+    eighth = round(0.25 * 22050) / 22050  # whole samples, as the audio places them
+    bar = eighth * len(DEFAULT_PATCH.motif)
+    per_bar = len(DEFAULT_PATCH.motif)
+    expected = [p * bar + i * eighth for p in range(int(6.0 / bar) + 1) for i in range(per_bar) if p * bar + i * eighth < 6.0]
+    assert [s for s, _, _ in notes] == pytest.approx(expected, abs=1 / 22050)
+    assert all(d == pytest.approx(eighth, abs=1 / 22050) for _, d, _ in notes)
+
+
+def test_lead_notes_never_start_at_or_after_the_duration():
+    for dur in (0.3, 1.0, 2.77, 6.0):
+        assert all(s < dur for s, _, _ in _notes(tel((30.0,) * 8), DEFAULT_PATCH, duration=dur))
+
+
+def test_lead_notes_keep_the_first_note_of_each_phrase_when_rests_are_heavy():
+    patch = dataclasses.replace(DEFAULT_PATCH, lead_rests=0.9)
+    notes = _notes(tel((30.0,) * 8), patch)
+    bar = 0.25 * len(patch.motif)
+    starts = [s for s, _, _ in notes]
+    for phrase in range(int(6.0 / bar)):
+        assert any(abs(s - phrase * bar) < 1e-3 for s in starts)
+    assert len(notes) < len(_notes(tel((30.0,) * 8), DEFAULT_PATCH))  # and the rests did remove some
+
+
+def test_lead_notes_cap_the_pitch_at_the_ceiling_the_audio_uses():
+    hot = dataclasses.replace(FALLBACK, asic_temperature=120.0, gddr_temps=(80.0,) * 4 + (20.0,) * 4)
+    notes = lead_notes(hot, 4.0, 2000, 1, DEFAULT_PATCH)
+    assert notes and max(p for _, _, p in notes) <= 0.45 * 2000 + 1e-9
+    assert any(p == pytest.approx(0.45 * 2000) for _, _, p in notes)
+
+
+def test_lead_notes_follow_the_phrase_transform_the_audio_hears():
+    flat = _notes(tel((30.0,) * 8), DEFAULT_PATCH)
+    hot = _notes(tel((30.0,) * 7 + (38.0,)), DEFAULT_PATCH)
+    per_bar = len(DEFAULT_PATCH.motif)
+    # phrase 0 reads channel 0, which is below the mean here and so inverts; the last channel (read by phrase 7) shifts up
+    assert [p for _, _, p in hot[:per_bar]] != [p for _, _, p in flat[:per_bar]]

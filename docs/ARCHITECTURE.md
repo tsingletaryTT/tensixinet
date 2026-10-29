@@ -28,6 +28,19 @@ thread. The sink's writes block at the speed of the music, which paces the loop.
 `narrate/` touches the network, the filesystem or the device, apart from `fetch_snapshot`, which
 runs `tt-smi -s`.
 
+With `--midi-file` or `--midi-port`, `run.py` and `live.py` also build a `Score` for each render (`score/collect.chorus_score`), which deals and seeds the
+devices the way `render_chorus` does and asks the lead, `ttquantus`, the gong, `ttrollz` and `ttsteam` for their events from the functions the audio reads.
+`score/midi.to_messages` routes the events to timed MIDI bytes, and a sink takes them: `MidiFileSink` keeps them for `score/smf.py` to write when the run ends, and `MidiPortSink` sends
+them from its own thread at their time. Neither sink touches the audio path.
+
+```
+ devices (same functions as the audio) ──► score/collect ──► Score (Note, Trigger, Control)
+                                                                 │ score/midi + score/routing
+                                                                 ▼
+                                              timed MIDI bytes ──► MidiFileSink ──► smf.py ──► .mid
+                                                                └─► MidiPortSink ──► mido port (thread)
+```
+
 ## Packages
 
 | Package | Module | Job |
@@ -57,6 +70,13 @@ runs `tt-smi -s`.
 | `media/` | `llm.py` | Prompts any OpenAI-compatible endpoint |
 | | `mux.py` | Puts the WAV under a video with ffmpeg |
 | | `player.py` | Where live audio goes: a `paplay`, `aplay` or `ffplay` process, a growing WAV, or no sound at the speed of the music |
+| `score/` | `events.py` | `Note`, `Trigger`, `Control` and `Score`, with the Hz-to-MIDI helpers |
+| | `collect.py` | One extractor per device and `chorus_score`, which builds a render's `Score` the way `render_chorus` deals the devices |
+| | `vcv.py` | Builds the VCV Rack voice patch (`vcv/tensixinet-voice.vcv`): one mono voice on the lead's channel; `python -m tensixinet.score.vcv` writes a copy for another channel or port |
+| | `routing.py` | The route table (`Routes`, `DEFAULT_ROUTES`) and `load_routes` for `--midi-map` |
+| | `midi.py` | `to_messages`: a `Score` to timed MIDI bytes |
+| | `smf.py` | The Standard MIDI File writer |
+| | `sinks.py` | `MidiFileSink`, `MidiPortSink` (a thread and a heap, never blocks the audio), `TeeScoreSink`, and the lazy `mido` opener |
 
 ## The app
 
@@ -81,7 +101,7 @@ The Play tab's data flow: sliders and buttons write `Knobs` (per visitor, `knob_
 `telemetry` depends on nothing in the package. `music` depends on `telemetry`. Inside `music`, `devices.py` builds on
 `ttrolzer`, `ttrax` and `ttquantussy`, and `ttsteam.py` builds on `devices.py` for the strike helpers. `narrate` depends on
 `music` and `telemetry`. `media` depends on nothing. `run.py`, `live.py` and `cli.py` depend on all of them.
-Keep it that way: `music` must never import `narrate`.
+Keep it that way: `music` must never import `narrate`. `score` depends on `music` and `telemetry`, and `music` never imports `score`; `mido` is imported only inside `open_mido_output`.
 
 ## Why the tests are shaped like this
 

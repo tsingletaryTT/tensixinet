@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Sequence, Tuple
+from typing import List, Sequence, Tuple
 
 import numpy as np
 
@@ -84,7 +84,12 @@ def _note(freq: float, n: int, sample_rate: int, brightness: float = 0.0) -> np.
     return tone / (1 + BRIGHTNESS * brightness) * env
 
 
-def lead(t, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+def lead_notes(t, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> List[Tuple[float, float, float]]:
+    """Every note the lead plays inside `duration`, as (start_s, dur_s, pitch_hz), rests left out.
+
+    `lead` renders its audio from this list, so a score built from it matches what is heard. A note's start is a whole
+    number of samples at `sample_rate`, written in seconds; its length is an eighth; its pitch is capped at 0.45 of the
+    sample rate, as the audio caps it."""
     n_total = int(duration * sample_rate)
     bpm = aiclk_to_bpm(t.aiclk)
     eighth = int(round(30.0 / bpm * sample_rate))
@@ -92,8 +97,7 @@ def lead(t, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT
     base = temp_to_pitch_hz(t.asic_temperature)
     transforms = lead_transforms(t.gddr_temps, n_total // bar + 1)
     offset = identity_offset(personality(t))
-    brightness = chip_pressure(t)
-    out = np.zeros(n_total)
+    notes: List[Tuple[float, float, float]] = []
     # sample-and-hold also leaves notes out: each note has its own value, and one under the patch's share is not played. The first note of a
     # phrase always plays, so a phrase still has its downbeat.
     rests = rest_flags(seed, LEAD_REST_TAG, len(transforms) * len(patch.motif), patch.lead_rests).reshape(len(transforms), len(patch.motif))
@@ -106,6 +110,16 @@ def lead(t, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT
             if rests[phrase, i]:
                 continue
             freq = min(base * 2 ** (degree_to_semitones(degree, patch.scale) / 12), 0.45 * sample_rate)
-            seg = _note(freq, eighth, sample_rate, brightness)[: n_total - start]
-            out[start:start + len(seg)] += 0.8 * seg
+            notes.append((start / sample_rate, eighth / sample_rate, freq))
+    return notes
+
+
+def lead(t, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    n_total = int(duration * sample_rate)
+    brightness = chip_pressure(t)
+    out = np.zeros(n_total)
+    for start_s, dur_s, freq in lead_notes(t, duration, sample_rate, seed, patch):
+        start = int(round(start_s * sample_rate))
+        seg = _note(freq, int(round(dur_s * sample_rate)), sample_rate, brightness)[: n_total - start]
+        out[start:start + len(seg)] += 0.8 * seg
     return out.astype(np.float32)

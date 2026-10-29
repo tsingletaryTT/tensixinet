@@ -1069,3 +1069,90 @@ def test_the_register_is_added_to_the_notes_before_they_are_glided_so_three_degr
     monkeypatch.setattr(devices_module, "ttquantus_register", lambda t, duration, sr, seed, patch: np.full(n(duration, sr), 3))
     lifted = ttquantus_steps(tel(), 10.0, SR_MOD, 3, _modded(1.0))
     assert (lifted - flat).min() > 4 and (lifted - flat).max() < 13
+
+
+# --- characterization: ttrollz's audio is fixed byte for byte (MIDI-out task 2 split it into pulse sets and a renderer) ---
+import hashlib as _hashlib  # noqa: E402
+
+from tensixinet.music.patch import draw_patch as _draw_patch  # noqa: E402
+from tensixinet.music.devices import ttrollz, ttrollz_pulse_sets  # noqa: E402
+
+_CHAR_TELEMETRY = (
+    _FB,
+    dc.replace(_FB, asic_temperature=62.0, aiclk=1000.0, gddr_temps=(30., 34., 29., 38., 31., 27., 36., 30.), eth_mask=0x3F3, tensix_mask=0x2D5A),
+    dc.replace(_FB, asic_temperature=85.0, aiclk=500.0, power=110.0, gddr_temps=(55., 50., 61., 48., 52., 59., 47., 53.), eth_mask=0x7FF, tensix_mask=0x3002),
+)
+_DRAWN = dc.replace(_draw_patch(7, _CHAR_TELEMETRY), lead_rests=0.5, roll_rests=0.5, steam_routes=("accent",))
+_CHAR_PATCHES = (DEFAULT_PATCH, _DRAWN, _DRAWN)
+# SHA-256 of the float32 bytes of a 6 s render at 22050 Hz, taken from the code before the split.
+_TTROLLZ_DIGESTS = (
+    "ac3646791033f0193abdf095cbde213099b3d3682dbdc542f4186dfac87ab69a",
+    "cd63e85277ac50f06d344118b8fb5ca3920bddd66e150626370bd5d9925d3937",
+    "2995bb6c26703298413ed3a8592cd500daadee6afe087bed3e557da3600c0f86",
+)
+
+
+@pytest.mark.parametrize("i", range(3))
+def test_ttrollz_audio_is_byte_identical_to_the_digest_taken_before_the_split(i):
+    audio = ttrollz(_CHAR_TELEMETRY[i], 6.0, 22050, 12345 + i * (1 << 20), _CHAR_PATCHES[i])
+    assert audio.dtype == np.float32
+    assert _hashlib.sha256(audio.tobytes()).hexdigest() == _TTROLLZ_DIGESTS[i]
+
+
+# --- ttrollz_pulse_sets: the pulses ttrollz's audio is rendered from ---
+def _sets(i=0, patch=None, seed=12345, duration=6.0):
+    return ttrollz_pulse_sets(_CHAR_TELEMETRY[i], duration, seed, _CHAR_PATCHES[i] if patch is None else patch)
+
+
+def test_pulse_sets_lead_with_the_clock_then_one_set_per_heard_lane():
+    sets = _sets(0)
+    assert [s[0] for s in sets] == ["clock"] + ["lane"] * len(ttrollz_lanes(_CHAR_TELEMETRY[0]))
+    assert [s[1] for s in sets[1:]] == [lane.index for lane in ttrollz_lanes(_CHAR_TELEMETRY[0])]
+
+
+def test_pulse_sets_carry_times_and_one_cycle_flag_per_pulse():
+    for label, lane, times, flags in _sets(1):
+        assert len(times) == len(flags)
+        assert np.all(np.diff(times) >= 0)
+        assert np.asarray(flags).dtype == bool
+
+
+def test_the_clock_set_is_the_tempo_clock_and_has_no_cycle_starts():
+    label, lane, times, flags = _sets(0)[0]
+    assert label == "clock" and not np.any(flags)
+    assert np.array_equal(times, ttrollz_pulse_times(aiclk_to_bpm(_CHAR_TELEMETRY[0].aiclk), 6.0))
+
+
+def test_roll_rests_remove_pulses_from_the_clock_and_every_lane():
+    plain = _sets(1, patch=dc.replace(_DRAWN, roll_rests=0.0))
+    rested = _sets(1, patch=dc.replace(_DRAWN, roll_rests=0.5))
+    for (_, _, full, _), (_, _, some, _) in zip(plain, rested):
+        assert len(some) < len(full)
+        assert set(np.round(some, 9)) <= set(np.round(full, 9))
+
+
+def test_a_lane_downbeat_flag_goes_with_its_pulse_when_the_pulse_rests():
+    for _, _, times, flags in _sets(1, patch=dc.replace(_DRAWN, roll_rests=0.5))[1:]:
+        assert len(flags) == len(times)
+
+
+# --- ttquantus and quantussy_tone: audio pinned before `ttquantus_held` was split out of `ttquantus_steps` ---
+from tensixinet.music.devices import quantussy_tone as _quantussy_tone, ttquantus as _ttquantus, ttquantus_steps as _ttquantus_steps  # noqa: E402
+
+_QT = dc.replace(_FB, asic_temperature=62.0, aiclk=1000.0, gddr_temps=(30., 34., 29., 38., 31., 27., 36., 30.), eth_mask=0x3F3, tensix_mask=0x2D5A)
+_QT_PATCHES = (DEFAULT_PATCH, dc.replace(DEFAULT_PATCH, quantus_mod=0.8, rests=0.3))
+# SHA-256 of the float bytes of a 6 s render at 22050 Hz, seed 12345, taken from the code before the split.
+_QT_DIGESTS = (
+    # (ttquantus float32, quantussy_tone float64, ttquantus_steps float64)
+    ("c80245301276872862381bd7ee5abaa38601f42bb2e7e75a0e3e3f98a7d40e87", "bf78d09fcb0b220d631662f0158dacb24d5e1c0e79d1f60e50fcf43550f7ebfa", "d0d141398822660dd8c9e5f17bc3d8dd907de8eee931b72f9fa734eab4a12549"),
+    ("a42d57eaff88260d507f1357b8cee47c32da6d63fb4adf2b7e540a45cb297f03", "e45a2f22f639335368eb2ba5b952645fb0d2a2bb81d0f696287d95e74ebcfd3b", "78f80a3de7669cb16e48699cf978e6950f172123c246e30e5e26ea9ccd42ed73"),
+)
+
+
+@pytest.mark.parametrize("i", range(2))
+def test_ttquantus_audio_is_byte_identical_to_the_digests_taken_before_the_split(i):
+    audio = _ttquantus(_QT, 6.0, 22050, 12345, _QT_PATCHES[i])
+    assert audio.dtype == np.float32
+    assert _hashlib.sha256(audio.tobytes()).hexdigest() == _QT_DIGESTS[i][0]
+    assert _hashlib.sha256(_quantussy_tone(_QT, 6.0, 22050, 12345, _QT_PATCHES[i]).tobytes()).hexdigest() == _QT_DIGESTS[i][1]
+    assert _hashlib.sha256(_ttquantus_steps(_QT, 6.0, 22050, 12345, _QT_PATCHES[i]).tobytes()).hexdigest() == _QT_DIGESTS[i][2]

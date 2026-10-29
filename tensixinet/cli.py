@@ -18,7 +18,9 @@ from .media import llm
 from .media.player import PLAYERS, PlayerError, make_sink as default_make_sink
 from .music.patch import DEFAULT_PATCH, draw_patch, load_patch, save_patch, seed_from_telemetry
 from .music.styles import STYLES, draw_styled_patch
-from .run import run
+from .run import close_score_sink, run
+from .score.routing import DEFAULT_ROUTES, load_routes
+from .score.sinks import MidiFileSink, MidiPortError, MidiPortSink, TeeScoreSink
 from .narrate.color import Palette, banner, detect, legend
 from .narrate.runlog import RunLog
 from .telemetry import fetch_snapshot, host_fingerprint, mock_telemetry, parse_snapshot
@@ -85,6 +87,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-evict", action="store_true",
                    help="in live mode, do not dissolve a chip's voices when its model unloads (power back to rest after a load, as "
                         "tt-toplike's Defrag EVICT reads it)")
+    p.add_argument("--midi-file", metavar="PATH",
+                   help="also write the devices' notes, triggers and controls as a Standard MIDI File (one track per chip); "
+                        "the audio is unchanged. With --live the file holds every segment, written when the run ends")
+    p.add_argument("--midi-port", metavar="NAME",
+                   help="with --live, play the events on this MIDI output as they happen ('virtual' makes an output called tensixinet); "
+                        "needs the extra: pip install -e .[midi]")
+    p.add_argument("--midi-offset-ms", metavar="MS", type=float, default=0.0,
+                   help="with --midi-port, send every message this many milliseconds later (negative: earlier) to line it up with the sound")
+    p.add_argument("--midi-map", metavar="FILE",
+                   help="a JSON file that changes the MIDI routes (channels, drum notes, controller numbers); needs --midi-file or --midi-port")
     p.add_argument("--no-banner", action="store_true", help="start with the first log line instead of the art and the colour legend")
     p.add_argument("--endpoint", default="http://127.0.0.1:8011", help="OpenAI-compatible LLM endpoint")
     p.add_argument("--model", help="model name (default: whatever the endpoint serves)")
@@ -105,6 +117,7 @@ def main(
     make_sink: Optional[Callable] = None,
     make_worker: Optional[Callable] = None,
     clock: Optional[Callable[[], float]] = None,
+    open_midi: Optional[Callable] = None,
 ) -> int:
     parser = build_parser()
     a = parser.parse_args(argv)
@@ -123,10 +136,23 @@ def main(
             parser.error("--mock-load needs --live: a load cycle plays out over time, and an offline run reads the chips once")
         if a.mock_load <= 0:
             parser.error("--mock-load needs a positive number of seconds")
+    routes = DEFAULT_ROUTES
+    if a.midi_map:
+        if not a.midi_file and not a.midi_port:
+            parser.error("--midi-map needs a MIDI output flag (--midi-file or --midi-port): it only changes how events are routed")
+        try:
+            routes = load_routes(a.midi_map)
+        except (OSError, ValueError) as e:  # ValueError covers bad JSON and every out-of-range key
+            parser.error(f"--midi-map: cannot read {a.midi_map}: {e}")
     if a.player and not a.live:
         parser.error("--player needs --live: an offline run writes a file and plays nothing")
     if a.mock_faults and not a.mock_chips:
         parser.error("--mock-faults needs --mock-chips: real chips report their own errors")
+    if a.midi_port and not a.live:
+        parser.error("--midi-port needs --live: an offline run is written to a file (--midi-file)")
+    if a.midi_offset_ms and not a.midi_port:
+        parser.error("--midi-offset-ms needs --midi-port: it only shifts what goes to a live port")
+    file_sink = MidiFileSink(a.midi_file, routes) if a.midi_file else None
     stamp = time.strftime("%Y%m%d_%H%M%S")
     out = Path(a.out or f"audio/tensixinet_{stamp}.wav")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +191,20 @@ def main(
     else:
         source = "the supplied telemetry source"
 
+    # The port is opened here, after the logs exist and before any chip is read or any audio starts; nothing that can
+    # fail sits between this and the `try` below, whose `finally` closes it.
+    port_sink = None
+    if a.midi_port:
+        # Opened before any chip is read and before any audio starts, so a missing library or port ends the run at once.
+        try:
+            port_sink = MidiPortSink(a.midi_port, routes=routes, offset_ms=a.midi_offset_ms, **({"open_output": open_midi} if open_midi else {}))
+        except MidiPortError as e:
+            log.close()
+            parser.error(str(e))
+    sinks = [x for x in (file_sink, port_sink) if x is not None]
+    score_sink = sinks[0] if len(sinks) == 1 else TeeScoreSink(*sinks) if sinks else None
     worker = None
+    score_closed = False
     held_chips = False  # true once the worker is ready, so a failed start does not claim to release anything
     try:
         replay = None
@@ -240,18 +279,30 @@ def main(
                 try:
                     run_live(sample, sink, log, a.sample_rate, duration=a.duration or None, source=source, patch=patch,
                              patch_source=patch_source, normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables,
-                             backend=backend, stereo=not a.mono, evict=not a.no_evict, **({"clock": clock} if clock else {}))
+                             backend=backend, stereo=not a.mono, evict=not a.no_evict, score_sink=score_sink, **({"clock": clock} if clock else {}))
                 except PlayerError:
                     return 3  # run_live has logged what stopped
+                finally:
+                    if score_sink is not None:
+                        score_closed = True
+                        try:
+                            close_score_sink(score_sink, log)
+                        except Exception as e:  # a sink that cannot close must not change how the run ends
+                            log.event("midi", f"the MIDI output could not be closed: {e}", "the run's own result is unchanged")
             else:
                 run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source,
-                    normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables, backend=backend, stereo=not a.mono)
+                    normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables, backend=backend, stereo=not a.mono, score_sink=score_sink)
         except ValueError:
             return 2
         return 0
     except KeyboardInterrupt:
         return 130  # Ctrl-C before the run started; once a live run is playing it stops itself
     finally:
+        if port_sink is not None and not score_closed:  # the run ended before the live loop did: do not leave notes hanging
+            try:
+                port_sink.close()
+            except Exception:
+                pass
         if worker is not None:
             if held_chips and a.kernels in ("chip", "chips"):
                 log.event("backend", "releasing the chips",

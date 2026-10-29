@@ -49,15 +49,24 @@ def lowpass(x: np.ndarray, cutoff_hz: float, sample_rate: int) -> np.ndarray:
     return np.convolve(once, kernel)[: len(x)]
 
 
+def steam_hits(t: Telemetry, duration: float, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """Onsets (s) of the register's hits that the snare plays: every step that fires, thinned to the patch's `snare` share.
+
+    `ttsteam` renders its snare from these, and the score's `steam_events` reads the same list. The thinning has its own random
+    stream, so the noise in the audio is the same whichever share is played."""
+    hits = step_times(t, duration)
+    if patch.snare < 1.0:
+        hits = hits[np.random.default_rng([seed, 0x54A2E]).random(len(hits)) < patch.snare]
+    return hits
+
+
 def ttsteam(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """A noise snare on the steps the Tensix holes pick, with a bed of dust."""
     n = int(duration * sample_rate)
     if patch.snare <= 0.0:
         return np.zeros(n, dtype=np.float32)
     rng = np.random.default_rng(seed)
-    hits = step_times(t, duration)
-    if patch.snare < 1.0:  # a quiet patch plays only some of the register's hits (its own stream, so the noise below is the same either way)
-        hits = hits[np.random.default_rng([seed, 0x54A2E]).random(len(hits)) < patch.snare]
+    hits = steam_hits(t, duration, seed, patch)
     since = seconds_since(hits, n, sample_rate)
     envelope = np.minimum(1.0, since / ATTACK_S) * np.exp(-since / snare_decay(chip_pressure(t)))
     snare = SNARE_LEVEL * envelope * lowpass(rng.uniform(-1.0, 1.0, n), SNARE_CUTOFF_HZ, sample_rate)

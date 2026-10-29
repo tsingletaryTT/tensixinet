@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Command line: prompt the LLM, then sample chips, then play."""
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -756,3 +757,262 @@ def test_the_default_worker_for_sim_mode_is_the_simulator_pool_with_no_lease(mon
     from tensixinet.cli import default_make_worker
     w = default_make_worker("sim", 4)
     assert "--sim=/venv/bin/tt-lang-sim" in w.command and "--devices=4" in w.command and "gozer" not in w.command and w.devices == 4
+
+
+def test_midi_file_writes_a_standard_midi_file_and_logs_it(tmp_path):
+    mid = tmp_path / "m" / "run.mid"
+    code = main(args(tmp_path, "--mock-chips", "2", "--duration", "3", "--midi-file", str(mid)))
+    assert code == 0 and mid.read_bytes()[:4] == b"MThd"
+    assert any(e["event"] == "midi file" and str(mid) in e["what"] for e in read_events(tmp_path / "logs"))
+
+
+def test_midi_file_does_not_change_the_audio(tmp_path):
+    import numpy as np
+    import soundfile as sf
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(), b.mkdir()
+    base = ["--mock-chips", "2", "--duration", "2", "--patch-seed", "3"]
+    assert main(args(a, *base)) == 0
+    assert main(args(b, *base, "--midi-file", str(b / "x.mid"))) == 0
+    assert np.array_equal(sf.read(str(a / "o.wav"))[0], sf.read(str(b / "o.wav"))[0])
+
+
+def test_midi_file_is_accepted_with_live_and_the_file_is_written(tmp_path):
+    mid = tmp_path / "live.mid"
+    code = main(args(tmp_path, "--mock-chips", "2", "--duration", "1", "--live", "--player", "none", "--midi-file", str(mid)))
+    assert code == 0 and mid.read_bytes()[:4] == b"MThd"
+    from tests.score.test_smf import read_smf
+    assert [e for track in read_smf(mid)[3] for _, e in track if e[0] & 0xF0 == 0x90], "a live run wrote no note-on"
+
+
+def test_midi_map_needs_a_midi_output_flag(tmp_path, capsys):
+    routes = tmp_path / "r.json"
+    routes.write_text("{}")
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--midi-map", str(routes)))
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "--midi-map needs" in err and "--midi-file" in err
+
+
+def test_a_bad_midi_map_exits_2_and_names_the_key(tmp_path, capsys):
+    routes = tmp_path / "r.json"
+    routes.write_text('{"pulse_s": -1}')
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--midi-file", str(tmp_path / "x.mid"), "--midi-map", str(routes)))
+    assert e.value.code == 2 and "pulse_s" in capsys.readouterr().err
+    assert not (tmp_path / "x.mid").exists()
+
+
+def test_a_midi_map_that_is_not_json_exits_2(tmp_path, capsys):
+    routes = tmp_path / "r.json"
+    routes.write_text("not json")
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--midi-file", str(tmp_path / "x.mid"), "--midi-map", str(routes)))
+    assert e.value.code == 2 and "cannot read" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--midi-file", str(tmp_path / "x.mid"), "--midi-map", str(tmp_path / "missing.json")))
+    assert e.value.code == 2 and "cannot read" in capsys.readouterr().err
+
+
+def test_midi_map_changes_the_routes_in_the_file(tmp_path):
+    from tests.score.test_smf import read_smf
+    routes = tmp_path / "r.json"
+    routes.write_text('{"note_channels": {"lead": 5, "ttquantus": 5}}')
+    mid = tmp_path / "x.mid"
+    code = main(args(tmp_path, "--mock-chips", "2", "--duration", "3", "--midi-file", str(mid), "--midi-map", str(routes)))
+    assert code == 0
+    ons = [e[0] & 0x0F for track in read_smf(mid)[3] for _, e in track if e[0] & 0xF0 == 0x90]
+    assert 5 in ons and 0 not in ons and 1 not in ons
+
+
+# --- the live MIDI port ----------------------------------------------------------------------------------------------
+from tensixinet import cli as cli_module  # noqa: E402
+from tensixinet.score.sinks import MidiPortError  # noqa: E402
+
+
+class FakeMidiPort:
+    def __init__(self):
+        self.sent, self.closed = [], 0
+
+    def send(self, raw):
+        self.sent.append(bytes(raw))
+
+    def close(self):
+        self.closed += 1
+
+
+def live_args(tmp_path, *extra):
+    return args(tmp_path, "--mock-chips", "2", "--duration", "1", "--live", "--player", "none", *extra)
+
+
+def test_midi_port_needs_live(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--midi-port", "virtual"), open_midi=lambda name: FakeMidiPort())
+    assert e.value.code == 2 and "--midi-port needs --live" in capsys.readouterr().err
+
+
+def test_midi_offset_needs_a_port(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(live_args(tmp_path, "--midi-offset-ms", "50"))
+    assert e.value.code == 2 and "--midi-offset-ms needs --midi-port" in capsys.readouterr().err
+
+
+def test_midi_offset_is_a_number(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(live_args(tmp_path, "--midi-port", "virtual", "--midi-offset-ms", "soon"), open_midi=lambda name: FakeMidiPort())
+    assert e.value.code == 2
+
+
+def test_a_port_that_cannot_open_is_one_message_and_exit_2_before_any_chip_is_read(tmp_path, capsys):
+    read, sinks = [], []
+
+    def sample():
+        read.append(1)
+        return mock_telemetry(2)
+
+    def opener(name):
+        raise MidiPortError(f"no MIDI output called {name!r}; the outputs are none")
+
+    with pytest.raises(SystemExit) as e:
+        main(live_args(tmp_path, "--midi-port", "Nope"), sample=sample, open_midi=opener,
+             make_sink=lambda *a, **k: sinks.append(1))
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "no MIDI output called 'Nope'" in err
+    assert read == [] and sinks == []
+
+
+def test_a_missing_midi_library_names_the_extra_and_exits_2(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(sys.modules, "mido", None)
+    with pytest.raises(SystemExit) as e:
+        main(live_args(tmp_path, "--midi-port", "virtual"))
+    assert e.value.code == 2 and "pip install -e .[midi]" in capsys.readouterr().err
+
+
+def test_the_port_gets_the_live_runs_notes_and_is_closed(tmp_path):
+    port = FakeMidiPort()
+    code = main(live_args(tmp_path, "--midi-port", "Synth", "--duration", "3"), open_midi=lambda name: port)
+    assert code == 0 and port.closed == 1
+    assert any(m[0] & 0xF0 == 0x90 and m[2] > 0 for m in port.sent), "no note-on reached the port"
+    assert any(m[0] & 0xF0 == 0xB0 and m[1] == 123 for m in port.sent)  # the close's all-notes-off
+
+
+def test_the_name_and_offset_reach_the_port_sink_and_the_sink_is_closed(tmp_path, monkeypatch):
+    made = []
+
+    class Spy:
+        def __init__(self, name, routes=None, offset_ms=0.0, open_output=None, on_error=None, **kw):
+            made.append((name, offset_ms, routes))
+            self.closed = 0
+            self.scores = []
+
+        def add(self, score, start_s):
+            self.scores.append((score, start_s))
+
+        def close(self):
+            self.closed += 1
+            made.append("closed")
+
+        def summary(self):
+            return (1, 2, 3)
+
+    monkeypatch.setattr(cli_module, "MidiPortSink", Spy)
+    assert main(live_args(tmp_path, "--midi-port", "Synth", "--midi-offset-ms", "-35.5")) == 0
+    assert made[0][:2] == ("Synth", -35.5) and made[-1] == "closed"
+    assert main(live_args(tmp_path / "b", "--midi-port", "virtual")) == 0
+    assert made[-2][:2] == ("virtual", 0.0)
+
+
+def test_the_port_sink_gets_the_midi_map_routes(tmp_path, monkeypatch):
+    seen = []
+
+    class Spy:
+        def __init__(self, name, routes=None, **kw):
+            seen.append(routes)
+
+        def add(self, score, start_s): pass
+        def close(self): pass
+
+    monkeypatch.setattr(cli_module, "MidiPortSink", Spy)
+    routes = tmp_path / "r.json"
+    routes.write_text('{"pulse_s": 0.5}')
+    assert main(live_args(tmp_path, "--midi-port", "Synth", "--midi-map", str(routes))) == 0
+    assert seen[0].pulse_s == 0.5
+
+
+def test_midi_map_is_accepted_with_a_port_alone(tmp_path, monkeypatch):
+    routes = tmp_path / "r.json"
+    routes.write_text("{}")
+    assert main(live_args(tmp_path, "--midi-port", "Synth", "--midi-map", str(routes)), open_midi=lambda n: FakeMidiPort()) == 0
+
+
+def test_a_file_and_a_port_together_both_get_the_score(tmp_path):
+    from tests.score.test_smf import read_smf
+    mid, port = tmp_path / "both.mid", FakeMidiPort()
+    code = main(live_args(tmp_path, "--midi-file", str(mid), "--midi-port", "Synth"), open_midi=lambda name: port)
+    assert code == 0 and port.closed == 1
+    assert [e for track in read_smf(mid)[3] for _, e in track if e[0] & 0xF0 == 0x90]
+    done = [e for e in read_events(tmp_path / "logs") if e["event"] == "midi file"]
+    assert done and str(mid) in done[0]["what"] and " 0 notes" not in done[0]["what"]
+
+
+def test_a_port_alone_is_logged_with_its_counts_and_no_path(tmp_path):
+    main(live_args(tmp_path, "--midi-port", "Synth"), open_midi=lambda name: FakeMidiPort())
+    done = [e for e in read_events(tmp_path / "logs") if e["event"] in ("midi", "midi file")]
+    assert done and "notes" in done[0]["what"] and " to " not in done[0]["what"]
+
+
+def test_a_sink_that_fails_to_close_does_not_change_the_exit_code_and_is_logged(tmp_path, monkeypatch):
+    class Bad:
+        def __init__(self, *a, **k): pass
+        def add(self, score, start_s): pass
+        def summary(self): return (0, 0, 0)
+        path = None
+
+        def close(self):
+            raise OSError("disk full")
+
+    monkeypatch.setattr(cli_module, "MidiFileSink", Bad)
+    assert main(live_args(tmp_path, "--midi-file", str(tmp_path / "x.mid"))) == 0
+    assert any("disk full" in e["what"] for e in read_events(tmp_path / "logs"))
+
+
+def test_a_close_failure_does_not_hide_a_player_failure_exit_code(tmp_path, monkeypatch):
+    class Bad:
+        def __init__(self, *a, **k): pass
+        def add(self, score, start_s): pass
+        def summary(self): return (0, 0, 0)
+        path = None
+
+        def close(self):
+            raise OSError("disk full")
+
+    class Dying:
+        def write(self, audio):
+            raise PlayerError("the player stopped")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cli_module, "MidiFileSink", Bad)
+    code = main(live_args(tmp_path, "--midi-file", str(tmp_path / "x.mid")), make_sink=lambda *a, **k: (Dying(), "dying"))
+    assert code == 3
+
+
+def test_a_port_is_closed_when_the_run_ends_before_playing(tmp_path):
+    port = FakeMidiPort()
+    code = main(live_args(tmp_path, "--midi-port", "Synth"), open_midi=lambda name: port,
+                make_sink=lambda *a, **k: (_ for _ in ()).throw(PlayerError("no player")))
+    assert code == 3 and port.closed == 1
+
+
+class DyingPort(FakeMidiPort):
+    def send(self, raw):
+        raise OSError("the synth was unplugged")
+
+
+def test_a_port_that_dies_is_one_log_line_and_the_run_still_ends_well(tmp_path):
+    port = DyingPort()
+    code = main(live_args(tmp_path, "--midi-port", "Synth", "--duration", "7"), open_midi=lambda name: port)
+    stopped = [e for e in read_events(tmp_path / "logs") if e["event"] == "midi" and "port stopped" in e["what"]]
+    assert code == 0 and len(stopped) == 1 and "unplugged" in stopped[0]["what"]
+    assert port.closed == 1

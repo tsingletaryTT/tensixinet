@@ -27,6 +27,7 @@ from .narrate.explain import (
     explain_turns,
 )
 from .narrate.runlog import RunLog
+from .score.collect import chorus_score
 from .telemetry import Telemetry
 
 
@@ -59,6 +60,44 @@ def log_cables(log: RunLog, telemetry: Sequence[Telemetry], patch: Patch, on: bo
         return
     for d in explain_cables(draw_cables(patch.seed, device_names()), telemetry):
         log.event("cable", d.what, d.why)
+
+
+def report_score_error(sink, log: RunLog) -> None:
+    """Log, once for this sink, why its MIDI port stopped (when it has an `error`). Called from the thread that owns
+    the log: the sink's own thread never logs."""
+    error = getattr(sink, "error", None)
+    if error is None or getattr(sink, "error_reported", False):
+        return
+    try:
+        sink.error_reported = True
+    except AttributeError:
+        pass
+    log.event("midi", f"the MIDI port stopped: {error}", "the music goes on without it")
+
+
+def close_score_sink(sink, log: RunLog) -> None:
+    """Close a score sink and log one line saying what went into it (and where, for a file).
+    A sink with no `summary()` or no `path` is logged with what it has. A sink that cannot write its file (a missing or
+    read-only folder, a path through a regular file) is logged and the run goes on, so the audio is still written."""
+    try:
+        sink.close()
+    except OSError as e:
+        path = getattr(sink, "path", None)
+        where = f" {path}" if path is not None else ""
+        log.event("midi file" if path is not None else "midi", f"the MIDI file{where} could not be written: {e}",
+                  "the audio is unaffected and is written as usual")
+        return
+    report_score_error(sink, log)
+    path = getattr(sink, "path", None)
+    where = f" to {path}" if path is not None else ""
+    event = "midi file" if path is not None else "midi"
+    why = "the events are the ones the devices played, routed to MIDI channels, notes and controllers"
+    summary = getattr(sink, "summary", None)
+    if summary is None:
+        log.event(event, f"closed the MIDI output{where}", why)
+        return
+    notes, triggers, controls = summary()
+    log.event(event, f"wrote {notes} notes, {triggers} triggers and {controls} controls{where}", why)
 
 
 def describe_readings(
@@ -116,6 +155,7 @@ def run(
     cables: bool = True,
     backend=None,
     stereo: bool = False,
+    score_sink=None,
 ) -> np.ndarray:
     if not telemetry:
         log.event("discover", "no chips found, nothing to play",
@@ -127,6 +167,9 @@ def run(
     log_only(log, only)
     log_cables(log, telemetry, patch, cables)
     audio = render_chorus(telemetry, duration, sample_rate, patch=patch, only=only, cables=None if cables else [], backend=backend, stereo=stereo)
+    if score_sink is not None:  # the events of the same render, handed out as data; the audio above is not touched
+        score_sink.add(chorus_score(telemetry, duration, patch, only=only, sample_rate=sample_rate), 0.0)
+        close_score_sink(score_sink, log)
     log_eq(log, eq)
     if eq:
         audio = apply_eq(audio, sample_rate)

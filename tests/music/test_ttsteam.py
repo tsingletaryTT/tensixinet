@@ -184,3 +184,27 @@ def test_the_dust_fades_with_the_snare_level():
     full = np.abs(ttsteam(t, 4.0, SR, 3)).max()
     half = np.abs(ttsteam(t, 4.0, SR, 3, dataclasses.replace(DEFAULT_PATCH, snare=0.5))).max()
     assert full > 0.2 and half < 0.55 * full
+
+
+# --- characterization: ttsteam's audio is fixed byte for byte (MIDI-out task 3 moved the hit selection into `steam_hits`) ---
+import hashlib as _hashlib  # noqa: E402
+
+_CHAR_TELEMETRY = (
+    tel(tensix_mask=0x37F7, pcie_usage=2),
+    tel(tensix_mask=0x2D5A, aiclk=1000.0, asic_temperature=70.0, pcie_usage=4),
+    tel(tensix_mask=0x3002, aiclk=500.0, power=110.0, pcie_usage=0),
+)
+_CHAR_PATCHES = (DEFAULT_PATCH, dataclasses.replace(DEFAULT_PATCH, snare=0.5), dataclasses.replace(DEFAULT_PATCH, snare=0.2))
+# SHA-256 of the float32 bytes of a 6 s render at 22050 Hz, taken from the code before the move.
+_STEAM_DIGESTS = (
+    "dd004128ce414e38efc0974cbf193082ada599ffec7fc9164b2ef71c6e2c16f6",
+    "836a957790495f4668af90dd6d6ac0260c0166bccb03def4a70ba7492343fb87",
+    "668851e367995bc9b330b622bdb940e45ae0a20e49a6000ef240c807f4877be4",
+)
+
+
+@pytest.mark.parametrize("i", range(3))
+def test_ttsteam_audio_is_byte_identical_to_the_digest_taken_before_the_move(i):
+    audio = ttsteam(_CHAR_TELEMETRY[i], 6.0, 22050, 12345 + i * (1 << 20), _CHAR_PATCHES[i])
+    assert audio.dtype == np.float32
+    assert _hashlib.sha256(audio.tobytes()).hexdigest() == _STEAM_DIGESTS[i]

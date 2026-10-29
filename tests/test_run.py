@@ -319,3 +319,116 @@ def test_a_mono_run_is_one_channel_and_says_nothing_about_space(tmp_path):
     log.close()
     assert audio.ndim == 1 and sf.read(str(tmp_path / "m.wav"))[0].ndim == 1
     assert not [l for l in (tmp_path / "run.jsonl").read_text().splitlines() if '"space"' in l]
+
+
+def test_a_score_sink_gets_a_file_with_notes_and_controls_and_the_audio_is_unchanged(tmp_path):
+    import numpy as np
+    from tensixinet.score.sinks import MidiFileSink
+    from tests.score.test_smf import read_smf
+
+    chips = mock_telemetry(2)
+    log = _log(tmp_path)
+    plain = run(chips, duration=3.0, out_path=tmp_path / "a.wav", log=log, sample_rate=8000)
+    mid = tmp_path / "out" / "r.mid"
+    with_sink = run(chips, duration=3.0, out_path=tmp_path / "b.wav", log=log, sample_rate=8000, score_sink=MidiFileSink(mid))
+    log.close()
+    assert np.array_equal(plain, with_sink)
+    _, _, _, tracks = read_smf(mid)
+    events = [e for track in tracks for _, e in track if e[0] != 0xFF]
+    assert any(e[0] & 0xF0 == 0x90 for e in events), "no note-on"
+    assert any(e[0] & 0xF0 == 0xB0 for e in events), "no control change"
+    lines = [json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines()]
+    (line,) = [e for e in lines if e["event"] == "midi file"]
+    assert str(mid) in line["what"] and "notes" in line["what"] and "triggers" in line["what"] and "controls" in line["what"]
+
+
+def test_an_unwritable_midi_file_is_logged_and_the_wav_is_still_written(tmp_path):
+    import numpy as np
+    from tensixinet.score.sinks import MidiFileSink
+    blocker = tmp_path / "plain_file"
+    blocker.write_text("x")  # a regular file where the MIDI file's parent folder should be
+    log = _log(tmp_path)
+    plain = run(mock_telemetry(2), duration=2.0, out_path=tmp_path / "a.wav", log=log, sample_rate=8000)
+    audio = run(mock_telemetry(2), duration=2.0, out_path=tmp_path / "b.wav", log=log, sample_rate=8000,
+                score_sink=MidiFileSink(blocker / "x.mid"))
+    log.close()
+    assert np.array_equal(plain, audio) and (tmp_path / "b.wav").stat().st_size > 44
+    lines = [json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines()]
+    (line,) = [e for e in lines if e["event"] == "midi file"]
+    assert "could not be written" in line["what"] and str(blocker / "x.mid") in line["what"]
+    assert "audio is unaffected" in line["why"]
+    kinds = [e["event"] for e in lines]
+    assert kinds.index("midi file") < len(kinds) - 1 - kinds[::-1].index("done")  # the second run's WAV was still written after it
+
+
+def test_a_midi_file_that_cannot_be_written_leaves_the_command_exit_code_at_zero(tmp_path):
+    import subprocess, sys
+    blocker = tmp_path / "plain_file"
+    blocker.write_text("x")
+    root = Path(__file__).resolve().parent.parent
+    out = tmp_path / "o.wav"
+    r = subprocess.run([sys.executable, "-m", "tensixinet", "--mock-chips", "2", "--duration", "2", "--sample-rate", "8000", "--out", str(out),
+                        "--no-banner", "--color", "never", "--midi-file", str(blocker / "x.mid")],
+                       cwd=root, capture_output=True, text=True, timeout=120, env={**__import__("os").environ, "PYTHONDONTWRITEBYTECODE": "1"})
+    assert r.returncode == 0, r.stderr[-400:]
+    assert out.exists()
+
+
+def test_only_reaches_the_score_so_an_audition_of_the_gong_has_no_notes(tmp_path):
+    from tensixinet.score.sinks import MidiFileSink
+    sink = MidiFileSink(tmp_path / "g.mid")
+    log = _log(tmp_path)
+    run(mock_telemetry(2), duration=3.0, out_path=tmp_path / "g.wav", log=log, sample_rate=8000, only=["gong"], score_sink=sink)
+    log.close()
+    notes, triggers, _ = sink.summary()
+    assert notes == 0 and triggers > 0
+
+
+# --- closing any score sink ---------------------------------------------------------------------------------------------
+
+def test_close_score_sink_copes_with_a_sink_that_has_no_summary_or_path(tmp_path):
+    from tensixinet.run import close_score_sink
+
+    class Bare:
+        closed = 0
+
+        def close(self):
+            self.closed += 1
+
+    sink = Bare()
+    close_score_sink(sink, _log(tmp_path))
+    assert sink.closed == 1
+
+
+def test_close_score_sink_logs_the_counts_and_the_path_of_a_tee(tmp_path):
+    from tensixinet.run import close_score_sink
+    from tensixinet.score.events import Note, Score
+    from tensixinet.score.sinks import MidiFileSink, TeeScoreSink
+    path = tmp_path / "t.mid"
+    tee = TeeScoreSink(MidiFileSink(path))
+    tee.add(Score((Note(0.1, 0.1, 440.0, 0.5, "lead", 0),), 1.0, 120.0), 0.0)
+    log = _log(tmp_path)
+    close_score_sink(tee, log)
+    log.close()
+    done = [e for e in _events(tmp_path) if e["event"] == "midi file"]
+    assert done and "1 notes" in done[0]["what"] and str(path) in done[0]["what"] and path.exists()
+
+
+def test_close_score_sink_reports_a_sink_error_once_and_not_again_when_it_was_already_reported(tmp_path):
+    from tensixinet.run import close_score_sink, report_score_error
+
+    class Failed:
+        error = "the synth was unplugged"
+
+        def close(self):
+            pass
+
+    log = _log(tmp_path)
+    fresh = Failed()
+    close_score_sink(fresh, log)
+    done = Failed()
+    report_score_error(done, log)
+    close_score_sink(done, log)  # already reported by the live loop
+    log.close()
+    stopped = [e for e in _events(tmp_path) if "port stopped" in e["what"]]
+    assert len(stopped) == 2  # one for each sink, never two for the same sink

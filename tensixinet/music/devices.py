@@ -194,6 +194,27 @@ def gong_trigger_roll(t: Telemetry, patch: Patch = DEFAULT_PATCH) -> Optional[in
     return draw_gong_trigger(len(ttrollz_network(t).rolls), patch.seed, personality(t))
 
 
+def ttrollz_pulse_sets(t: Telemetry, duration: float, seed: int, patch: Patch = DEFAULT_PATCH, segment: int = 0):
+    """The pulses `ttrollz` renders as blips, with the patch's `roll_rests` already taken out.
+
+    A list of (source_label, lane_index, pulse_times_s, cycle_start_flags). The first entry is the chip's clock
+    (`"clock"`, lane index -1, no cycle starts); then comes one entry per lane that is up (`"lane"`, the lane's own index,
+    and a flag for each pulse that begins a cycle of the roll). `segment` is the segment of the rolls' drift: `ttrollz`
+    passes the one it reads out of its seed, so the pulses here are the ones it plays. The rolls themselves run whole
+    (the gong follows them); only what is returned here has the rests removed."""
+    bpm = aiclk_to_bpm(t.aiclk)
+    clock = ttrollz_pulse_times(bpm, duration)
+    clock = clock[~rest_flags(seed, ROLL_REST_TAG, len(clock), patch.roll_rests)]
+    sets = [("clock", -1, clock, np.zeros(len(clock), dtype=bool))]
+    pulses = roll_pulses(t, duration, patch, segment)
+    for lane in ttrollz_lanes(t):
+        times, downbeats = pulses[lane.index]
+        # a pulse that rests is left out of what is heard (the gong still follows the whole roll), and takes its downbeat blip with it
+        heard = ~rest_flags(seed, ROLL_REST_TAG + 1 + lane.index, len(times), patch.roll_rests)
+        sets.append(("lane", lane.index, times[heard], downbeats[heard]))
+    return sets
+
+
 def ttrollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """The chip's clock, plus one roll per DDR channel and per group of ethernet links.
 
@@ -212,20 +233,15 @@ def ttrollz(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: P
     Every lane is a roll on its own ttrolzer barre (see ttrolzer.py), so the lanes drift against each other
     and against the bar and never lock into a polyrhythm."""
     n = int(duration * sample_rate)
-    bpm = aiclk_to_bpm(t.aiclk)
     pitch = temp_to_pitch_hz(t.asic_temperature)
-    seg_seed = seed // SEGMENT_SEED_STRIDE
-    clock = ttrollz_pulse_times(bpm, duration)
-    clock = clock[~rest_flags(seed, ROLL_REST_TAG, len(clock), patch.roll_rests)]
+    sets = ttrollz_pulse_sets(t, duration, seed, patch, seed // SEGMENT_SEED_STRIDE)
+    _, _, clock, _ = sets[0]
     out = _blips(clock, pitch, n, sample_rate)
     if "accent" in patch.steam_routes:
         out += ACCENT_GAIN * _blips(accented_pulses(clock, step_times(t, duration)), pitch, n, sample_rate)
-    pulses = roll_pulses(t, duration, patch, seg_seed)
-    for lane in ttrollz_lanes(t):
-        times, downbeats = pulses[lane.index]
-        # a pulse that rests is left out of what is heard (the gong still follows the whole roll), and takes its downbeat blip with it
-        heard = ~rest_flags(seed, ROLL_REST_TAG + 1 + lane.index, len(times), patch.roll_rests)
-        times, downbeats = times[heard], downbeats[heard]
+    lanes = {lane.index: lane for lane in ttrollz_lanes(t)}
+    for _, lane_index, times, downbeats in sets[1:]:
+        lane = lanes[lane_index]
         out += lane.level * _blips(times, pitch * lane.pitch, n, sample_rate, lane.decay_s)
         out += DOWNBEAT_GAIN * lane.level * _blips(times[downbeats], pitch * lane.pitch * 2, n, sample_rate, lane.decay_s)
     return (np.tanh(out)).astype(np.float32)
@@ -293,23 +309,35 @@ def _glided(values: np.ndarray, width: int) -> np.ndarray:
     return (c[hi] - c[lo]) / (hi - lo)
 
 
-def ttquantus_steps(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
-    """Per-sample semitone offsets: the first petal's castle on the patch's scale.
+def ttquantus_held(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """Per-sample semitone offsets of the note being held, before any glide or vibrato: the first petal's castle on the patch's scale.
 
     The ttquantussy's first petal turns round twice per eighth note, so a note lasts an eighth. The other four
     petals run at low prime ratios to it (the seed nudges them), so the notes make a pattern that repeats
     and slowly drifts. The chip's identity picks which petal the castle samples.
 
-    With the patch's `quantus_mod` above 0 the line is also moved, in three ways that scale with it: a slow castle shifts the register by whole scale
-    degrees (`ttquantus_register`), each note glides into the next over up to a note's length, and a vibrato sways the pitch, deeper as the chip's
-    pressure rises. With none, every note is a whole scale step held for its note, as before."""
+    With the patch's `quantus_mod` above 0 the held step is the castle's scale degree plus the slow castle's register shift (`ttquantus_register`),
+    a whole number of degrees. With none it is the quantized castle. `ttquantus_steps` glides and sways this line; a MIDI score takes each note's
+    number from it."""
     n = int(duration * sample_rate)
     freqs = [_note_rate(t) / 2 * r for r in petal_ratios(seed)]
     castle = castle_output(0, freqs, petal_phases(seed), np.arange(n) / sample_rate, offset=castle_offset(personality(t)))
     if patch.quantus_mod <= 0.0:
         return quantize_to_scale(castle, patch.scale)
     degrees = scale_degrees(castle, patch.scale) + ttquantus_register(t, duration, sample_rate, seed, patch)
-    semis = _glided(degrees_to_semitones(degrees, patch.scale), int(QUANTUS_GLIDE_NOTES * patch.quantus_mod * sample_rate / _note_rate(t)))
+    return degrees_to_semitones(degrees, patch.scale)
+
+
+def ttquantus_steps(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """Per-sample semitone offsets the audio plays: `ttquantus_held`, moved further when the patch's `quantus_mod` is above 0.
+
+    The line is moved in two ways that scale with `quantus_mod`: each note glides into the next over up to a note's length, and a vibrato sways
+    the pitch, deeper as the chip's pressure rises. With none, every note is a whole scale step held for its note, as before."""
+    held = ttquantus_held(t, duration, sample_rate, seed, patch)
+    if patch.quantus_mod <= 0.0:
+        return held
+    n = int(duration * sample_rate)
+    semis = _glided(held, int(QUANTUS_GLIDE_NOTES * patch.quantus_mod * sample_rate / _note_rate(t)))
     depth = patch.quantus_mod * VIBRATO_MAX_ST * (VIBRATO_BASE + (1.0 - VIBRATO_BASE) * chip_pressure(t))
     return semis + depth * np.sin(2 * math.pi * VIBRATO_HZ * np.arange(n) / sample_rate)
 

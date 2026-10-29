@@ -14,7 +14,7 @@ chips runs its own gong, shimmer, drone ripple, AVDog and delay mix as TT-Lang k
 
 Two earlier demos are in the repo: a 50-second one that starts from a prompt to the language model
 (`demo/assets/chorus.final.mp4`), and a 2-minute one of every feature at once, with the kernel devices on the chips
-(`demo/assets/features.final.mp4`). The site also has the stereo and evict recording, the style samples, a recording of a chip reset, and tt-bio-demo folding proteins on all four chips with the band playing the chips.
+(`demo/assets/features.final.mp4`). The site also has the stereo and evict recording, the style samples, a recording of a chip reset, tt-bio-demo folding proteins on all four chips with the band playing the chips, and a VCV Rack voice playing the lead's MIDI on top of tensixinet (`site/assets/voice.mp4`, in the site's "A second instrument" section).
 
 Every chip reports its temperature, clock, power, current, memory temperatures, DDR status, harvesting and
 more. tensixinet turns those readings into music. Each chip joins a small band of synthesizers inspired by
@@ -279,12 +279,19 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--mono` | One channel, the sound as it was before stereo. By default every voice is placed in a stereo field: a home for each chip, an offset for each device, an orbit that follows the chip's chaos and clock, depth, and movements from inside the devices (see [docs/SOUND.md](docs/SOUND.md#stereo-a-field-and-not-a-pair)) |
 | `--mock-load SECONDS` | With `--mock-chips` and `--live`: take each synthetic chip round a load cycle of this many seconds (rest, a load, rest, the chips staggered) so a chip unloads and the eviction can be heard without a model |
 | `--no-evict` | In live mode, do not dissolve a chip's voices when its model unloads ([Evict](docs/SOUND.md#evict-when-a-chips-model-unloads)) |
+| `--midi-file PATH` | Also write the devices' notes, drum triggers and controllers as a Standard MIDI File, one track per chip. The audio is unchanged. Example: `./tensixinet.py --mock-chips 4 --duration 30 --midi-file out.mid`. See [docs/MIDI.md](docs/MIDI.md) |
+| `--midi-port NAME` | With `--live`: play the same events on a live MIDI output (`virtual` makes one called `tensixinet`). Needs `pip install -e .[midi]`. Example: `./tensixinet.py --live --midi-port virtual`. Not yet heard through a real synth |
+| `--midi-offset-ms MS` | With `--midi-port`: send every message this many milliseconds later (negative is earlier) to line it up with the sound. Never measured against real audio |
+| `--midi-map FILE` | A JSON file that changes the MIDI channels, drum notes and controller numbers. Needs `--midi-file` or `--midi-port` |
 | `--no-banner` | Start with the first log line instead of the opening art and the colour legend |
 | `--no-cables` | Leave out the patch cables. By default five to eight cables, drawn from the patch seed, let one device's sound bend (`fm`), crunch, swell or fold another's, driven harder by chips under pressure |
 | `--no-eq` | Leave the final mix unshaped. By default an EQ lifts the lows (70 to 250 Hz, up to +4 dB), cuts rumble below 35 Hz and takes the shimmer down (-14 dB at 14 kHz, -33 dB at 20 kHz) |
 | `--no-normalise` | Keep the level the chips' power gives. By default one gain brings the render (or, live, each turn) toward -18 dBFS RMS |
 | `--out`, `--log-dir` | Where the WAV and the log go (`audio/`, `logs/`) |
 | `--endpoint`, `--model` | Any OpenAI-compatible endpoint (default `http://127.0.0.1:8011`). The model name is read from it |
+
+**Play a second instrument on top** (a two-minute recording of this is in `site/assets/voice.mp4` and on the site). `vcv/tensixinet-voice.vcv` is a VCV Rack (Free) patch with one monophonic voice, a dark low-pass filter and a lot of resonance, that plays the lead's MIDI channel.
+Start `./tensixinet.py --live --midi-port virtual`, open the patch in Rack and pick the `tensixinet` MIDI input. `demo/vcv_record.sh` records the pair (tensixinet's log, its MIDI and Rack, with sound) on a private display. Steps, what was measured and what was not are in [docs/MIDI.md](docs/MIDI.md#a-voice-on-top-in-vcv-rack).
 
 If the endpoint is down, the music still plays and the log says so.
 
@@ -307,12 +314,13 @@ If the endpoint is down, the music still plays and the log says so.
 |---|---|
 | `tensixinet/telemetry/` | `tt-smi -s` parsing for any chip count, and synthetic chips |
 | `tensixinet/music/` | The mapping table, the eleven devices, patches, turn-taking, the mixer, and live mode's segment joins |
+| `tensixinet/score/` | The notes, triggers and controls the devices play, as data, the MIDI file and live port they go to, and the VCV Rack voice patch in `vcv/` ([docs/MIDI.md](docs/MIDI.md)) |
 | `tensixinet/live.py` | The live loop: read, render a turn, play it while the next is made |
 | `tensixinet/narrate/` | The what-and-why log |
 | `tensixinet/media/` | The language model client, the ffmpeg soundtrack step, and the players live mode sends sound to |
 | `tests/` | One test file per module, in a folder that matches the module's |
 | `demo/` | The [tt-demo-maker](https://github.com/tsingletaryTT/tt-demo-maker) manifest and scripts that record the video |
-| `docs/` | [Architecture](docs/ARCHITECTURE.md), [sound design](docs/SOUND.md), [what the instrument guides say](docs/CIRCUITS.md), [decisions](docs/DECISIONS.md), [contributing](docs/CONTRIBUTING.md), [roadmap](docs/ROADMAP.md) |
+| `docs/` | [Architecture](docs/ARCHITECTURE.md), [sound design](docs/SOUND.md), [what the instrument guides say](docs/CIRCUITS.md), [decisions](docs/DECISIONS.md), [contributing](docs/CONTRIBUTING.md), [roadmap](docs/ROADMAP.md), [MIDI out](docs/MIDI.md) |
 | `legacy/` | The first prototype. Some scripts open the device; see its README |
 
 ## Tested without hardware

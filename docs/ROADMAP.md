@@ -59,3 +59,13 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    the coco's looping, flip, skip, Dolby switches and iron cross (the delay and feedback itself is now `ttcoco`), and
    the Ultrasound's folding of ultrasound into the audible band (needs a higher sample rate) are not modelled.
    `docs/CIRCUITS.md` lists each one.
+10. **MIDI out, next.** `docs/MIDI.md` says what is built. Open:
+   * A listening test of the VCV Rack voice (`vcv/`; it runs and its pitch was measured, nobody has heard it) and of a DAW or General MIDI synth, and tuning the voice's filter and envelope by ear. Next for the voice: the control CCs (channel 16) into its cutoff and resonance, and a second voice for `ttquantus`.
+   * A run of the port against a real synth (done once, for the VCV Rack voice) (the libraries are installed here; see the port check in `.superpowers/sdd/2026-10-24-midi-out/final-fix-report.md` for what a virtual port received).
+   * Measuring `--midi-offset-ms` against the audio of each player, so the default can be something other than 0.
+   * MIDI clock out, from the tempo `aiclk_to_bpm` gives.
+   * Events from `ttchoir` (vowel changes as notes or CCs).
+   * A channel for each chip on a live port, so two chips' lead notes do not share channel 1.
+   * Joining fast mode (`--interval`, on another unmerged branch) to the score: its phrases are shorter and restart the devices' clocks, so the score has to follow the phrases.
+   * A CV sink: either the control lanes as MIDI CCs into `~/code/vcv-cv-harness` through MIDI-CAT, or a direct CV output as in `~/code/tt-cv-agency`. Neither has been tried.
+   * MIDI in: a controller or clock that changes the patch or the readings.
