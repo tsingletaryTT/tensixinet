@@ -369,3 +369,9 @@ def test_the_live_scenario_names_the_fast_flags_and_the_delay_numbers_the_code_b
     assert "calculated" in scenario and "the delay at the speaker has not been measured" in scenario and "measured 220" not in scenario
     assert "not yet heard by a person" in scenario  # the page must not claim a listening that has not happened
     assert "tensixinet --live --with-tt-toplike" in HTML
+
+
+def test_the_voice_section_says_the_port_reaches_a_mac_over_rtpmidi_and_what_was_tried():
+    section = HTML[HTML.index('id="voice"'): HTML.index('id="bio"')]
+    for text in ("RTP-MIDI", "rtpmidid", "--rtpmidi-setup", "Apple", "not tested"):
+        assert text in section, text

@@ -199,3 +199,117 @@ def test_the_app_mode_starts_the_gradio_page_in_its_own_environment(tmp_path):
 def test_the_notes_are_printed_before_the_run(capsys):
     L.main(["--live"], root=ROOT, which=lambda n: None, deps=True, run=_no_build, execv=lambda *a: None)
     assert "synthetic" in capsys.readouterr().err
+
+
+# --- --rtpmidi-setup: get rtpmidid (RTP-MIDI to a Mac or iPad) without installing anything system-wide ---
+
+ASSETS = ["rtpmidid-debian-trixie-amd64-26.01.deb", "rtpmidid-ubuntu-25_10-amd64-26.01.deb", "rtpmidid-ubuntu-24_04-amd64-26.01.deb",
+          "rtpmidid-ubuntu-24_04-arm64-26.01.deb", "rtpmidid-26.01.tar.gz"]
+
+
+def test_the_asset_for_this_ubuntu_and_cpu_is_picked():
+    assert L.pick_rtpmidid_asset(ASSETS, "24.04", "x86_64") == "rtpmidid-ubuntu-24_04-amd64-26.01.deb"
+    assert L.pick_rtpmidid_asset(ASSETS, "25.10", "x86_64") == "rtpmidid-ubuntu-25_10-amd64-26.01.deb"
+    assert L.pick_rtpmidid_asset(ASSETS, "24.04", "aarch64") == "rtpmidid-ubuntu-24_04-arm64-26.01.deb"
+
+
+def test_no_asset_is_picked_for_a_system_it_was_not_built_for():
+    assert L.pick_rtpmidid_asset(ASSETS, "22.04", "x86_64") is None
+    assert L.pick_rtpmidid_asset(ASSETS, "24.04", "riscv64") is None
+    assert L.pick_rtpmidid_asset(ASSETS, None, "x86_64") is None
+
+
+def test_the_ubuntu_version_is_read_from_os_release():
+    text = 'NAME="Ubuntu"\nID=ubuntu\nVERSION_ID="24.04"\n'
+    assert L.ubuntu_version(text) == "24.04"
+    assert L.ubuntu_version('ID=debian\nVERSION_ID="12"\n') is None
+    assert L.ubuntu_version("") is None
+
+
+def test_rtpmidid_on_the_path_is_used_as_it_is(tmp_path):
+    assert L.find_rtpmidid(lambda n: "/usr/bin/rtpmidid", tmp_path) == "/usr/bin/rtpmidid"
+
+
+def test_an_unpacked_copy_is_found_when_nothing_is_on_the_path(tmp_path):
+    assert L.find_rtpmidid(lambda n: None, tmp_path) is None
+    exe = L.rtpmidid_dir(tmp_path) / "usr" / "bin" / "rtpmidid"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("")
+    assert L.find_rtpmidid(lambda n: None, tmp_path) == str(exe)
+
+
+def _release(name=ASSETS[2]):
+    return {"tag_name": "v26.01", "assets": [{"name": n, "browser_download_url": f"https://example.invalid/{n}"} for n in ASSETS]}
+
+
+def _setup(tmp_path, **over):
+    calls = {"dl": [], "run": []}
+
+    def download(url, dest):
+        calls["dl"].append(url)
+        Path(dest).write_text("deb")
+
+    def run(cmd, **kw):
+        calls["run"].append(cmd)
+        if cmd[:2] == ["dpkg-deb", "-f"]:
+            return over.get("package", "rtpmidid")
+        if cmd[:2] == ["dpkg", "-x"]:
+            exe = Path(cmd[3]) / "usr" / "bin" / "rtpmidid"
+            exe.parent.mkdir(parents=True)
+            exe.write_text("")
+        return ""
+
+    args = dict(home=tmp_path, which=lambda n: None, fetch=lambda url: _release(), download=download, run=run,
+                os_release='ID=ubuntu\nVERSION_ID="24.04"\n', machine="x86_64")
+    args.update({k: v for k, v in over.items() if k != "package"})
+    return L.setup_rtpmidi(**args), calls
+
+
+def test_setup_downloads_checks_and_unpacks_into_the_users_own_folder(tmp_path):
+    exe, calls = _setup(tmp_path)
+    assert exe == str(L.rtpmidid_dir(tmp_path) / "usr" / "bin" / "rtpmidid")
+    assert calls["dl"] == ["https://example.invalid/rtpmidid-ubuntu-24_04-amd64-26.01.deb"]
+    # the package is asked what it is before it is unpacked, and unpacking is dpkg -x (nothing is installed, no sudo)
+    kinds = [c[:2] for c in calls["run"]]
+    assert kinds.index(["dpkg-deb", "-f"]) < kinds.index(["dpkg", "-x"])
+    assert not any("sudo" in c or c[:2] == ["dpkg", "-i"] for c in calls["run"])
+
+
+def test_setup_stops_when_the_package_is_not_rtpmidid(tmp_path):
+    with pytest.raises(SystemExit, match="not rtpmidid"):
+        _setup(tmp_path, package="something-else")
+    assert not (L.rtpmidid_dir(tmp_path) / "usr").exists()
+
+
+def test_setup_does_nothing_when_rtpmidid_is_already_there(tmp_path):
+    exe, calls = _setup(tmp_path, which=lambda n: "/usr/bin/rtpmidid")
+    assert exe == "/usr/bin/rtpmidid" and not calls["dl"]
+
+
+def test_setup_says_when_there_is_no_build_for_this_system(tmp_path):
+    with pytest.raises(SystemExit, match="no rtpmidid build"):
+        _setup(tmp_path, machine="riscv64")
+
+
+def test_the_rtpmidi_setup_mode_prints_how_to_use_it(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(L, "setup_rtpmidi", lambda **kw: "/x/rtpmidid")
+    got = {}
+    assert L.main(["--rtpmidi-setup"], root=tmp_path, which=lambda n: None, deps=True, run=_no_build, execv=lambda *a: got.update(ran=1)) == 0
+    out = capsys.readouterr().out
+    assert "/x/rtpmidid" in out and "--midi-port virtual" in out and "aconnect" in out and not got
+
+
+def test_doctor_notes_whether_rtpmidid_is_there():
+    _, lines = L.doctor(Path("/nonexistent"), which=lambda n: None, deps=True, home=Path("/nonexistent"))
+    assert any("rtpmidid" in l and "--rtpmidi-setup" in l for l in lines)
+    _, lines = L.doctor(Path("/nonexistent"), which=lambda n: "/usr/bin/rtpmidid" if n == "rtpmidid" else None, deps=True, home=Path("/nonexistent"))
+    assert any(l.startswith("ok") and "rtpmidid" in l for l in lines)
+
+
+def test_only_a_deb_is_picked_even_when_a_checksum_file_shares_the_name():
+    assert L.pick_rtpmidid_asset(["rtpmidid-ubuntu-24_04-amd64-26.01.sha256"], "24.04", "x86_64") is None
+
+
+def test_the_downloaded_package_is_removed_once_unpacked(tmp_path):
+    _setup(tmp_path)
+    assert not list(L.rtpmidid_dir(tmp_path).glob("*.deb"))

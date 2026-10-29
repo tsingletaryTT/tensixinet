@@ -46,6 +46,7 @@ synthetic chips. The sound goes to `paplay`, `aplay` or `ffplay`, whichever is i
 | `./tensixinet.py --app` | Open the page that draws what is playing, at http://localhost:7880 (builds `.venv-app` with Gradio the first time) |
 | `./tensixinet.py --doctor` | Say what is installed: Python, numpy and soundfile, `tt-smi`, a sound player, `ffmpeg` |
 | `./tensixinet.py --setup` | Build `.venv` now, without playing |
+| `./tensixinet.py --rtpmidi-setup` | Download `rtpmidid` into `~/.local/share/tensixinet/rtpmidid` (nothing is installed system-wide, no sudo) so the MIDI port can reach a Mac or iPad over RTP-MIDI. `--doctor` says whether it is there |
 | `./tensixinet.py --mock-chips 4 --duration 20` | Anything else goes to the command line below. This renders 20 s from four synthetic chips to `audio/` |
 
 The log goes to `logs/` and a recording to `audio/`. If you would rather install it yourself, `pip install .` gives a `tensixinet` command
@@ -344,6 +345,8 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--no-normalise` | Keep the level the chips' power gives. By default one gain brings the render (or, live, each turn) toward -18 dBFS RMS |
 | `--out`, `--log-dir` | Where the WAV and the log go (`audio/`, `logs/`) |
 | `--endpoint`, `--model` | Any OpenAI-compatible endpoint (default `http://127.0.0.1:8011`). The model name is read from it |
+
+**Send the MIDI to a Mac or iPad (RTP-MIDI).** The `--midi-port virtual` port is an ordinary ALSA port, so `rtpmidid` carries it over Apple's network MIDI. `./tensixinet.py --rtpmidi-setup` gets it and prints the steps; the Mac picks the session in Audio MIDI Setup, Network. Tried between two `rtpmidid` instances on one machine (the lead's notes, bends and the gong's triggers arrived); not tried with Apple's driver or over a real network. Details: [docs/MIDI.md](docs/MIDI.md#over-the-network-rtpmidi-tried-with-rtpmidid).
 
 **Play a second instrument on top** (a two-minute recording of this is in `site/assets/voice.mp4` and on the site). `vcv/tensixinet-voice.vcv` is a VCV Rack (Free) patch with one monophonic voice, a dark low-pass filter and a lot of resonance, that plays the lead's MIDI channel.
 Start `./tensixinet.py --live --midi-port virtual`, open the patch in Rack and pick the `tensixinet` MIDI input. `demo/vcv_record.sh` records the pair (tensixinet's log, its MIDI and Rack, with sound) on a private display. Steps, what was measured and what was not are in [docs/MIDI.md](docs/MIDI.md#a-voice-on-top-in-vcv-rack).

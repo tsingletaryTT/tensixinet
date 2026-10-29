@@ -83,4 +83,5 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    * A channel for each chip on a live port, so two chips' lead notes do not share channel 1.
    * Joining fast mode (`--interval`) to the score (the two are refused together for now): its phrases are shorter and restart the devices' clocks, so the score has to follow the phrases.
    * A CV sink: either the control lanes as MIDI CCs into `~/code/vcv-cv-harness` through MIDI-CAT, or a direct CV output as in `~/code/tt-cv-agency`. Neither has been tried.
+   * rtpMIDI to a Mac or iPad: works through `rtpmidid` between two instances on this box (`docs/MIDI.md`, "Over the network"). Not tried against Apple's driver or over a real network. A native sender (about 300 to 500 lines) is not planned unless that fails.
    * MIDI in: a controller or clock that changes the patch or the readings.

@@ -355,6 +355,9 @@ ul.plain{margin:0 0 14px 20px;max-width:70ch} ul.plain li{margin-bottom:6px}
     <div class="card"><h3>Play it yourself</h3><p>Install the extra with <code>pip install -e .[midi]</code> and start <code>./tensixinet.py --live --midi-port virtual</code>. Open the patch in Rack and pick the <code>tensixinet</code> MIDI input on the MIDI-CV module. <code>python -m tensixinet.score.vcv my-voice.vcv --device auto --audio-device NAME</code> writes a copy that already names the port and the audio output.</p></div>
     <div class="card"><h3>What was measured</h3><p>In Rack, A4 plays at 440.0 Hz, a full wheel up gives 493.8 Hz and down 392.0 Hz, and a note on another channel makes no sound. The voice sits about 30 ms ahead of tensixinet's own lead, so <code>--midi-offset-ms</code> stays at 0. The filter and envelope values are a first guess to tune by ear in Rack.</p></div>
   </div>
+  <div class="grid" style="margin-top:14px">
+    <div class="card"><h3>To a Mac or iPad, over the network</h3><p>The port also goes out as RTP-MIDI, Apple's network MIDI, through <code>rtpmidid</code>. <code>./tensixinet.py --rtpmidi-setup</code> downloads it into your own folder with nothing installed system-wide, and then you connect the <code>tensixinet</code> port to it with <code>aconnect</code>. On this box a second <code>rtpmidid</code> connected to the session and received the lead's notes, bends and the gong's triggers (124 note-ons in 10 s). Apple's own driver, a real network and the delay are not tested.</p></div>
+  </div>
   <p class="src" style="margin-top:10px">Made with <code>demo/vcv_record.sh</code>, which runs on a private display and sound sink. The route table, the file and port options and the limits are in <a href="https://github.com/tsingletaryTT/tensixinet/blob/main/docs/MIDI.md">docs/MIDI.md</a>. A control-voltage output, as in <a href="https://github.com/tsingletaryTT/tt-cv-agency">tt-cv-agency</a>, is not built.</p>
 </div></section>
 

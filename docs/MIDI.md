@@ -101,6 +101,28 @@ and down 392.0 Hz (two semitones either side), C4 plays at 261.7 Hz, and a note 
 in that run were not compared with the audio one by one. Nobody has listened to it. The cutoff, resonance and envelope times are a first guess and are best set by ear in Rack. The chips share the lead's channel, so on a live port two chips'
 lead notes can overlap on a single voice. What the voice does then was not checked.
 
+## Over the network (rtpMIDI), tried with rtpmidid
+
+tensixinet needs no code for this. The virtual port is an ordinary ALSA port, so `rtpmidid` (David Moreno's daemon, which speaks Apple's network MIDI session protocol, RTP-MIDI) can carry it to a Mac or iPad. A Mac shows the session in Audio MIDI Setup, Network.
+`rtpmidid` is not in apt. Upstream publishes `.deb` files (v26.01 was used). `./tensixinet.py --rtpmidi-setup` fetches the `.deb` built for this Ubuntu and CPU, checks that the package is called `rtpmidid`, and unpacks it with `dpkg -x` into `~/.local/share/tensixinet/rtpmidid`, so nothing is installed and no sudo is used. It then prints the commands. `--doctor` says whether `rtpmidid` is found (on the PATH or there). The helper covers Ubuntu 24.04 and 25.10 on x86_64 and arm64, the Ubuntu builds upstream publishes (upstream also has Debian trixie and Fedora 43 packages, which the helper does not fetch); on another system it says so.
+
+What was run, on one machine, with two `rtpmidid` instances standing in for the two ends (ports 15004 and 15104, discovery off):
+
+```bash
+rtpmidid --port 15004 --name rtpA --control /tmp/rtp/A.sock --rtpmidi-discover false &
+rtpmidid --port 15104 --name rtpB --control /tmp/rtp/B.sock --rtpmidi-discover false &
+tensixinet --live --midi-port virtual
+aconnect 130:0 128:0            # tensixinet's port to rtpA's port (use the numbers aconnect -l shows)
+rtpmidid-cli --control /tmp/rtp/B.sock connect hostname=127.0.0.1 port=PORT name=tensixinet
+aseqdump -p 129:3               # what arrived at the far end
+```
+
+The `aconnect` line makes `rtpA` open a session named `RtMidiOut Client-tensixinet` on a UDP port of its own. `rtpmidid-cli ... status` on A shows that port. `PORT` is that number, and it changes each run.
+For a real Mac, skip instance B: leave `rtpmidid` running, connect the port to it with `aconnect`, and pick the session in Audio MIDI Setup (or use `connect` from the daemon to the Mac's session).
+
+Measured: `aseqdump` on B's port received the lead's notes, pitch bends and the gong's triggers, with the channels and note numbers the score sends (124 note-on events in 10 s from four synthetic chips). The test did not check them one by one against what was sent.
+Not tested: Apple's own driver, a Mac or iPad, a network that is not loopback, latency and jitter, `rtpmidid`'s mDNS discovery (it was off), or the `rtpmidid` package from a distribution. Nobody has listened to it.
+
 ## `--midi-map`
 
 A JSON file with any of these keys, merged over the defaults (the three mappings merge key by key). It needs `--midi-file` or `--midi-port`. Channels in this file are zero-based, 0 to 15,

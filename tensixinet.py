@@ -7,6 +7,7 @@
     ./tensixinet.py --app           open the page that draws what is playing (http://localhost:7880)
     ./tensixinet.py --doctor        check what is installed
     ./tensixinet.py --setup         build the environment now (a run builds it the first time anyway)
+    ./tensixinet.py --rtpmidi-setup get rtpmidid, which sends tensixinet's MIDI port to a Mac or iPad (nothing is installed system-wide)
 
 Everything else goes to the command line unchanged, so `./tensixinet.py --mock-chips 4 --duration 20` and
 `./tensixinet.py --help` work as `python3 -m tensixinet` does. This file uses only the standard library.
@@ -21,17 +22,21 @@ What it adds to the command line:
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-MODES = {"--setup": "setup", "--doctor": "doctor", "--app": "app"}
+MODES = {"--setup": "setup", "--doctor": "doctor", "--app": "app", "--rtpmidi-setup": "rtpmidi"}
 MIN_PYTHON = (3, 10)
 SYNTHETIC_CHIPS = "4"
 PLAYERS = ("paplay", "aplay", "ffplay")
+RTPMIDID_RELEASE = "https://api.github.com/repos/davidmoreno/rtpmidid/releases/latest"
+RTPMIDID_ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
 
 
 def split_args(argv):
@@ -90,7 +95,80 @@ def setup_env(root, app=False, run=subprocess.call):
     return py
 
 
-def doctor(root, which=shutil.which, deps=None, version=sys.version_info[:2]):
+def rtpmidid_dir(home=None):
+    """Where `--rtpmidi-setup` unpacks rtpmidid: the user's own folder, so nothing needs sudo."""
+    return Path(home or Path.home()) / ".local" / "share" / "tensixinet" / "rtpmidid"
+
+
+def find_rtpmidid(which=shutil.which, home=None):
+    """The rtpmidid to run: one on the PATH, else the copy `--rtpmidi-setup` unpacked, else None."""
+    on_path = which("rtpmidid")
+    if on_path:
+        return on_path
+    unpacked = rtpmidid_dir(home) / "usr" / "bin" / "rtpmidid"
+    return str(unpacked) if unpacked.exists() else None
+
+
+def ubuntu_version(os_release_text):
+    """The VERSION_ID of an Ubuntu /etc/os-release, else None (the release builds are for Ubuntu)."""
+    fields = dict(line.split("=", 1) for line in os_release_text.splitlines() if "=" in line)
+    if fields.get("ID", "").strip('"') != "ubuntu":
+        return None
+    return fields.get("VERSION_ID", "").strip('"') or None
+
+
+def pick_rtpmidid_asset(names, version, machine):
+    """The release's `.deb` built for this Ubuntu and CPU, else None."""
+    arch = RTPMIDID_ARCH.get(machine)
+    if not version or not arch:
+        return None
+    prefix, suffix = f"rtpmidid-ubuntu-{version.replace('.', '_')}-{arch}-", ".deb"
+    return next((n for n in names if n.startswith(prefix) and n.endswith(suffix)), None)
+
+
+def _fetch_json(url):
+    with urllib.request.urlopen(url, timeout=30) as r:
+        return json.load(r)
+
+
+def _download(url, dest):
+    with urllib.request.urlopen(url, timeout=120) as r, open(dest, "wb") as f:
+        shutil.copyfileobj(r, f)
+
+
+def _output(cmd, **kw):
+    return subprocess.check_output(cmd, text=True, **kw)
+
+
+def setup_rtpmidi(home=None, which=shutil.which, fetch=_fetch_json, download=_download, run=_output, os_release=None, machine=None):
+    """Get rtpmidid's latest release into `rtpmidid_dir()`, without installing it: download the `.deb` for this system, check that the package
+    is rtpmidid, and unpack it with `dpkg -x`. Returns the path of the executable. Does nothing if rtpmidid is already there."""
+    have = find_rtpmidid(which, home)
+    if have:
+        return have
+    if os_release is None:
+        os_release = Path("/etc/os-release").read_text() if Path("/etc/os-release").exists() else ""
+    machine = machine or os.uname().machine
+    release = fetch(RTPMIDID_RELEASE)
+    assets = {a["name"]: a["browser_download_url"] for a in release.get("assets", [])}
+    name = pick_rtpmidid_asset(list(assets), ubuntu_version(os_release), machine)
+    if name is None:
+        raise SystemExit(f"tensixinet: no rtpmidid build for this system ({machine}); see https://github.com/davidmoreno/rtpmidid/releases")
+    dest = rtpmidid_dir(home)
+    dest.mkdir(parents=True, exist_ok=True)
+    deb = dest / name
+    print(f"tensixinet: downloading {name} ({release.get('tag_name', '')})", file=sys.stderr)
+    download(assets[name], str(deb))
+    package = run(["dpkg-deb", "-f", str(deb), "Package"]).strip()
+    if package != "rtpmidid":
+        deb.unlink()
+        raise SystemExit(f"tensixinet: {name} is not rtpmidid (its package name is {package!r}); nothing was unpacked")
+    run(["dpkg", "-x", str(deb), str(dest)])
+    deb.unlink()
+    return str(dest / "usr" / "bin" / "rtpmidid")
+
+
+def doctor(root, which=shutil.which, deps=None, version=sys.version_info[:2], home=None):
     """(ok, lines): what is installed. Python and the dependencies are needed; the rest changes what you can do."""
     deps = deps_present() if deps is None else deps
     lines, ok = [], True
@@ -112,6 +190,9 @@ def doctor(root, which=shutil.which, deps=None, version=sys.version_info[:2]):
                  f"note  no {'/'.join(PLAYERS)}: nothing can play sound live (--out still records a WAV)")
     ffmpeg = which("ffmpeg")
     lines.append(f"ok    ffmpeg at {ffmpeg}" if ffmpeg else "note  no ffmpeg: --app needs it to stream audio to the browser")
+    rtp = find_rtpmidid(which, home)
+    lines.append(f"ok    rtpmidid at {rtp}: the MIDI port can go to a Mac or iPad" if rtp else
+                 "note  no rtpmidid: ./tensixinet.py --rtpmidi-setup gets it, to send the MIDI port to a Mac or iPad")
     return ok, lines
 
 
@@ -122,6 +203,15 @@ def main(argv=None, root=ROOT, which=shutil.which, deps=None, run=subprocess.cal
         ok, lines = doctor(root, which=which, deps=deps)
         print("\n".join(lines))
         return 0 if ok else 1
+    if mode == "rtpmidi":
+        exe = setup_rtpmidi(which=which)
+        print(f"rtpmidid: {exe}\n\n"
+              f"  {exe} --name tensixinet-net &        start it\n"
+              "  ./tensixinet.py --live --midi-port virtual\n"
+              "  aconnect -l                          find the numbers of tensixinet's port and of rtpmidid's\n"
+              "  aconnect TENSIXINET_PORT RTPMIDID_PORT\n\n"
+              "Then pick the session in Audio MIDI Setup (Network) on a Mac. Steps and what was tested: docs/MIDI.md.")
+        return 0
     if mode == "setup":
         print(f"ready: {setup_env(root, run=run)}")
         return 0
