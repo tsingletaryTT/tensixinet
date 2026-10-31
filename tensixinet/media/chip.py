@@ -30,6 +30,9 @@ import numpy as np
 
 # The kernels the worker runs, and how many packed input arrays each takes (see `tensixinet/kernels/packing.py`).
 CHIP_OPS: Dict[str, int] = {"ttshock": 3, "ttshimmer": 5, "ttgong": 16, "ttavdog": 10, "ttmix": 4, "ttcoco": 8, "ttchoir": 16}
+# Requests the worker expands itself before it runs a kernel: the arrays are sent as they are (float64, integers) and the count is
+# how many. `ttchoir_voice` is the choir's whole voiced part: the phase once and the level tables at frame rate (`packing.choir_compact`).
+COMPACT_OPS: Dict[str, int] = {"ttchoir_voice": 5}
 DEFAULT_CHUNK_TILES = 448  # a chunk is this many 1024-sample tiles, 10.4 s at 44.1 kHz: the longest live segment fits in one
 WORKER = Path(__file__).resolve().parents[2] / "kernels" / "pool.py"  # starts one kernels/worker.py per chip
 CHIP_START_TIMEOUT_S = 300.0  # a chip takes a while to open, and each kernel compiles on first use
@@ -235,14 +238,17 @@ class ChipWorker:
         float64."""
         if not 0 <= device < self.devices:
             raise ChipError(f"no device {device}; this worker holds {self.devices}")
-        if op not in CHIP_OPS:
-            raise ChipError(f"unknown kernel {op}; the kernels are {', '.join(CHIP_OPS)}")
-        if len(inputs) != CHIP_OPS[op]:
-            raise ChipError(f"{op} takes {CHIP_OPS[op]} inputs, got {len(inputs)}")
+        arity = {**CHIP_OPS, **COMPACT_OPS}
+        if op not in arity:
+            raise ChipError(f"unknown kernel {op}; the kernels are {', '.join(arity)}")
+        if len(inputs) != arity[op]:
+            raise ChipError(f"{op} takes {arity[op]} inputs, got {len(inputs)}")
         if self.process is None:
             self.start()
         request = {"op": np.array(op), "n": np.array(n), "device": np.array(device)}
-        request.update({f"a{i}": np.ascontiguousarray(a, dtype=np.float32) for i, a in enumerate(inputs)})
+        compact = op in COMPACT_OPS
+        request.update({f"a{i}": np.ascontiguousarray(a) if compact else np.ascontiguousarray(a, dtype=np.float32)
+                        for i, a in enumerate(inputs)})
         try:
             write_frame(self.process.stdin, request)
             reply = read_frame(self.process.stdout, self.run_timeout)

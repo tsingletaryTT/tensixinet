@@ -350,3 +350,48 @@ def test_a_simulator_worker_gets_the_quick_timeouts_of_a_host_worker_not_the_chi
     from tensixinet.media.chip import SIM_START_TIMEOUT_S, simulator_command
     w = ChipWorker(simulator_command(2, exe="x"))
     assert w.close_timeout == 30.0 and w.start_timeout == SIM_START_TIMEOUT_S < 300.0
+
+
+# --- the choir's compact request: the worker expands the harmonics next to the chip -----------------------------------------
+
+def _compact_choir(n=N, count=19, sr=8000):
+    t = np.arange(n) / sr
+    frames = int(n / sr * 200) + 3
+    frame_t = np.arange(frames) / 200.0
+    rng = np.random.default_rng(3)
+    table = rng.uniform(0, 0.05, (frames, count))
+    phase = 2 * np.pi * np.cumsum(180.0 * (1 + 0.01 * np.sin(2 * np.pi * 5 * t))) / sr
+    ks = list(range(count))
+    return t, frame_t, table, phase, ks, sr
+
+
+def test_the_worker_sums_the_voiced_part_of_a_compact_choir_group_by_group(worker):
+    t, frame_t, table, phase, ks, sr = _compact_choir()
+    compact = pk.choir_compact(sr, frame_t, table, phase, ks)
+    got = worker.run("ttchoir_voice", compact, N)
+    want = sum((pk.choir_on_host(g, N) for g in pk.choir_groups(t, frame_t, table, phase, ks)), np.zeros(N))
+    assert got.shape == (N,) and got.dtype == np.float64
+    assert np.abs(want).max() > 0.01 and np.allclose(got, want, atol=1e-6)
+
+
+def test_a_compact_choir_gives_the_same_answer_in_small_chunks():
+    t, frame_t, table, phase, ks, sr = _compact_choir()
+    with ChipWorker(host_command(chunk_tiles=1)) as small:
+        got = small.run("ttchoir_voice", pk.choir_compact(sr, frame_t, table, phase, ks), N)
+    want = sum((pk.choir_on_host(g, N) for g in pk.choir_groups(t, frame_t, table, phase, ks)), np.zeros(N))
+    assert np.allclose(got, want, atol=1e-6)
+
+
+def test_the_compact_choir_checks_its_arity(worker):
+    t, frame_t, table, phase, ks, sr = _compact_choir()
+    with pytest.raises(ChipError, match="takes 5"):
+        worker.run("ttchoir_voice", pk.choir_compact(sr, frame_t, table, phase, ks)[:4], N)
+
+
+def test_a_compact_choir_keeps_a_phase_of_thousands_of_radians_exact(worker):
+    """A float32 phase would be off by about a radian for harmonic 40; the worker must receive and cut the float64 phase."""
+    t, frame_t, table, phase, ks, sr = _compact_choir(count=40)
+    phase = phase + 7000.0
+    got = worker.run("ttchoir_voice", pk.choir_compact(sr, frame_t, table, phase, ks), N)
+    want = sum((pk.choir_on_host(g, N) for g in pk.choir_groups(t, frame_t, table, phase, ks)), np.zeros(N))
+    assert np.abs(want).max() > 0.01 and np.allclose(got, want, atol=1e-6)

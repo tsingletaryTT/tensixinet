@@ -461,3 +461,17 @@ def test_the_kernels_section_names_and_counts_every_kernel_the_worker_runs():
     assert "choir" in listed and "ttchoir" in KERNEL_DEVICES
     hardware = HTML[HTML.index('id="hardware"'):]
     assert f"{words[len(KERNEL_DEVICES)].lower()} devices" in hardware[: hardware.index("</section>")]
+
+
+# --- the terminal view's recording ---------------------------------------------------------------------------------------------
+
+def test_the_tui_section_has_the_recording_its_poster_and_the_command_that_makes_it():
+    assert 'id="tui"' in HTML and 'href="#tui"' in HTML
+    section = HTML[HTML.index('id="tui"'): HTML.index('id="voice"')]
+    assert HTML.index('id="space"') < HTML.index('id="tui"') < HTML.index('id="voice"')
+    assert 'src="assets/tui.mp4"' in section and 'poster="assets/tui-frame.png"' in section
+    for name in ("tui.mp4", "tui-frame.png"):
+        assert (SITE / "assets" / name).stat().st_size > 10_000
+    assert "tensixinet --live --tui" in section and "demo/build_tui.sh" in section
+    from tensixinet.cli import build_parser
+    assert "--tui" in {o for a in build_parser()._actions for o in a.option_strings}

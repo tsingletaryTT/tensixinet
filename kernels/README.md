@@ -89,13 +89,25 @@ twice, the vowel choir and the syllable choir (`--voice syllable`, saved as `ttc
 | Vowel choir, 3 s at 16 kHz, worst difference | 1.5e-7 | 1.5e-7 | 1.5e-7 |
 | Syllable choir, 3 s at 16 kHz, worst difference | 1.2e-7 | 1.2e-7 | 1.2e-7 |
 | Kernel time for those 3 s (four or five runs) | 2.1 to 2.5 ms | 2.1 to 2.6 ms | |
-| 30 s at 44.1 kHz through the worker's chunked path, vowel | 0.87 s (CPU 0.65 s) | 0.88 s (CPU 0.62 s) | |
-| 30 s at 44.1 kHz, syllable choir | 0.70 s (CPU 0.55 s) | 0.68 s (CPU 0.53 s) | |
+| 30 s at 44.1 kHz through the worker's chunked path, vowel (first version) | 0.87 s (CPU 0.65 s) | 0.88 s (CPU 0.62 s) | |
+| 30 s at 44.1 kHz, syllable choir (first version) | 0.70 s (CPU 0.55 s) | 0.68 s (CPU 0.53 s) | |
+| 30 s at 44.1 kHz, vowel (compact request) | 0.61 s (CPU 0.69 s) | 0.59 s (CPU 0.62 s) | |
+| 30 s at 44.1 kHz, syllable choir (compact request) | 0.41 s (CPU 0.54 s) | 0.41 s (CPU 0.53 s) | |
 
 The 30 s renders matched the CPU choir to 1.5e-7 at the worst, correlation 1.0000000, also with a howl and with the crush at full depth.
-**The chip path is slower than the CPU**, about 1.3 times: five runs of sixteen input tiles move about 420 MB to the chip for 30 s of
-voice, against well under a second of numpy. The 30 s timings drive `worker.py`'s own code (`Board`, `chip_compute`, `run_chunked` with its
-448-tile chunks) in one process, so they leave out the pipe between `tensixinet` and the worker.
+The first version was about 1.3 times slower than the CPU: five runs of sixteen input tiles, about 420 MB for 30 s of voice. Those timings
+drove `worker.py`'s own code in one process and left out the pipe between `tensixinet` and the worker, which is where most of the time went:
+through the pipe (the worker in host mode, so no chip) the same choir took 1.55 s against 0.65 s on the CPU.
+
+**The compact request (2026-10-31) made it faster than the CPU.** Two changes, each timed.
+* `choir_inputs` cuts each harmonic's turn with `x - floor(x)` where it used `np.mod`: the host's packing of a 30 s voice dropped from
+  about 0.5 s to about 0.2 s (`np.mod` on floats cost as much as the sines the chip was saving).
+* The client sends the worker the voice's float64 phase once and the level tables at frame rate (`packing.choir_compact`, the op
+  `ttchoir_voice`, about 10 MB), and the worker makes each group's sixteen tiles itself (`packing.choir_expand`, `worker.run_op`) and adds
+  the groups. The pipe carries 10 MB where it carried 450 MB. Through the pipe in host mode the choir went from 1.55 s to 0.42 s.
+The chip's own time for a 10 s chunk of one group is small: upload 4 ms, kernel 5 ms, download 1 ms, against 25 ms of packing.
+The timings in the last two rows drive `run_op` and the kernel on a chip in one process, so they still leave out the pipe; the pipe
+figure above is from the host-mode worker. A live `--kernels chips` run was not made (the worker cannot start on today's toolchain).
 
 Two things were found on the way:
 

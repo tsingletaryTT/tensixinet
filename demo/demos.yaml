@@ -48,3 +48,12 @@ scenes:
     split_ratio: 45
     duration: 268s
     caption: "tensixinet --live --style enya on the real chips: slow, modal turns, the choir and the lead in front, the drone and a modest room of delay behind them. tt-toplike on the right rotates through every one of its views unattended. The video is cut to 4:20."
+
+  - id: tui
+    title: "The terminal view (--tui) on the real chips, beside tt-toplike"
+    layout: split
+    left:  { run: "demo/left_pane_tui.sh", wait_for: "played .*s in" }
+    right: { run: "tt-toplike {backend} --mode arcade" }
+    split_ratio: 50
+    duration: 118s
+    caption: "tensixinet --live --tui on the real chips: a readings line for each chip, the modules grouped by role with their share of the turn, the strongest cables, the stereo field and the colour-coded log. Whoever has the floor is bold and the rest dim. tt-toplike's arcade view shows the same four chips."

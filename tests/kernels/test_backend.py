@@ -24,7 +24,7 @@ SR = 8000
 CPU = {"gong": gong, "ultrasonic_shimmer": ultrasonic_shimmer, "ttdrone": ttdrone, "ttavdog": ttavdog, "ttcoco": ttcoco,
        "ttchoir": ttchoir}
 OPS = {"gong": {"ttgong"}, "ultrasonic_shimmer": {"ttshimmer"}, "ttdrone": {"ttshock"}, "ttavdog": {"ttavdog"}, "ttcoco": {"ttcoco"},
-       "ttchoir": {"ttchoir"}}
+       "ttchoir": {"ttchoir_voice"}}
 
 
 class Spy:
@@ -148,7 +148,7 @@ def test_a_whole_chorus_on_the_backend_matches_the_cpu_chorus_and_uses_every_ker
         want = render_chorus(chips, 4.0, SR, patch)
         assert got.dtype == np.float32 and got.shape == want.shape
         assert np.allclose(got, want, atol=3e-3), float(np.abs(got - want).max())
-        assert {"ttshock", "ttshimmer", "ttavdog", "ttcoco", "ttchoir", "ttmix"} <= set(s.calls)
+        assert {"ttshock", "ttshimmer", "ttavdog", "ttcoco", "ttchoir_voice", "ttmix"} <= set(s.calls)
     finally:
         s.close()
 
@@ -243,25 +243,28 @@ def test_the_syllable_choir_on_the_chip_matches_the_numpy_choir(spy, patch_index
         got, want = backend.devices["ttchoir"](t, 8.0, SR, 3, patch), ttchoir(t, 8.0, SR, 3, patch)
         assert got.dtype == np.float32 and got.shape == want.shape
         assert np.allclose(got, want, atol=1e-4), (chip, float(np.abs(got - want).max()))
-        assert set(spy.calls[before:]) <= {"ttchoir"}
+        assert set(spy.calls[before:]) <= {"ttchoir_voice"}
 
 
-def test_the_choir_runs_one_kernel_for_every_eight_harmonics_it_sings():
-    from tensixinet.kernels.packing import CHOIR_GROUP
-    from tensixinet.music.ttchoir import choir_voice, harmonic_sum
-    counts = []
-
-    def count(sample_t, frame_t, harmonics, phase, ks):
-        counts.append(len(list(ks)))
-        return harmonic_sum(sample_t, frame_t, harmonics, phase, ks)
+def test_the_choir_sends_the_worker_one_compact_request_for_the_whole_voice():
+    """One request, the phase once and the level tables at frame rate: about 8 bytes a sample, where the sixteen packed tiles of
+    each of five groups were about 340 bytes a sample."""
     s = Spy()
+    sent = []
+    run = s.run
+
+    def record(op, inputs, n, device=0):
+        sent.append((op, sum(np.asarray(a).nbytes for a in inputs), n))
+        return run(op, inputs, n, device=device)
+    s.run = record
     try:
         t = _chip(1)
-        choir_voice(t, 4.0, SR, 3, DEFAULT_PATCH, sines=count)
-        KernelBackend(s).devices["ttchoir"](t, 4.0, SR, 3, DEFAULT_PATCH)
-        assert counts and s.calls == ["ttchoir"] * -(-counts[0] // CHOIR_GROUP)
+        got = KernelBackend(s).devices["ttchoir"](t, 4.0, SR, 3, DEFAULT_PATCH)
+        assert np.allclose(got, ttchoir(t, 4.0, SR, 3, DEFAULT_PATCH), atol=1e-4)
     finally:
         s.close()
+    assert [op for op, _, _ in sent] == ["ttchoir_voice"]
+    assert sent[0][1] < 12 * sent[0][2], sent
 
 
 def test_a_crushed_choir_on_the_chip_differs_from_the_cpu_only_by_whole_crush_steps_and_rarely():
@@ -288,6 +291,6 @@ def test_each_chips_choir_runs_on_that_chips_own_kernels():
         for chip in range(4):
             before = len(s.where)
             backend.device_for("ttchoir", chip)(_chip(chip), 2.0, SR, 3, DEFAULT_PATCH)
-            assert s.where[before:] and set(s.where[before:]) == {("ttchoir", chip)}
+            assert s.where[before:] and set(s.where[before:]) == {("ttchoir_voice", chip)}
     finally:
         s.close()

@@ -94,7 +94,7 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
       chip computes `sum_j a_j * sin(p_j)` for eight harmonics a run, and the host keeps the syllable plan, the frame tables, the pitch and
       phase, the consonants' noise, the howl and the crush (`ttchoir.choir_voice` with a `sines` callable; the CPU choir is unchanged to the
       bit). It matched the numpy choir to 1.5e-7 in the simulator and on chips 0 and 1, for the vowel and the syllable choir. A 30 s choir at
-      44.1 kHz takes 0.68 to 0.88 s through the chip against 0.53 to 0.65 s on the CPU (`docs/hardware/board0_ttchoir_timing.jsonl`).
+      44.1 kHz takes 0.41 to 0.61 s through the chip against 0.53 to 0.69 s on the CPU (`docs/hardware/board0_ttchoir_timing_compact.jsonl`; the first version took 0.68 to 0.88 s, `board0_ttchoir_timing.jsonl`, see `kernels/README.md`).
       Still open: chips 2 and 3 (not tried: board 1 was reserved for another agent), the on-chip clips and the kernels video, and a live run with
       `--kernels chips` (the worker cannot start on today's toolchain; see `kernels/README.md`).
     * **The stage: not started.** The stage, when it is built, is a mixer over the voices, so its kernel would be the per-strip filters and sends. That is for after the stage design is approved.

@@ -313,7 +313,7 @@ def test_fewer_than_eight_taps_are_padded_with_silence():
 
 # --- ttchoir: the voiced part, a sum of sines, in groups of eight harmonics -------------------------------------------
 
-from tensixinet.kernels.packing import CHOIR_GROUP, choir_groups, choir_inputs, choir_on_host  # noqa: E402
+from tensixinet.kernels.packing import CHOIR_GROUP, choir_compact, choir_expand, choir_groups, choir_inputs, choir_on_host  # noqa: E402
 
 
 def test_a_choir_group_is_eight_harmonics_so_sixteen_tiles():
@@ -393,3 +393,34 @@ def test_the_choir_on_the_host_formula_matches_ttchoir_on_a_real_chip(onset):
     for sr in (8000, 44100):
         got, want = choir_voice(t, 4.0, sr, 2, patch, sines=on_host), ttchoir(t, 4.0, sr, 2, patch)
         assert np.abs(want).max() > 0.05 and np.allclose(got, want, atol=1e-5), float(np.abs(got - want).max())
+
+
+# --- the choir's compact form: the phase once, the level tables at frame rate, expanded next to the chip -----------------------
+
+def test_the_compact_choir_expands_to_the_same_tiles_as_the_groups_the_host_packs():
+    sr, n = 8000, 24000
+    sample_t, frame_t, harmonics, phase = _choir_tables(count=19, n=n, sr=sr)
+    ks = [0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16, 17, 18, 3, 9]
+    compact = choir_compact(sr, frame_t, harmonics, phase, ks)
+    want = list(choir_groups(sample_t, frame_t, harmonics, phase, ks))
+    got = list(choir_expand(compact, n))
+    assert len(got) == len(want) == 3
+    for g, w in zip(got, want):
+        assert len(g) == len(w) == 2 * CHOIR_GROUP
+        for a, b in zip(g, w):
+            assert a.shape == b.shape and np.array_equal(a, b)
+
+
+def test_the_compact_choir_is_a_small_fraction_of_the_tiles_it_stands_for():
+    sr, n = 8000, 24000
+    sample_t, frame_t, harmonics, phase = _choir_tables(count=40, n=n, sr=sr)
+    compact = choir_compact(sr, frame_t, harmonics, phase, range(40))
+    sent = sum(a.nbytes for a in compact)
+    tiles = sum(a.nbytes for g in choir_groups(sample_t, frame_t, harmonics, phase, range(40)) for a in g)
+    assert sent < tiles / 20, (sent, tiles)
+    assert compact[0].dtype == np.float64 and len(compact) == 5  # the phase keeps float64: a harmonic's turn is cut from it
+
+
+def test_a_compact_choir_with_no_harmonics_expands_to_nothing():
+    sample_t, frame_t, harmonics, phase = _choir_tables(count=4, n=800, sr=8000)
+    assert list(choir_expand(choir_compact(8000, frame_t, harmonics, phase, []), 800)) == []

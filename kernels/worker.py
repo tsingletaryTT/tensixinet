@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np  # noqa: E402
 
 from tensixinet.kernels import packing as pk  # noqa: E402
-from tensixinet.media.chip import CHIP_OPS, DEFAULT_CHUNK_TILES, read_frame, write_frame  # noqa: E402
+from tensixinet.media.chip import CHIP_OPS, COMPACT_OPS, DEFAULT_CHUNK_TILES, read_frame, write_frame  # noqa: E402
 
 ROWS_PER_TILE = pk.TILE  # a packed array has 32 columns, so a 1024-sample tile is 32 rows
 
@@ -57,6 +57,17 @@ def run_chunked(compute, inputs, n: int, chunk_rows: int) -> np.ndarray:
             chunk.append(part)
         pieces.append(np.asarray(compute(chunk, chunk_rows * pk.TILE), dtype=np.float64))
     return np.concatenate(pieces)[:n] if pieces else np.zeros(0)
+
+
+def run_op(compute, op: str, arrays, n: int, index: int, chunk_rows: int) -> np.ndarray:
+    """One request: a kernel on packed tiles, or a compact request (the choir's voiced part) packed here, group by group, with the
+    groups' outputs added. `compute(op, chunk, samples, index)` runs one chunk of a kernel on a chip or on the host."""
+    if op in COMPACT_OPS:
+        out = np.zeros(n)
+        for tiles in pk.choir_expand(arrays, n):
+            out += run_chunked(lambda chunk, samples: compute("ttchoir", chunk, samples, index), tiles, n, chunk_rows)
+        return out
+    return run_chunked(lambda chunk, samples: compute(op, chunk, samples, index), arrays, n, chunk_rows)
 
 
 class Board:
@@ -141,12 +152,12 @@ def main() -> int:
             try:
                 op, n = str(request["op"]), int(request["n"])
                 index = int(request["device"]) if "device" in request else 0
-                if op not in CHIP_OPS:
+                if op not in CHIP_OPS and op not in COMPACT_OPS:
                     raise ValueError(f"unknown kernel {op}")
                 if index not in (0, 1):
                     raise ValueError(f"a board has chips 0 and 1, not {index}")
-                inputs = [request[f"a{i}"] for i in range(CHIP_OPS[op])]
-                out = run_chunked(lambda chunk, samples: compute(op, chunk, samples, index), inputs, n, chunk_rows)
+                arrays = [request[f"a{i}"] for i in range(COMPACT_OPS.get(op) or CHIP_OPS[op])]
+                out = run_op(compute, op, arrays, n, index, chunk_rows)
                 write_frame(proto_out, {"out": out})
             except Exception as e:  # reported to the client, which decides what to do; the worker stays up
                 write_frame(proto_out, {"error": np.array(f"{type(e).__name__}: {e}")})

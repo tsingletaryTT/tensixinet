@@ -242,6 +242,13 @@ def avdog_on_host(tiles: Sequence[np.ndarray], n: int) -> np.ndarray:
 CHOIR_GROUP = 8  # harmonics per run of the choir kernel: 16 input buffers plus 2 of its own, the same count as the gong's
 
 
+def _fraction(x: np.ndarray) -> np.ndarray:
+    """`x` less its floor, in place: the part of a count of turns past the last whole one. `np.mod` on floats does the same
+    for about three times the time."""
+    x -= np.floor(x)
+    return x
+
+
 def choir_inputs(phase: np.ndarray, levels: Sequence[np.ndarray], numbers: Sequence[int], n: int) -> List[np.ndarray]:
     """One group of the choir's voiced part, sixteen packed tiles: the phase of each harmonic, `numbers[j] * phase` reduced to
     one turn in float64 (the voice's phase reaches thousands of radians, and times a harmonic number up to 40 a float32 phase
@@ -251,8 +258,8 @@ def choir_inputs(phase: np.ndarray, levels: Sequence[np.ndarray], numbers: Seque
         raise ValueError("one level per harmonic number")
     if len(levels) > CHOIR_GROUP:
         raise ValueError(f"the choir kernel takes {CHOIR_GROUP} harmonics at a time, got {len(levels)}")
-    phase = np.asarray(phase, dtype=np.float64)[:n]
-    phases = [pack(np.mod(k * phase, 2 * math.pi)) for k in numbers]
+    turns = np.asarray(phase, dtype=np.float64)[:n] / (2 * math.pi)
+    phases = [pack(_fraction(k * turns) * (2 * math.pi)) for k in numbers]
     amps = [pack(np.asarray(level, dtype=np.float64)[:n]) for level in levels]
     silent = pack(np.zeros(n))
     pad = CHOIR_GROUP - len(levels)
@@ -270,6 +277,27 @@ def choir_groups(sample_t: np.ndarray, frame_t: np.ndarray, harmonics: np.ndarra
         group = ks[start:start + CHOIR_GROUP]
         levels = [np.interp(sample_t, frame_t, harmonics[:, k]) for k in group]
         yield choir_inputs(phase, levels, [k + 1 for k in group], len(sample_t))
+
+
+def choir_compact(sample_rate: int, frame_t: np.ndarray, harmonics: np.ndarray, phase: np.ndarray, ks: Sequence[int]) -> List[np.ndarray]:
+    """The choir's voiced part as five small arrays, for a worker that packs the tiles next to the chip: the voice's phase (float64,
+    a sample each, the only large one), the frame times, the frame table's columns `ks`, the indices `ks` and the sample rate.
+    Sent this way a 30 s voice is about 10 MB where its sixteen packed tiles for each of five groups were about 450 MB."""
+    ks = [int(k) for k in ks]
+    table = np.asarray(harmonics, dtype=np.float64)[:, ks] if ks else np.zeros((len(frame_t), 0))
+    return [np.ascontiguousarray(phase, dtype=np.float64), np.asarray(frame_t, dtype=np.float64), np.ascontiguousarray(table),
+            np.asarray(ks, dtype=np.int64), np.array(int(sample_rate), dtype=np.int64)]
+
+
+def choir_expand(compact: Sequence[np.ndarray], n: int) -> Iterator[List[np.ndarray]]:
+    """The groups of tiles `choir_groups` makes, from what `choir_compact` sent: the sample times are `arange(n) / sample_rate`
+    (the choir's own), and a column of the table is the harmonic `ks[i]`, sung at `ks[i] + 1` times the phase."""
+    phase, frame_t, table, ks, rate = compact
+    sample_t = np.arange(n) / int(np.ravel(rate)[0])  # a 0-d array crosses the pipe as 1-d
+    for start in range(0, len(ks), CHOIR_GROUP):
+        columns = range(start, min(start + CHOIR_GROUP, len(ks)))
+        levels = [np.interp(sample_t, frame_t, table[:, i]) for i in columns]
+        yield choir_inputs(phase, levels, [int(ks[i]) + 1 for i in columns], n)
 
 
 def choir_on_host(tiles: Sequence[np.ndarray], n: int) -> np.ndarray:

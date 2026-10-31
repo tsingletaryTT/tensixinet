@@ -128,14 +128,10 @@ class KernelBackend:
         return self.worker.run("ttcoco", pk.coco_inputs(coco_taps(t, duration, sample_rate, seed, patch), n), n, device=device).astype(np.float32)
 
     def _choir(self, t, duration, sample_rate, seed, patch, device=0):
-        """The choir with its voiced part (the sum of sines) on the chip, eight harmonics a run, and the runs added here. The
+        """The choir with its voiced part (the sum of sines) on the chip, eight harmonics a run. The worker packs the groups and adds the runs; this sends it the phase once and the level tables, where sixteen packed tiles a group went before. The
         choir's own code does the rest on the host, so the plan, the consonants, the howl and the crush are the numpy device's."""
         def on_chip(sample_t, frame_t, harmonics, phase, ks):
-            n = len(sample_t)
-            out = np.zeros(n)
-            for tiles in pk.choir_groups(sample_t, frame_t, harmonics, phase, ks):
-                out += self.worker.run("ttchoir", tiles, n, device=device)
-            return out
+            return self.worker.run("ttchoir_voice", pk.choir_compact(sample_rate, frame_t, harmonics, phase, ks), len(sample_t), device=device)
         return choir_voice(t, duration, sample_rate, seed, patch, sines=on_chip)
 
     # -- the mixer ---------------------------------------------------------------------------------------------

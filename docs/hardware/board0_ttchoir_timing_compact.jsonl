@@ -1,0 +1,11 @@
+{"warm_device": 0, "s": 0.98}
+{"warm_device": 1, "s": 0.77}
+{"device": 0, "case": "vowel", "samples": 1323000, "kernel_runs": 5, "cpu_s": 0.685, "chip_s": 0.609, "worst": 1.4901161193847656e-07, "corr": 0.9999999999999921, "rms": 0.18364434113834738, "samples_off_1e-3": 0, "failed": false}
+{"device": 0, "case": "syllable", "samples": 1323000, "kernel_runs": 5, "cpu_s": 0.542, "chip_s": 0.412, "worst": 1.1920928955078125e-07, "corr": 0.9999999999999917, "rms": 0.0695833265446687, "samples_off_1e-3": 0, "failed": false}
+{"device": 0, "case": "syllable_howl", "samples": 1323000, "kernel_runs": 5, "cpu_s": 0.577, "chip_s": 0.448, "worst": 1.1920928955078125e-07, "corr": 1.0, "rms": 0.16379584394850155, "samples_off_1e-3": 0, "failed": false}
+{"device": 0, "case": "syllable_crushed", "samples": 1323000, "kernel_runs": 5, "cpu_s": 0.546, "chip_s": 0.415, "worst": 0.0, "corr": 1.0, "rms": 0.07249552417309826, "samples_off_1e-3": 0, "failed": false}
+{"device": 1, "case": "vowel", "samples": 1323000, "kernel_runs": 5, "cpu_s": 0.616, "chip_s": 0.594, "worst": 1.4901161193847656e-07, "corr": 0.9999999999999921, "rms": 0.18364434113834738, "samples_off_1e-3": 0, "failed": false}
+{"device": 1, "case": "syllable", "samples": 1323000, "kernel_runs": 5, "cpu_s": 0.528, "chip_s": 0.407, "worst": 1.1920928955078125e-07, "corr": 0.9999999999999917, "rms": 0.0695833265446687, "samples_off_1e-3": 0, "failed": false}
+{"device": 1, "case": "syllable_howl", "samples": 1323000, "kernel_runs": 5, "cpu_s": 0.563, "chip_s": 0.444, "worst": 1.1920928955078125e-07, "corr": 1.0, "rms": 0.16379584394850155, "samples_off_1e-3": 0, "failed": false}
+{"device": 1, "case": "syllable_crushed", "samples": 1323000, "kernel_runs": 5, "cpu_s": 0.542, "chip_s": 0.415, "worst": 0.0, "corr": 1.0, "rms": 0.07249552417309826, "samples_off_1e-3": 0, "failed": false}
+{"total_s": 15.9}
