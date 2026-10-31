@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-KERNELS = ["ttshock", "ttshimmer", "ttgong", "ttavdog", "ttmix", "ttcoco"]
+KERNELS = ["ttshock", "ttshimmer", "ttgong", "ttavdog", "ttmix", "ttcoco", "ttchoir", "ttchoir_syllable"]
 BLURB = {
     "ttshock": "the drone's shock wave",
     "ttshimmer": "the ultrasonic shimmer",
@@ -22,6 +22,8 @@ BLURB = {
     "ttavdog": "the AVDog's two voices",
     "ttmix": "the chips' mixer",
     "ttcoco": "eight parallel delay taps, summed",
+    "ttchoir": "the choir's harmonics, the vowel choir",
+    "ttchoir_syllable": "the choir's harmonics, sung as syllables",
 }
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 W = 1280
@@ -75,6 +77,9 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         parts = []
         for k in KERNELS:
+            if k not in results:  # a run from before this kernel existed
+                print(f"no {k} in {runs}; left out")
+                continue
             part = Path(tmp) / f"{k}.mp4"
             segment(runs, args.chip, k, args.label, results[k], part)
             parts.append(part)

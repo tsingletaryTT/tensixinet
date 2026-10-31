@@ -92,10 +92,14 @@ def run_check(
     return report(name, got, expected, args, sample_rate, run_ms)
 
 
-def parse_args(default_samples: int, default_atol: float) -> argparse.Namespace:
+def parse_args(default_samples: int, default_atol: float,
+               extra: Optional[Callable[[argparse.ArgumentParser], None]] = None) -> argparse.Namespace:
+    """The options every kernel check takes; `extra` adds a kernel's own (the choir's `--voice`)."""
     parser = argparse.ArgumentParser(description="Check a kernel against the numpy device it ports.")
     parser.add_argument("--samples", type=int, default=default_samples, help=f"how many samples to compute (default {default_samples})")
     parser.add_argument("--atol", type=float, default=default_atol, help="largest allowed difference from the numpy device")
     parser.add_argument("--device", type=int, default=0, help="which of the leased chips to open (0 is the first)")
     parser.add_argument("--save", metavar="DIR", help="write what the kernel computed and the numpy reference there as 16-bit WAV files")
+    if extra is not None:
+        extra(parser)
     return parser.parse_args()

@@ -21,7 +21,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-KERNELS = ["ttshock.py", "ttshimmer.py", "ttgong.py", "ttavdog.py", "ttmix.py", "ttcoco.py"]
+# (script, its own extra arguments). The choir is checked twice: the old vowel choir and the syllable choir.
+KERNELS = [("ttshock.py", []), ("ttshimmer.py", []), ("ttgong.py", []), ("ttavdog.py", []), ("ttmix.py", []), ("ttcoco.py", []),
+           ("ttchoir.py", []), ("ttchoir.py", ["--voice", "syllable"])]
 
 
 def last_json(text: str):
@@ -36,14 +38,14 @@ def main() -> int:
     parser.add_argument("--atol", type=float, help="override every kernel's tolerance")
     parser.add_argument("--only", help="comma-separated kernel names to run (for example ttshock,ttgong)")
     args = parser.parse_args()
-    wanted = [k for k in KERNELS if not args.only or k[:-3] in args.only.split(",")]
+    wanted = [k for k in KERNELS if not args.only or k[0][:-3] in args.only.split(",")]
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     rows, failed = [], 0
     with open(out / "results.jsonl", "a") as log:
         for chip in range(args.chips):
-            for script in wanted:
-                cmd = [sys.executable, str(HERE / script), "--device", str(chip), "--save", str(out / f"chip{chip}")]
+            for script, extra in wanted:
+                cmd = [sys.executable, str(HERE / script), *extra, "--device", str(chip), "--save", str(out / f"chip{chip}")]
                 if args.atol is not None:
                     cmd += ["--atol", str(args.atol)]
                 done = subprocess.run(cmd, capture_output=True, text=True)
@@ -55,7 +57,7 @@ def main() -> int:
                 log.write(json.dumps(result) + "\n")
                 log.flush()
                 rows.append(result)
-                print(f"chip {chip}  {result['kernel']:<10} {'ok  ' if result['ok'] else 'FAIL'} worst={result.get('worst', float('nan')):.2e}  run={result.get('run_ms', float('nan')):8.2f} ms", flush=True)
+                print(f"chip {chip}  {result['kernel']:<16} {'ok  ' if result['ok'] else 'FAIL'} worst={result.get('worst', float('nan')):.2e}  run={result.get('run_ms', float('nan')):8.2f} ms", flush=True)
     print(f"{len(rows) - failed} of {len(rows)} runs within tolerance")
     return 1 if failed else 0
 

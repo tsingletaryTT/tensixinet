@@ -2,11 +2,13 @@
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """The devices that have TT-Lang kernels, run through a chip worker instead of numpy.
 
-Six kernels exist (`kernels/`): the gong, the shimmer, the drone's ripple, the AVDog, the Cocoquantus's eight-tap mix and the
-mixer. Each does the per-sample arithmetic on the chip; the host does the rest, with the same helpers the numpy device uses,
-so a chip device and its numpy device differ only where the chip's arithmetic does (about 1e-3 at the worst, in the kernel
-checks). The devices with no kernel (ttrollz, ttrax, ttquantus, the lead, ttsteam and the choir) stay on the CPU, so a soundtrack
-on the backend is the chips for those six stages and the CPU for the rest.
+Seven kernels exist (`kernels/`): the gong, the shimmer, the drone's ripple, the AVDog, the Cocoquantus's eight-tap mix, the
+choir's harmonics and the mixer. Each does the per-sample arithmetic on the chip; the host does the rest, with the same helpers
+the numpy device uses, so a chip device and its numpy device differ only where the chip's arithmetic does (about 1e-3 at the
+worst, in the kernel checks). The choir's chip does its voiced part, the sum of up to forty harmonics, eight per kernel run; the
+syllable plan, the consonants' noise, the howl and the crush stay on the host (`ttchoir.choir_voice` with a `sines` that calls the
+chip). The devices with no kernel (ttrollz, ttrax, ttquantus, the lead and ttsteam) stay on the CPU, so a soundtrack on the
+backend is the chips for those seven stages and the CPU for the rest.
 
 A `KernelBackend` goes to `render_chorus(backend=...)`. If the worker fails it says so once and hands everything back to the
 CPU, so a chip that goes away does not stop the sound. Only a `ChipError` is caught: a bug on the host side still shows.
@@ -33,11 +35,12 @@ from ..music.devices import (
 )
 from ..music.patch import DEFAULT_PATCH, Patch
 from ..music.ttavdog import avdog_parameters, avdog_phase, avdog_pings, ttavdog
+from ..music.ttchoir import choir_voice, ttchoir
 from ..music.ttcoco import coco_taps, ttcoco
 from ..music.ttrolzer import SEGMENT_SEED_STRIDE
 from ..telemetry import Telemetry
 
-KERNEL_DEVICES = ("gong", "ultrasonic_shimmer", "ttdrone", "ttavdog", "ttcoco")  # by device name; the mixer is `KernelBackend.mix`
+KERNEL_DEVICES = ("gong", "ultrasonic_shimmer", "ttdrone", "ttavdog", "ttcoco", "ttchoir")  # by device name; the mixer is `KernelBackend.mix`
 
 
 class KernelBackend:
@@ -57,6 +60,7 @@ class KernelBackend:
                 "ttdrone": self._guarded(ttdrone, self._drone, device),
                 "ttavdog": self._guarded(ttavdog, self._avdog, device),
                 "ttcoco": self._guarded(ttcoco, self._coco, device),
+                "ttchoir": self._guarded(ttchoir, self._choir, device),
             }
         return self._by_device[device]
 
@@ -122,6 +126,17 @@ class KernelBackend:
     def _coco(self, t, duration, sample_rate, seed, patch, device=0):
         n = int(duration * sample_rate)
         return self.worker.run("ttcoco", pk.coco_inputs(coco_taps(t, duration, sample_rate, seed, patch), n), n, device=device).astype(np.float32)
+
+    def _choir(self, t, duration, sample_rate, seed, patch, device=0):
+        """The choir with its voiced part (the sum of sines) on the chip, eight harmonics a run, and the runs added here. The
+        choir's own code does the rest on the host, so the plan, the consonants, the howl and the crush are the numpy device's."""
+        def on_chip(sample_t, frame_t, harmonics, phase, ks):
+            n = len(sample_t)
+            out = np.zeros(n)
+            for tiles in pk.choir_groups(sample_t, frame_t, harmonics, phase, ks):
+                out += self.worker.run("ttchoir", tiles, n, device=device)
+            return out
+        return choir_voice(t, duration, sample_rate, seed, patch, sines=on_chip)
 
     # -- the mixer ---------------------------------------------------------------------------------------------
 

@@ -36,6 +36,9 @@ def _inputs(op, n=N):
         return pk.avdog_inputs(since, 3.0, 0.8, 110.0, 0.3, n, SR)
     if op == "ttmix":
         return pk.mix_inputs([rng.uniform(-1, 1, n) for _ in range(3)], [30.0, 40.0, 50.0], n)
+    if op == "ttchoir":  # five harmonics of a 220 Hz voice whose levels move, so three slots are silent
+        phase = 2 * np.pi * 220.0 * np.arange(n) / SR
+        return pk.choir_inputs(phase, [rng.uniform(0, 0.2) * (1 + np.sin(np.arange(n) / 900 + j)) for j in range(5)], [1, 2, 3, 5, 8], n)
     return pk.coco_inputs([rng.uniform(-1, 1, n) for _ in range(5)], n)
 
 
@@ -46,6 +49,7 @@ EXPECTED = {
     "ttavdog": pk.avdog_on_host,
     "ttmix": pk.mix_on_host,
     "ttcoco": pk.coco_on_host,
+    "ttchoir": pk.choir_on_host,
 }
 
 
@@ -55,10 +59,11 @@ def worker():
         yield w
 
 
-def test_the_worker_knows_the_six_kernels():
-    assert set(CHIP_OPS) == set(EXPECTED) == {"ttshock", "ttshimmer", "ttgong", "ttavdog", "ttmix", "ttcoco"}
+def test_the_worker_knows_the_seven_kernels():
+    assert set(CHIP_OPS) == set(EXPECTED) == {"ttshock", "ttshimmer", "ttgong", "ttavdog", "ttmix", "ttcoco", "ttchoir"}
     assert CHIP_OPS["ttshock"] == 3 and CHIP_OPS["ttshimmer"] == 5 and CHIP_OPS["ttgong"] == 16
     assert CHIP_OPS["ttavdog"] == 10 and CHIP_OPS["ttmix"] == 4 and CHIP_OPS["ttcoco"] == 8
+    assert CHIP_OPS["ttchoir"] == 2 * pk.CHOIR_GROUP == 16
 
 
 @pytest.mark.parametrize("op", sorted(EXPECTED))

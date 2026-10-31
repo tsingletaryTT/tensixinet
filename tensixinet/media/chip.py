@@ -29,7 +29,7 @@ from typing import BinaryIO, Dict, List, Optional, Sequence
 import numpy as np
 
 # The kernels the worker runs, and how many packed input arrays each takes (see `tensixinet/kernels/packing.py`).
-CHIP_OPS: Dict[str, int] = {"ttshock": 3, "ttshimmer": 5, "ttgong": 16, "ttavdog": 10, "ttmix": 4, "ttcoco": 8}
+CHIP_OPS: Dict[str, int] = {"ttshock": 3, "ttshimmer": 5, "ttgong": 16, "ttavdog": 10, "ttmix": 4, "ttcoco": 8, "ttchoir": 16}
 DEFAULT_CHUNK_TILES = 448  # a chunk is this many 1024-sample tiles, 10.4 s at 44.1 kHz: the longest live segment fits in one
 WORKER = Path(__file__).resolve().parents[2] / "kernels" / "pool.py"  # starts one kernels/worker.py per chip
 CHIP_START_TIMEOUT_S = 300.0  # a chip takes a while to open, and each kernel compiles on first use

@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -181,7 +181,23 @@ def pitch_modulation(sample_t: np.ndarray, pressure: float, seed: int) -> np.nda
     return depth * np.sin(2 * math.pi * VIBRATO_HZ * sample_t) + drift
 
 
-def _vowel_choir(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+# The voiced part of either choir: `sines(sample_t, frame_t, harmonics, phase, ks)` is the sum over harmonic indices `ks` of the
+# level of harmonic k (column k of the frame table `harmonics`, interpolated from the frame times `frame_t` to the sample times
+# `sample_t`) times `sin((k + 1) * phase)`. `harmonic_sum` does it in numpy; the kernel backend passes one that runs it on a chip.
+Sines = Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Sequence[int]], np.ndarray]
+
+
+def harmonic_sum(sample_t: np.ndarray, frame_t: np.ndarray, harmonics: np.ndarray, phase: np.ndarray, ks: Sequence[int]) -> np.ndarray:
+    """The voiced part in numpy, harmonic by harmonic in the order of `ks`, in float64. This is the loop both choirs always had,
+    so the CPU choir is the same to the last bit."""
+    out = np.zeros(len(sample_t))
+    for k in ks:
+        out += np.interp(sample_t, frame_t, harmonics[:, k]) * np.sin((k + 1) * phase)
+    return out
+
+
+def _vowel_choir(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH,
+                 sines: Sines = harmonic_sum) -> np.ndarray:
     n = int(duration * sample_rate)
     if n == 0:
         return np.zeros(0, dtype=np.float32)
@@ -207,9 +223,7 @@ def _vowel_choir(t: Telemetry, duration: float, sample_rate: int, seed: int, pat
     semitones = pitch_modulation(sample_t, pressure, seed)
     phase = 2 * math.pi * np.cumsum(f0 * 2 ** (semitones / 12)) / sample_rate
 
-    out = np.zeros(n)
-    for k in range(harmonics.shape[1]):
-        out += np.interp(sample_t, frame_t, harmonics[:, k]) * np.sin((k + 1) * phase)
+    out = sines(sample_t, frame_t, harmonics, phase, range(harmonics.shape[1]))
 
     # A syllable swells in and dips where it meets the next, and the whole voice fades in.
     distance = np.abs(sample_t - np.round(sample_t / syllable_s) * syllable_s)
@@ -220,9 +234,16 @@ def _vowel_choir(t: Telemetry, duration: float, sample_rate: int, seed: int, pat
 def ttchoir(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """One chip's choir voice. With no onset source in the patch it is the old vowel choir on its bar clock, byte for byte;
     otherwise it sings syllables on the source's triggers."""
+    return choir_voice(t, duration, sample_rate, seed, patch)
+
+
+def choir_voice(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH,
+                sines: Sines = harmonic_sum) -> np.ndarray:
+    """`ttchoir` with its voiced part (the sum of sines) done by `sines`. Everything else (the frame tables, the pitch and
+    phase, the syllable plan, the consonants' noise, the howl, the crush) is the same code whichever `sines` is used."""
     if patch.choir_onset == "":
-        return _vowel_choir(t, duration, sample_rate, seed, patch)
-    return _syllable_choir(t, duration, sample_rate, seed, patch)
+        return _vowel_choir(t, duration, sample_rate, seed, patch, sines)
+    return _syllable_choir(t, duration, sample_rate, seed, patch, sines)
 
 
 # --- the syllable choir ---------------------------------------------------------------------------------------------
@@ -545,14 +566,16 @@ def speech_crush(x: np.ndarray, depth: float) -> np.ndarray:
     return np.trunc(held / step) * step
 
 
-def _syllable_choir(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch) -> np.ndarray:
+def _syllable_choir(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch,
+                    sines: Sines = harmonic_sum) -> np.ndarray:
     """The syllable choir, with a hard clip at full scale as a safety net only (`syllable_mix` keeps the voice and noise under
     0.89 and a howl under `HOWL_CEILING`). The speech-chip crush comes after the howl and before the clip, so cables see it."""
-    mix = speech_crush(syllable_mix(t, duration, sample_rate, seed, patch), crush_depth(chip_pressure(t), patch.choir_crush))
+    mix = speech_crush(syllable_mix(t, duration, sample_rate, seed, patch, sines), crush_depth(chip_pressure(t), patch.choir_crush))
     return np.clip(mix, -1.0, 1.0).astype(np.float32)
 
 
-def syllable_mix(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch) -> np.ndarray:
+def syllable_mix(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch,
+                 sines: Sines = harmonic_sum) -> np.ndarray:
     """The syllable choir before its safety clip, in float64: `CHOIR_LEVEL * (voice + noise_headroom(noise))`, with any howls
     in place of it while they sound."""
     n = int(duration * sample_rate)
@@ -604,9 +627,7 @@ def syllable_mix(t: Telemetry, duration: float, sample_rate: int, seed: int, pat
     sample_t = np.arange(n) / sample_rate
     semitones = pitch_modulation(sample_t, pressure, seed)
     phase = 2 * math.pi * np.cumsum(pitch_track(starts, 2.0 ** log_f0, sample_t) * 2 ** (semitones / 12)) / sample_rate
-    out = np.zeros(n)
-    for k in np.flatnonzero(harmonics.any(axis=0)):
-        out += np.interp(sample_t, frame_t, harmonics[:, k]) * np.sin((k + 1) * phase)
+    out = sines(sample_t, frame_t, harmonics, phase, np.flatnonzero(harmonics.any(axis=0)))
 
     # The noise part: fricatives and bursts in the sample domain, each faded at its edges and kept inside its syllable.
     rng = _stream(seed, NOISE_TAG, t)
