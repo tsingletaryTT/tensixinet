@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Tenstorrent USA, Inc.
 """Consonants for the choir: band noise, fricatives, plosive bursts, nasal notches and the choice of consonant."""
 import hashlib
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -180,17 +181,25 @@ def _verdict(cases):
                             "The samples disagree too: burst() changed.")
 
 
+def _same_or_platform(expected, got, cases):
+    """Equal hashes pass. Different hashes with samples that agree to 1e-6 are the platform's (CI's numpy and CPU), so they warn; samples
+    that disagree too mean `burst()` changed, and fail."""
+    if got != expected:
+        assert _bursts_close(cases), _verdict(cases)
+        warnings.warn(_HASH_MESSAGE + "The samples agree to 1e-6: a platform difference.")
+
+
 def test_bursts_from_16_khz_up_are_as_they_were():
     # Hashes of the bursts before the low-rate rule was added (sha256 of the float64 bytes).
     digest = hashlib.sha256()
     for name, sr, seed in HIGH_RATE_CASES:
         digest.update(np.ascontiguousarray(burst(name, sr, np.random.default_rng(seed)), dtype=np.float64).tobytes())
-    assert digest.hexdigest() == "e4d8842091c2319910f0e029e262cfff2bc17c75954706c6211916b93ae634c3", _verdict(HIGH_RATE_CASES)
+    _same_or_platform("e4d8842091c2319910f0e029e262cfff2bc17c75954706c6211916b93ae634c3", digest.hexdigest(), HIGH_RATE_CASES)
     at_16k = hashlib.sha256()
     for name, sr, seed in AT_16K_CASES:
         at_16k.update(burst(name, sr, np.random.default_rng(seed)).astype(np.float64).tobytes())
     # 16000 is not below 16000
-    assert at_16k.hexdigest() == "22f810f43a1968a5bd81d4db397434b96d514795ad19d56fe6ae7f893ce65a8e", _verdict(AT_16K_CASES)
+    _same_or_platform("22f810f43a1968a5bd81d4db397434b96d514795ad19d56fe6ae7f893ce65a8e", at_16k.hexdigest(), AT_16K_CASES)
 
 
 def test_bursts_from_16_khz_up_are_within_a_millionth_of_their_saved_samples():

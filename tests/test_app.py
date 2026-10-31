@@ -785,8 +785,8 @@ def test_a_picker_change_writes_the_visitors_knobs_and_does_not_restart_the_sess
 
 
 def test_gradio_hands_the_syllable_setter_the_request():
+    app = _app()  # skips when gradio does not import
     from gradio.helpers import special_args
-    app = _app()
     sentinel = _Req("a visitor")
     assert special_args(app.syllable_setter, ["t", "a"], sentinel)[0] == ["t", "a", sentinel]
 
