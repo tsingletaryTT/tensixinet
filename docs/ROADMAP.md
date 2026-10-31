@@ -7,11 +7,14 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    wall spread, the ttquantussy's ratios and the snare's cutoff. Each new field needs the "only this field changes the chorus" test.
 2. **Let more of the system pick.** Today GDDR spread picks the scale and the memory-to-ASIC ratio picks the gong
    tuning. Power spread across chips could pick the turn length, and aiclk spread could pick ttrollz's asymmetry.
-2b. **The voice, next steps.** `ttchoir` sings vowels. Still to build, each a step on its own: noise and fricatives (shaped noise: /s/ at
-   4 to 8 kHz, /sh/ at 2.5 to 4 kHz), plosives (a closure, a burst and aspiration, then formants gliding in), nasals (a murmur with an
-   antiresonance), liquids and glides (moving formants), coarticulation, a text-to-phoneme layer with morphemes setting stress and
-   duration, and having the chips sing the language model's reply. A kernel version (a sum of harmonics, each a `sin` of a multiple of
-   one phase; noise and filtering as a convolution, with noise supplied by the host) comes after the numpy voice sounds right.
+2b. **The voice, next steps.** `ttchoir` now sings syllables with consonants (`docs/SOUND.md`, "Syllables, consonants and the howl"). Still open, each a step on its own:
+   * A fire button in the Play tab, so a syllable can be spelled on purpose. The owner said "not yet. maybe some day". It needs a new control type in `ui/knobs.py` and `ui/instrument.py`.
+   * MIDI events from the choir (syllables as notes, the vowel as a controller).
+   * A soft l or r (liquids and glides: moving formants), coarticulation, and breath noise between syllables.
+   * The kernel (item 11).
+   * Howl lines in fast mode, and a howl that carries across live segments (it needs the start-time offset in item 3).
+   * Listening. The consonants, the howl and the crush are measured only. The howl peaks near 0.87 against about 0.66 for the syllables and may need a lower level.
+   * Words are not planned. This build has no word list, no text-to-phoneme layer and no chips singing the language model's reply.
 2c. **Cables, next steps.** Cables act on finished voices. Open: cables into a device's parameters (the ttrax chaos, a clock,
    the choir's vowel), cables that feed back, cables chosen by the readings as well as the seed, and a kernel version of the four kinds.
 3. **Live mode, the rest.** `--live` works: it reads the chips every turn, draws the soloist from the current
@@ -85,3 +88,9 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    * A CV sink: either the control lanes as MIDI CCs into `~/code/vcv-cv-harness` through MIDI-CAT, or a direct CV output as in `~/code/tt-cv-agency`. Neither has been tried.
    * rtpMIDI to a Mac or iPad: works through `rtpmidid` between two instances on this box (`docs/MIDI.md`, "Over the network"). Not tried against Apple's driver or over a real network. A native sender (about 300 to 500 lines) is not planned unless that fails.
    * MIDI in: a controller or clock that changes the patch or the readings.
+11. **Kernels for the new choir (and, later, the stage).** The owner: "you'll need to make kernels for these too of course" (2026-10-30). The syllable choir (`docs/superpowers/specs/2026-10-30-choir-consonants-design.md`) is built on the CPU first, and its
+    spec says it is not a kernel in that first version. The kernel comes next, split the way the gong and the AVDog are: the chip runs the part that is a sum of sines (the voiced part: every harmonic is a `sin` of a multiple of one phase, with its level read from a per-frame table),
+    and the host keeps the parts that are sequential or need an FFT (the syllable plan from the triggers, the consonant noise bands and bursts, the howl's feedback loop and the crush). Packed tiles carry the constants, as in `kernels/ttgong.py`, because block maths refuses Python numbers.
+    Expect the same limits seen before: four working registers per expression (build it in stages), one buffer cannot feed both the vector and the matrix unit, and the chip's multiplies are a little looser than numpy's (a wider `--atol`). Simulator first, then the four chips, then the on-chip clips and the site, as for the first six kernels.
+    The stage, when it is built, is a mixer over the voices, so its kernel would be the per-strip filters and sends. That is for after the stage design is approved.
+

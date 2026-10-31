@@ -51,12 +51,13 @@ them from its own thread at their time. Neither sink touches the audio path.
 | | `fast.py` | `FastSource`: the fast fields from hwmon at every read, the slow fields (clocks, GDDR, errors, masks) from `tt-smi -s` on a background thread about every 1.5 s, matched by bus address. With no match it hands back the `tt-smi` readings and a note that says so |
 | `music/` | `mapping.py` | The signal-to-sound table as functions, including pressure, chip identity and turn weight |
 | | `synth.py` | Drone voices for any chip count |
-| | `devices.py` | ttrollz, ttquantus, ttdrone, gong, ultrasonic shimmer, the strike times they share, and the current mixer. Re-exports ttrax. `DEVICE_INPUTS` says which fields each device reads |
+| | `devices.py` | ttrollz, ttquantus, ttdrone, gong, ultrasonic shimmer, the strike times they share, and the current mixer. Re-exports ttrax. `choir_triggers` gives the six sources the choir can sing on (gong, rolls, register, quantus, lead, rax). `DEVICE_INPUTS` says which fields each device reads |
 | | `ttrolzer.py` | The ttrolzer's rolls: barre tempos from E6 capacitors, steady even rolls, unstable odd ones |
 | | `ttrax.py` | 4, 7 or 14 barres (Tetrax, Sidrax or Quatrax, from `patch.rax_bars`) bouncing between each other's oscillators, with press and release gestures |
 | | `ttquantussy.py` | The ttquantussy's five petals and castles, and the coco's 8-bit buffer |
 | | `ttsteam.py` | A shift register that steps a noise snare, with the harvested Tensix columns as its pattern |
-| | `ttchoir.py` | A singer: a glottal buzz shaped by formant resonances, sung on vowels that the GDDR channels pick |
+| | `ttchoir.py` | A singer: a glottal buzz shaped by formant resonances, sung on vowels that the GDDR channels pick. With an onset source in the patch it sings syllables that start on that source's triggers, with an optional coda, a self-oscillating howl and a speech-chip crush |
+| | `consonants.py` | The choir's twelve consonants (fricatives, plosives, nasals) as pure signal functions, and how a chip's readings and a trigger's strength choose one |
 | | `ttavdog.py` | The AVDog's dogtone under the two halves of an undulation: a white voice and a red voice that answer each other |
 | | `ttcoco.py` | The Cocoquantus's own delay chips, as eight parallel echo taps instead of the real instrument's two |
 | | `lead.py` | The lead voice and its shift/invert transforms |
@@ -72,7 +73,7 @@ them from its own thread at their time. Neither sink touches the audio path.
 | `media/` | `llm.py` | Prompts any OpenAI-compatible endpoint |
 | | `mux.py` | Puts the WAV under a video with ffmpeg |
 | | `player.py` | Where live audio goes: a `paplay`, `aplay` or `ffplay` process, a growing WAV, or no sound at the speed of the music. `player_command` and `player_buffer_ms` give the small-buffer flags fast mode asks for |
-| | `toplike.py` | `--with-tt-toplike`: builds the tmux commands for a synth pane and a tt-toplike pane at one interval, and runs them. The panes tag themselves so that each ending closes the other |
+| | `toplike.py` | `--with-tt-toplike`: builds the tmux commands for a synth pane and a tt-toplike pane at one interval, and runs them (outside tmux on its own socket, `tmux -L tensixinet -f media/tmux-toplike.conf`: status bar off, truecolor). The panes tag themselves so that each ending closes the other |
 | `score/` | `events.py` | `Note`, `Trigger`, `Control` and `Score`, with the Hz-to-MIDI helpers |
 | | `collect.py` | One extractor per device and `chorus_score`, which builds a render's `Score` the way `render_chorus` deals the devices |
 | | `vcv.py` | Builds the VCV Rack voice patch (`vcv/tensixinet-voice.vcv`): one mono voice on the lead's channel; `python -m tensixinet.score.vcv` writes a copy for another channel or port |
@@ -80,6 +81,11 @@ them from its own thread at their time. Neither sink touches the audio path.
 | | `midi.py` | `to_messages`: a `Score` to timed MIDI bytes |
 | | `smf.py` | The Standard MIDI File writer |
 | | `sinks.py` | `MidiFileSink`, `MidiPortSink` (a thread and a heap, never blocks the audio), `TeeScoreSink`, and the lazy `mido` opener |
+| `tui/` | `layout.py` | `--tui`: turns a `FlowState` into rows of styled text for a width and a height: a readings line per chip, the devices grouped by role (RHYTHM, MELODY, AIR, MOD/DELAY), the five strongest cables, the stereo line, and what is left of the height for the log. Below 60x16 it is one line |
+| | `frame.py` | The grid of styled cells, the dim levels, and the ANSI that redraws only the cells that changed |
+| | `logpane.py` | Wraps log records to the pane's width and colours them with `narrate/color`'s jack, chip and device colours |
+| | `playhead.py` | `Playhead`: holds each segment's state until the listener reaches it, keeps the newest 400 log records, and wraps the sink to learn when audio is written |
+| | `app.py` | `TuiApp` and the terminal: the alternate screen, cbreak input (so Ctrl-C still works), `q`, resizes, at most 10 frames a second, and the exit lines |
 | (top) | `fast.py` | `run_fast`, the loop behind `--interval`, and the delay report |
 
 ## The app
@@ -122,13 +128,17 @@ whose render fits the interval asked for, it returns to that interval and logs t
 second evict at the same time as one reading a second. `InstrumentSession` takes its read function, block, phrase and crossfade lengths, sample rate, `only`, `eq` and
 `normalise` as parameters; the Play tab passes none of them and behaves as before.
 
+With `--tui`, `run_fast` calls `on_segment(seconds, state)` just before it queues each block. The state is `InstrumentSession.handed_state`, the `FlowState` of the newest block
+made, and the `Playhead` shows it when the listener reaches that block (the player's buffer is counted). The plain `live.py` loop calls the same hook once per segment, with
+the state it built for the segment (`build_flow`, the function the Gradio chart uses).
+
 `--with-tt-toplike` runs no chips itself. `cli.py` builds a tmux session through `media/toplike.py`, and each pane runs its own program. The synth pane runs
 this same command line without `--with-tt-toplike` and with `TENSIXINET_IN_SESSION=1`.
 
 ## Dependencies run one way
 
 `telemetry` depends on nothing in the package. `music` depends on `telemetry`. Inside `music`, `devices.py` builds on
-`ttrolzer`, `ttrax` and `ttquantussy`, and `ttsteam.py` builds on `devices.py` for the strike helpers. `narrate` depends on
+`ttrolzer`, `ttrax` and `ttquantussy`, `ttchoir.py` builds on `devices.py` and `consonants.py` (which imports nothing from the package), and `ttsteam.py` builds on `devices.py` for the strike helpers. `narrate` depends on
 `music` and `telemetry`. `media` depends on nothing. `run.py`, `live.py` and `cli.py` depend on all of them.
 Keep it that way: `music` must never import `narrate`. `score` depends on `music` and `telemetry`, and `music` never imports `score`; `mido` is imported only inside `open_mido_output`.
 

@@ -54,7 +54,7 @@ The functions are in `tensixinet/music/mapping.py`. Readings outside a range hol
 | Gong | Inharmonic strikes; the default tuning has partials 1, 2.76, 5.40, 8.45, each doubled and detuned 0.7 Hz | temperature, aiclk, heartbeat, chip identity |
 | Ultrasonic shimmer | Two close tones in 12-20 kHz, with a snap on each gong strike | temperature, aiclk, GDDR temperatures, pressure, heartbeat, chip identity |
 | ttavdog | A drone oscillator opened by a ringing filter: a white voice on one half of each swing, a red voice on the other | aiclk, temperature, heartbeat, pressure, chip identity |
-| ttchoir | A singer: a buzz through formant resonances, sung on vowels at the chip's pitch | temperature, aiclk, GDDR temperatures, pressure, chip identity |
+| ttchoir | A singer: a buzz through formant resonances, sung on vowels at the chip's pitch, or (with a trigger source in the patch) syllables with consonants that start on that source's triggers | temperature, aiclk, GDDR temperatures, pressure, chip identity, and the fields of the six trigger sources |
 | ttsteam and Snare | A noise snare on the steps of a 14-step register that the harvested Tensix columns pick, over a bed of dust | aiclk, Tensix mask, pressure, PCIe usage |
 | ttcoco | The Cocoquantus's own delay chips: eight parallel echo taps, one per GDDR channel, each independently timed and bit-crunched, echoing the ttquantussy's own tone | aiclk, axiclk, GDDR temperatures, pressure, chip identity |
 
@@ -230,8 +230,91 @@ own frequency (`formant_response`).
 * **Effort:** pressure flattens the glottal slope from `1 / k^1.2` toward `1 / k^0.6`, so a chip near a limit sings brighter.
 * **Phrasing:** the voice fades in over 0.1 s and dips to 30% for about 80 ms where one syllable meets the next, as a singer breathes.
 
-Not yet: consonants (fricatives as shaped noise, plosives as a closure and a burst, nasals with an antiresonance), words, breath
-noise and a kernel for it. The numbers are textbook values and a first guess at phrasing. None of it has been heard.
+### Syllables, consonants and the howl
+
+The vowels above are the old choir. A patch with an onset source (`choir_onset`, one of the six sources below) sings syllables instead.
+A patch with no onset source (the default, and every patch saved before syllables existed) sings the old choir, byte for byte; 72 hashes in
+`tests/music/test_ttchoir.py` pin that, and every other choir field is ignored.
+
+The choir sings syllables that sound like language. The code holds no word list, no text-to-speech and no language
+model. A word comes out only by chance, or when someone plays the instrument with intent. The idea for consonants came from the ERD/WORM
+Eurorack speech module, which the owner likes best of the vocal modules. What we know of it comes from third-party ModularGrid listings
+only (the maker's page was not read). The ERD/WORM is a separate design by a different maker, and `ttchoir` copies none of it.
+
+* **No trigger, no syllable.** The choir owns no clock. Each syllable starts on a trigger from the patch's onset source, and the voice
+  is silent between syllables apart from the last vowel dying away over 0.15 s (`RELEASE_S`). A source with rests gives the choir the
+  same rests. With the gong or a roll as the source the syllables sit on the beat because the beat says so; with the coco's notes or the
+  ttrax they sit where those fall, which is off the beat.
+* **Six sources** (`CHOIR_SOURCES`; `devices.choir_triggers` recomputes each from the chip's own readings, with the same function the
+  source device uses). The source supplies a strength for each trigger, which leans the consonant:
+
+  | Source | Fires on | Strength |
+  |---|---|---|
+  | `gong` | each strike | 1.0 |
+  | `rolls` | each pulse of the roll the chip's identity picks (the chip's clock when no lane is up) | 0.5 |
+  | `register` | each step of the shift register that fires, whatever the snare share | 0.5 |
+  | `quantus` | each note of ttquantus that plays (rests removed) | 0.5 |
+  | `lead` | each note of the lead | 1.0 for the first note of a phrase, 0.5 after |
+  | `rax` | each press and each release of the ttrax's barres | 1.0 on a press, 0.5 on a release |
+
+* **The syllable.** An onset consonant, a vowel and sometimes a coda. Triggers closer than 0.06 s merge. A trigger that lands inside a
+  syllable cuts it: the vowel crossfades into the next onset over 20 ms, and a syllable is never longer than a limit that drifts between
+  a bar and half a beat (the limit is the gap to the next trigger when that is shorter), so dense triggers (rolls) give short syllables and
+  sparse ones (gong) give long ones. Syllable j reads GDDR channel `personality + j`. The channel picks the vowel as the old choir does and
+  also sets how sharp the consonant is: a hotter channel leans to s, t, k, a cooler one to h, b, m. A second draw moves that sharpness by up
+  to 0.25 either way (`MEMBER_NUDGE`), so channels at the same temperature still give different consonants. A stronger trigger leans to
+  plosives and a weaker one to fricatives and nasals (the next item).
+* **The inventory.** Twelve consonants in three families:
+
+  | Family | Members | Sound |
+  |---|---|---|
+  | fricative | h, f, sh, s | band noise at 1500, 5000, 3200 and 6500 Hz, 0.09 s (0.12 s as a coda), the centre sliding 15% over the sound |
+  | plosive | b, d, g, p, t, k | 0.05 s of near silence, a 15 ms burst of band noise (b and p at 900 Hz, g and k at 2200, d and t at 4500), then the vowel gliding in over 30 ms; the voiced ones (b, d, g) hum a low voice bar through the closure |
+  | nasal | m, n | the vowel with a spectral notch at 1000 Hz (m) or 1800 Hz (n), 0.07 s, the voice at 0.6 of its level |
+
+  Below a 16000 Hz sample rate a burst's band top is held at 0.40 of the rate, so it does not fold back past Nyquist. At 22050 Hz and
+  above nothing changes. The patch's `choir_mix` (plosive, fricative, nasal weights) is the base lean, and the trigger's strength s scales
+  it: the weights are `mix[0] * (0.3 + 0.7 s)`, `mix[1] * (1 - 0.7 s)` and `mix[2] * (1 - 0.7 s)`. A stronger trigger leans to plosives, a
+  weaker one to fricatives and nasals, and every family keeps at least 0.3 of its weight (`FAMILY_FLOOR`). So the gong (strength 1) on
+  enya's mix (0.1, 0.3, 0.6) sings about 27% plosives, 24% fricatives and 49% nasals.
+* **The coda.** A coda sounds only when a trigger of the closing source (`choir_coda`) lands inside the syllable. With no closing source
+  there is no coda. When the closing source is the onset's own source, every other trigger closes the syllable (the even ones start
+  syllables and the odd ones close them), because otherwise a closing trigger would always be the next onset.
+* **The howl** (self-oscillation). A share of the howl source's triggers (`choir_howl_odds`, 0.02 to 0.08 in a drawn patch) fires it. The
+  tract is fed back on itself with nothing driving it: three sines at the first three formants of the syllable it lands on, growing from quiet
+  (the level multiplies by 30 each second), cut back by half on any frame that would pass -1 dBFS, so it pulses at about 5 Hz once it reaches the ceiling. It
+  lasts at most 4 s, falling to silence over the last 0.25 s, and one howl runs at a time (a trigger inside a howl is ignored). The
+  syllables are muted while it sounds, crossfading over 20 ms. The howl peaks near 0.87 and the syllables near 0.66, and the howl is
+  not scaled by the choir's level, so it is the loudest thing the choir does (about 4 dB louder in RMS over its body). That matters most for
+  `--only ttchoir` and the Play tab's single device, where no other voice covers it; scaling the howl by `CHOIR_LEVEL` is the knob. In live
+  mode each render is stateless: a howl cut by a segment boundary has no memory of its start, so the next segment may fire another before
+  4 s have passed. In fast mode (`--interval`) and the Play tab a howl rarely gets to grow: while the readings move, every phrase is
+  rendered again from its start about once a second, and a howl takes about 1.3 s to reach 0.8, so most howls there are short swells.
+* **The crush.** A strained chip sings through a cheap speech chip. From pressure 0.3 the voice is held for 1 to 8 samples and rounded
+  toward zero to 12 down to 4 bits, scaled by the patch's `choir_crush` (0.3 to 1.0 in a drawn patch). It is off at rest. It is inside the
+  choir's own render, after the howl, so the cables see the crushed voice. At full crush the step is 0.125 and samples round toward zero,
+  so quiet sounds vanish. On a chip at full pressure singing only fricatives for 20 s, 37% (the rolls) and 43% (the lead) of the samples
+  are exactly 0 at crush 1.0, against none at crush 0. "h", "f" and the release tails mostly disappear, like a noise gate. That may suit a
+  speech chip; nobody has heard it.
+* **The drift.** With `choir_drift` above 0 (0.3 to 1.0 in a drawn patch), three random walks with a knot every three bars move the
+  syllable limit (a bar down to half a beat), the tract's length (the voice type, 0.16 octave either side, inside 0.92 to 1.35) and the
+  register (up to 3 whole scale degrees, held for a syllable). They differ on every chip, so a voice no longer sits on one vowel for a bar.
+* **What a patch draws** (its own random stream, so no other drawn field moved): the onset source with odds gong 0.25, rolls 0.2,
+  register 0.15, quantus 0.15, lead 0.15, rax 0.1; a coda of none 0.4, the onset's own source 0.3 or another source 0.3; the howl source
+  from all six with equal odds; the howl share, the three family weights (0.2 to 1.0), the crush and the drift as above.
+* **The styles** set the family weights and the crush (plosive, fricative, nasal / crush at full pressure): chiptune 0.5, 0.3, 0.2 / 1.0;
+  enya 0.1, 0.3, 0.6 / 0; blues 0.7, 0.15, 0.15 / 0.3; aphex 0.4, 0.4, 0.2 / 0.8. The sources still come from the seed. In enya the whole
+  choir keeps at most 5% of its energy above 4 kHz, so the consonants stay inside the voice.
+* **The Play tab pick.** The Play tab has two lists, a consonant (any, or one of the twelve) and a vowel (any, oo, oh, ah, eh, ee). A pick
+  replaces the onset and the vowel of every syllable until it is changed, and "any" leaves that part to the readings. The patch's
+  source still decides when a syllable sounds, so a pick does nothing when the choir has no onset source. There is no fire button yet; the
+  owner said "not yet. maybe some day" (see `docs/ROADMAP.md`).
+* **Log lines.** The patch log names the sources, the mix, the crush, the drift and the howl share. Each live segment logs the howls that
+  start in it, and a chip whose source does not fire in a reading is logged as waiting on its source (the choir is silent there). In fast
+  mode (`--interval`) there are no howl lines and no per-segment choir lines, and the waiting line is logged from the first reading only.
+
+Not modelled: words, breath noise between syllables, a soft l or r, and a kernel. Measured only: nobody has listened to the consonants,
+the howl or the crush, and the listening clips and videos were not remade.
 
 ## The coco bus
 
@@ -242,7 +325,7 @@ whole send. Four taps, one for every second GDDR channel, echo it: a hotter chan
 A castle (one of the five petals' sample-and-holds, glided over 10 ms) moves each tap's delay time by up to 35% either way, so repeats land early or late as the castles step. The echoes and the dry send then
 go through a room: decaying, rolled-off noise convolved in, `reverb_s` seconds to fall by 60 dB, mixed in at `coco_reverb`. In stereo alternate taps sit in alternate ears and each ear has its own room.
 
-A drawn patch sends 25 to 80% of the band, with a room of 15 to 50% lasting 0.8 to 3.5 s. The styles set them (chiptune 0.4, 0.1, 0.6 s; enya 0.8, 0.5, 3.5 s; blues 0.3, 0.3, 1.4 s; aphex 0.7, 0.25, 1.0 s). The default patch and a patch saved before the
+A drawn patch sends 25 to 80% of the band, with a room of 15 to 50% lasting 0.8 to 3.5 s. The styles set them (chiptune 0.4, 0.1, 0.6 s; enya 0.35, 0.15, 1.6 s; blues 0.3, 0.3, 1.4 s; aphex 0.7, 0.25, 1.0 s). The default patch and a patch saved before the
 bus existed send nothing, so they sound as before. Auditioning with `--only` skips the bus. Each segment starts with an empty buffer, so in live mode a tail that rings past the end of a segment is cut.
 The reverb is not part of the real instrument. The bus runs on the CPU: the kernels do not have it.
 
