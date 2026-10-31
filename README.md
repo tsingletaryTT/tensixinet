@@ -25,7 +25,7 @@ You can prompt a local language model first. Its work heats the chips, so you ca
 thinking. Every choice the program makes is written to a log with the reason for it, and each run
 draws a different patch, so no two runs sound alike unless you replay one.
 
-You do not need Tenstorrent hardware to try it. It can play any number of synthetic chips.
+You do not need Tenstorrent hardware to try it. It can play any number of synthetic chips. Tenstorrent hardware hardly strictly required: a nod to the Hardly Strictly Bluegrass festival, which is not strictly bluegrass either.
 
 **Project site:** <https://tsingletaryTT.github.io/tensixinet/> has the routing diagrams (with animated signal paths for five scenarios), the cable explorer and audio samples. Its source is in `site/`.
 
@@ -372,7 +372,7 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--tui` | With `--live`: draw the chips, the devices by role, who has the floor, the strongest cables, the stereo field and the log full screen; `q` or Ctrl-C ends the run. See [Full screen](#full-screen---tui) |
 | `--player NAME` | With `--live`: `auto` (the default), `none`, `paplay`, `aplay` or `ffplay` |
 | `--only DEVICES` | Audition: play only these devices (comma separated, for example `--only ttchoir,ttavdog`). The others are silent and there is no turn-taking, so you hear each device as it is |
-| `--kernels [MODE]` | Run the devices that have TT-Lang kernels (the gong, shimmer, drone ripple, AVDog, ttcoco mix and the mixer) on chips. `chip` (the default when no mode is given) takes a gozer lease on one board, `chips` on as many chips as the run plays with each chip's devices on that chip, `host` runs the same kernels' formulas in numpy with no chip, `sim` runs the kernels themselves in the TT-Lang simulator (needs `tt-lang-sim`; set `TT_LANG_SIM` if it is not on the path). The rest of the band stays on the CPU. See [kernels/README.md](kernels/README.md) |
+| `--kernels [MODE]` | Run the devices that have TT-Lang kernels (the gong, shimmer, drone ripple, AVDog, ttcoco mix, the choir's harmonics and the mixer) on chips. `chip` (the default when no mode is given) takes a gozer lease on one board, `chips` on as many chips as the run plays with each chip's devices on that chip, `host` runs the same kernels' formulas in numpy with no chip, `sim` runs the kernels themselves in the TT-Lang simulator (needs `tt-lang-sim`; set `TT_LANG_SIM` if it is not on the path). The rest of the band stays on the CPU. See [kernels/README.md](kernels/README.md) |
 | `--style NAME` | Draw the patch in a style: `chiptune`, `enya`, `blues` or `aphex`. A style narrows the scales, gong tunings, motif and turn length and sets the band's balance. The system and the seed still decide the rest, so no two runs match |
 | `--color MODE` | `auto` (the default) colours a terminal with the Ciat-Lonbarde jack colours unless `NO_COLOR` is set, `always` colours a recording that is not a terminal, `never` turns it off. The text log and the JSONL are never coloured |
 | `--mono` | One channel, the sound as it was before stereo. By default every voice is placed in a stereo field: a home for each chip, an offset for each device, an orbit that follows the chip's chaos and clock, depth, and movements from inside the devices (see [docs/SOUND.md](docs/SOUND.md#stereo-a-field-and-not-a-pair)) |
@@ -464,6 +464,18 @@ Deerhorn. The behaviour comes from three guides by Josh Singer (the Sidrax Guide
 Plumbutter & Rolzer Dance Party Guide). [docs/CIRCUITS.md](docs/CIRCUITS.md) says what each guide describes and which parts
 the code takes from it. Please buy and play the real instruments. Telemetry comes from [tt-smi](https://github.com/tenstorrent/tt-smi), and the
 demo uses [tt-toplike](https://github.com/tenstorrent/tt-toplike).
+
+The choir has influences of its own. Its consonants were inspired by the
+[ERD/WORM](https://modulargrid.net/e/erd-erd-worm-populus-edition), a Eurorack speech module from ERD Modular that bends emulated
+speech chips of the 1970s to the 1990s (facts from its [ModularGrid](https://modulargrid.net/e/erd-erd-worm-populus-edition) and
+[Perfect Circuit](https://www.perfectcircuit.com/erd-modular-erd-worm-populus-edition.html) listings). The ERD/WORM is a separate design by
+a different maker, and nothing is copied from it. The other influence is the Speak & Spell, Texas Instruments' talking toy of 1978: its
+TMS5100 chip was the first single chip to generate speech with linear predictive coding, and Richard Wiggins, Paul Breedlove, Larry
+Brantingham and Gene Frantz led the team
+([IEEE Milestone](https://ethw.org/Milestones:Speak_&_Spell,_the_First_Use_of_a_Digital_Signal_Processing_IC_for_Speech_Generation,_1978)).
+Behind it is the research on linear prediction by Fumitada Itakura and Shuzo Saito at NTT and by Bishnu Atal and Manfred Schroeder at
+Bell Labs in 1966 and 1967 (Atal's "The history of linear prediction", IEEE Signal Processing Magazine, 2006). `ttchoir` does not use
+linear prediction; it is formant synthesis.
 
 ## License
 

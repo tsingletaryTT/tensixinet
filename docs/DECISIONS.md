@@ -346,7 +346,7 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   in numpy would be slow for no audible gain. The cut that keeps it under -1 dBFS is applied to the frame whose growth would pass the ceiling, so the level never passes it and no clamp is needed.
   A howl is capped at 4 s and one runs at a time. The cost is the pulse: once at the ceiling the level is halved and regrows about every 0.2 s, which is audible as a 5 Hz flutter.
 * **The howl is louder than the syllables and is not scaled by `CHOIR_LEVEL`.** It peaks near 0.87 where the syllables peak near 0.6 to 0.7, about 4 dB louder in RMS over its body. It was left
-  at the ceiling the spec asks for, and nobody has heard it. The difference matters most for `--only ttchoir` and the Play tab's single device, where no other voice covers it. If it is too
+  at the ceiling the spec asks for. The owner has heard it in the enya recording and made no complaint about it. The difference matters most for `--only ttchoir` and the Play tab's single device, where no other voice covers it. If it is too
   loud by ear, scaling the howl by `CHOIR_LEVEL` is the knob.
 * **In live mode every render is stateless.** A howl cut by a segment boundary has no memory of its start, so the next segment may fire another before 4 s have passed. The stitcher's crossfade
   hides the cut. Carrying a howl across segments needs the start-time offset that is open for the other devices (`docs/ROADMAP.md`, item 3).
@@ -357,4 +357,5 @@ Why the code is the way it is. Each item says what was chosen and what the evide
 * **The Play tab picks a consonant and a vowel and has no fire button.** The owner, asked about a button to fire a syllable at will: "not yet. maybe some day". The pick only fills in the next
   syllables. The patch's source still decides when they sound. A fire button needs a new control type in `ui/knobs.py` and `ui/instrument.py`.
 * **Fast mode (`--interval`) logs no howls and no per-segment choir lines,** because the Play tab's engine does not produce them. The line saying a chip's source is silent is logged from the first reading only.
-* **Not done.** The kernel (`docs/ROADMAP.md`, item 11), MIDI events for the choir, a soft l or r, and listening. Measured only: nobody has heard the consonants, the howl or the crush.
+* **The choir's kernel does only the sum of sines.** Only the harmonics are a `sin` per sample; the syllable plan, the consonants' noise, the howl and the crush are sequential or need a table, so they stay on the host. `ttchoir.choir_voice` takes a `sines` callable, and the CPU choir passes `harmonic_sum`, the loop it always had, so the CPU output is unchanged to the bit. The kernel takes eight harmonics a run (sixteen input buffers and two of its own, the gong's count), and the host adds the runs.
+* **Not done.** MIDI events for the choir, a soft l or r, and a longer listen. The owner has heard the consonants, the howl and the crush (2026-10-31).

@@ -766,3 +766,27 @@ legacy/        first prototype scripts, kept for reference
   * Mutation runs: every item was broken on purpose; the survivors (a record count left out of the frame key, a heading that could run into the hint) each got a test. One mutant is equivalent (a name field one cell wider writes a blank into the gutter).
     Slip: the shared scratchpad held another agent's `mutate.py`, which overwrote mine once; my scripts moved to `tuifix/`. A first battery called every non-zero exit "caught", including a stray KeyboardInterrupt from a test's teardown; the runner now needs a reported failure.
   * Full suite: 3866 passed, 56 skipped (the known `test_chip` timing flake failed three times alone during the wave and passed in the final run; nothing in this wave touches it). `pyproject.toml` is 0.3.1.
+* **2026-10-31, the choir on a TT-Lang kernel** (brief `.superpowers/sdd/2026-10-31-choir-kernel/brief.md`, report `report.md` next to it; for the 0.3.1 release; nothing committed):
+  `kernels/ttchoir.py` runs the choir's voiced part on the chip: `sum_j a_j * sin(p_j)` for eight harmonics a run, built in four stages of two. Both choirs now end in
+  `ttchoir.harmonic_sum`, and `ttchoir.choir_voice(..., sines=)` hands that sum to whatever does it; `ttchoir` passes the numpy loop, so the CPU choir is the same to the bit
+  (the 72 pinned hashes, plus 139 hashes of my own over 17 patches, 4 chips and 2 rates, before and after). The host side is `packing.choir_inputs`, `choir_groups` and
+  `choir_on_host`; `CHIP_OPS`, `HOST_OPS`, the worker's op table, `KERNEL_DEVICES` and `KernelBackend._choir` carry it; `cycle.py` checks it twice (`--voice syllable`).
+  * Simulator: 1.5e-7 (vowel) and 1.2e-7 (syllable). Seven breakages of the kernel each failed in both voices (five on the tolerance, two by a simulator error from a buffer
+    left unread). Host mutation battery: 20 mutants, 2 survivors the first time (the syllable choir handing every column to `sines`, which sounds the same at 16 kHz but wastes
+    kernel runs at 8 kHz; and the choir always on the first chip). Both got tests. A site-test mutant survived once because "choir" also appeared later in the paragraph.
+  * Chips 0 and 1 (board 0, `gozer run --exact 0000:01:00.0`; board 1 was left to another agent): 1.5e-7 and 1.2e-7, the same as the simulator. A `sin` to `cos` breakage run on
+    the chip failed (0.138), so the number is the kernel's. 30 s at 44.1 kHz: 0.68 to 0.88 s through the chip against 0.53 to 0.65 s on the CPU, so the chip path is about 1.3
+    times slower (it moves about 420 MB). Crushed and howling choirs matched too (no sample flipped a crush step).
+  * Found: the box's toolchain had moved. tt-metal `27cad27903e` dropped `<root>/tt_metal` from the JIT include path and TT-Lang still includes
+    `tools/profiler/kernel_profiler.hpp`, so `ttcoco` failed as well. The run used tt-orchard's pinned pair venv and a private runtime root (symlinks to `~/tt-metal` plus a
+    one-line header at the old path, `TT_METAL_RUNTIME_ROOT` for that process only). With it `ttcoco` still fails (`add_tiles_init` is gone), and `--kernels chips` cannot
+    start until TT-Lang and tt-metal agree again. The first `gozer run` queued with every chip free; cancelling and asking again was granted.
+  * Another process edited `tests/music/test_ttchoir.py`, `tests/music/test_consonants.py` and `tests/test_app.py` during this work (hash mismatches with matching samples now warn);
+    those edits are not mine.
+  * Not done: board 1, the on-chip clips and the kernels video, a live `--kernels chips` run, and listening.
+* **2026-10-31, "i've heard these sounds" and "get choir onto the tt-lang kernel before we release" (then "add ERD worm and speak n spell to our influences and thanks on the site too (and their legacy research too)" and the line "Tenstorrent hardware hardly strictly required"):**
+  the owner has heard the new choir sounds (consonants, howl, crush) and the enya re-render ("it sounds amazing"), so the docs that said "not listened to" were corrected. PR #2 was opened for the release and its CI failed on GitHub's CPU: seven old-choir hashes and one burst hash are bit-exact and differ in the last bits there,
+  and one app test imported gradio before skipping. The hash tests now warn when the bytes differ but the stored samples agree to 1e-6 (a platform difference) and fail when the samples disagree (checked with a 1e-9 and a 1e-3 change); the app test skips first.
+  * The README and the site credit the ERD/WORM (facts from its ModularGrid and Perfect Circuit listings only), the Speak & Spell (the IEEE Milestone page) and the linear-prediction research (Itakura and Saito, Atal and Schroeder; Atal's 2006 history), and carry the line "Tenstorrent hardware hardly strictly required", after the Hardly Strictly Bluegrass festival, which is not strictly bluegrass either (`tests/test_site.py`).
+    The research summaries come from web search results and the IEEE page, not from the original papers.
+  * The choir kernel is the entry just above this one. Full suite 3899 passed, 63 skipped.

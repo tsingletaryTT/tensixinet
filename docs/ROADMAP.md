@@ -11,9 +11,9 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    * A fire button in the Play tab, so a syllable can be spelled on purpose. The owner said "not yet. maybe some day". It needs a new control type in `ui/knobs.py` and `ui/instrument.py`.
    * MIDI events from the choir (syllables as notes, the vowel as a controller).
    * A soft l or r (liquids and glides: moving formants), coarticulation, and breath noise between syllables.
-   * The kernel (item 11).
+   * The kernel's remaining steps: board 1, the on-chip clips and a live run (item 11; the kernel itself is done).
    * Howl lines in fast mode, and a howl that carries across live segments (it needs the start-time offset in item 3).
-   * Listening. The consonants, the howl and the crush are measured only. The howl peaks near 0.87 against about 0.66 for the syllables and may need a lower level.
+   * Level. The owner has listened to the consonants, the howl and the crush (2026-10-31, in the enya recording). The howl peaks near 0.87 against about 0.66 for the syllables and may still need a lower level.
    * Words are not planned. This build has no word list, no text-to-phoneme layer and no chips singing the language model's reply.
 2c. **Cables, next steps.** Cables act on finished voices. Open: cables into a device's parameters (the ttrax chaos, a clock,
    the choir's vowel), cables that feed back, cables chosen by the readings as well as the seed, and a kernel version of the four kinds.
@@ -34,9 +34,10 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    100 in `media/llm.py`) or send several prompts so tt-toplike shows load for longer.
 6. **Align audio to the LLM reply.** The soundtrack starts at video time 0, but telemetry is
    sampled after the reply.
-7. **Run the devices as TT-Lang kernels.** Six kernels (`ttshock` the drone's ripple, `ttshimmer`, `ttgong` up to five partials and
-   three overlapping strikes, `ttavdog`, `ttmix` the mixer up to four chips, `ttcoco` the eight-tap delay mix) match their numpy devices
-   in the TT-Lang simulator and have now run on all four chips of both boards (`kernels/README.md`, `kernels/cycle.py`, `docs/hardware/`).
+7. **Run the devices as TT-Lang kernels.** Seven kernels (`ttshock` the drone's ripple, `ttshimmer`, `ttgong` up to five partials and
+   three overlapping strikes, `ttavdog`, `ttmix` the mixer up to four chips, `ttcoco` the eight-tap delay mix, `ttchoir` the choir's
+   harmonics) match their numpy devices in the TT-Lang simulator. The first six have run on all four chips of both boards, and `ttchoir`
+   on the two chips of board 0 (`kernels/README.md`, `kernels/cycle.py`, `docs/hardware/`).
    Next, in order: splitting
    `ttcoco`'s eight taps across real Tensix cores instead of pre-computing them on the host, which would make it the first kernel here
    to use more than one core, then the ttrax bounce, ttrollz's blips, the lead, the EQ (a convolution, which is a matmul), a mixer
@@ -88,9 +89,13 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    * A CV sink: either the control lanes as MIDI CCs into `~/code/vcv-cv-harness` through MIDI-CAT, or a direct CV output as in `~/code/tt-cv-agency`. Neither has been tried.
    * rtpMIDI to a Mac or iPad: works through `rtpmidid` between two instances on this box (`docs/MIDI.md`, "Over the network"). Not tried against Apple's driver or over a real network. A native sender (about 300 to 500 lines) is not planned unless that fails.
    * MIDI in: a controller or clock that changes the patch or the readings.
-11. **Kernels for the new choir (and, later, the stage).** The owner: "you'll need to make kernels for these too of course" (2026-10-30). The syllable choir (`docs/superpowers/specs/2026-10-30-choir-consonants-design.md`) is built on the CPU first, and its
-    spec says it is not a kernel in that first version. The kernel comes next, split the way the gong and the AVDog are: the chip runs the part that is a sum of sines (the voiced part: every harmonic is a `sin` of a multiple of one phase, with its level read from a per-frame table),
-    and the host keeps the parts that are sequential or need an FFT (the syllable plan from the triggers, the consonant noise bands and bursts, the howl's feedback loop and the crush). Packed tiles carry the constants, as in `kernels/ttgong.py`, because block maths refuses Python numbers.
-    Expect the same limits seen before: four working registers per expression (build it in stages), one buffer cannot feed both the vector and the matrix unit, and the chip's multiplies are a little looser than numpy's (a wider `--atol`). Simulator first, then the four chips, then the on-chip clips and the site, as for the first six kernels.
-    The stage, when it is built, is a mixer over the voices, so its kernel would be the per-strip filters and sends. That is for after the stage design is approved.
+11. **Kernels for the new choir (and, later, the stage).** The owner: "you'll need to make kernels for these too of course" (2026-10-30).
+    * **The choir: done (2026-10-31).** `kernels/ttchoir.py` runs the voiced part on the chip, split the way the gong and the AVDog are: the
+      chip computes `sum_j a_j * sin(p_j)` for eight harmonics a run, and the host keeps the syllable plan, the frame tables, the pitch and
+      phase, the consonants' noise, the howl and the crush (`ttchoir.choir_voice` with a `sines` callable; the CPU choir is unchanged to the
+      bit). It matched the numpy choir to 1.5e-7 in the simulator and on chips 0 and 1, for the vowel and the syllable choir. A 30 s choir at
+      44.1 kHz takes 0.68 to 0.88 s through the chip against 0.53 to 0.65 s on the CPU (`docs/hardware/board0_ttchoir_timing.jsonl`).
+      Still open: chips 2 and 3 (not tried: board 1 was reserved for another agent), the on-chip clips and the kernels video, and a live run with
+      `--kernels chips` (the worker cannot start on today's toolchain; see `kernels/README.md`).
+    * **The stage: not started.** The stage, when it is built, is a mixer over the voices, so its kernel would be the per-strip filters and sends. That is for after the stage design is approved.
 

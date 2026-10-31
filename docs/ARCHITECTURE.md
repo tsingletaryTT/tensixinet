@@ -56,7 +56,7 @@ them from its own thread at their time. Neither sink touches the audio path.
 | | `ttrax.py` | 4, 7 or 14 barres (Tetrax, Sidrax or Quatrax, from `patch.rax_bars`) bouncing between each other's oscillators, with press and release gestures |
 | | `ttquantussy.py` | The ttquantussy's five petals and castles, and the coco's 8-bit buffer |
 | | `ttsteam.py` | A shift register that steps a noise snare, with the harvested Tensix columns as its pattern |
-| | `ttchoir.py` | A singer: a glottal buzz shaped by formant resonances, sung on vowels that the GDDR channels pick. With an onset source in the patch it sings syllables that start on that source's triggers, with an optional coda, a self-oscillating howl and a speech-chip crush |
+| | `ttchoir.py` | A singer: a glottal buzz shaped by formant resonances, sung on vowels that the GDDR channels pick. With an onset source in the patch it sings syllables that start on that source's triggers, with an optional coda, a self-oscillating howl and a speech-chip crush. Both choirs end in one sum of sines (`harmonic_sum`); `choir_voice(..., sines=)` hands that sum to the kernel backend and keeps everything else on the host |
 | | `consonants.py` | The choir's twelve consonants (fricatives, plosives, nasals) as pure signal functions, and how a chip's readings and a trigger's strength choose one |
 | | `ttavdog.py` | The AVDog's dogtone under the two halves of an undulation: a white voice and a red voice that answer each other |
 | | `ttcoco.py` | The Cocoquantus's own delay chips, as eight parallel echo taps instead of the real instrument's two |
@@ -74,6 +74,10 @@ them from its own thread at their time. Neither sink touches the audio path.
 | | `mux.py` | Puts the WAV under a video with ffmpeg |
 | | `player.py` | Where live audio goes: a `paplay`, `aplay` or `ffplay` process, a growing WAV, or no sound at the speed of the music. `player_command` and `player_buffer_ms` give the small-buffer flags fast mode asks for |
 | | `toplike.py` | `--with-tt-toplike`: builds the tmux commands for a synth pane and a tt-toplike pane at one interval, and runs them (outside tmux on its own socket, `tmux -L tensixinet -f media/tmux-toplike.conf`: status bar off, truecolor). The panes tag themselves so that each ending closes the other |
+| | `chip.py` | `ChipWorker`, the client of `kernels/pool.py` and `kernels/worker.py` (a subprocess under `gozer run`), and `CHIP_OPS`, the seven kernels and how many packed inputs each takes |
+| `kernels/` | `packing.py` | Samples to 32 x 32 tiles and back, and each kernel's host side: the arguments it is given (phases reduced to one turn in float64) and its formula in numpy (`*_on_host`). For the choir, `choir_groups` packs eight harmonics a run |
+| | `backend.py` | `KernelBackend`: the six devices with kernels (gong, shimmer, drone ripple, AVDog, ttcoco, choir) and the mixer, run through a chip worker, falling back to the CPU on a `ChipError` |
+| | `governor.py` | The limits for a load burst on a chip (`MAX_BURST_S`, `ABORT_PRESSURE`); no load kernel uses it yet |
 | `score/` | `events.py` | `Note`, `Trigger`, `Control` and `Score`, with the Hz-to-MIDI helpers |
 | | `collect.py` | One extractor per device and `chorus_score`, which builds a render's `Score` the way `render_chorus` deals the devices |
 | | `vcv.py` | Builds the VCV Rack voice patch (`vcv/tensixinet-voice.vcv`): one mono voice on the lead's channel; `python -m tensixinet.score.vcv` writes a copy for another channel or port |

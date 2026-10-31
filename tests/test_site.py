@@ -51,6 +51,28 @@ def test_the_page_credits_ciat_lonbarde_and_says_it_is_not_a_recreation():
     assert "Ciat-Lonbarde" in HTML and "Josh Singer" in HTML and "does not claim to recreate" in HTML
 
 
+def test_the_page_and_readme_carry_the_hardly_strictly_line():
+    readme = (SITE.parent / "README.md").read_text()
+    for text in (HTML, readme):
+        assert "Tenstorrent hardware hardly strictly required" in text
+        assert "Hardly Strictly Bluegrass" in text
+
+
+def test_the_credits_thank_the_erd_worm_the_speak_and_spell_and_the_linear_prediction_research():
+    credits = HTML[HTML.index('<section id="credits">'):]
+    for needle in ("ERD/WORM", "https://modulargrid.net/e/erd-erd-worm-populus-edition", "Speak &amp; Spell", "Richard Wiggins", "Paul Breedlove",
+                   "Larry Brantingham", "Gene Frantz", "TMS5100", "https://ethw.org/Milestones:Speak_&amp;_Spell", "Itakura", "Saito", "Atal", "Schroeder"):
+        assert needle in credits, needle
+    assert "separate design by a different maker" in credits
+
+
+def test_the_readme_credits_name_the_erd_worm_and_the_speak_and_spell():
+    readme = (SITE.parent / "README.md").read_text()
+    credits = readme[readme.index("## Credits"):]
+    for needle in ("ERD/WORM", "Speak & Spell", "Wiggins", "Itakura", "Atal"):
+        assert needle in credits, needle
+
+
 def test_the_deploy_workflow_publishes_the_site_folder():
     flow = (SITE.parent / ".github" / "workflows" / "pages.yml").read_text()
     assert "path: site/" in flow and "deploy-pages" in flow
@@ -386,7 +408,7 @@ def test_the_site_lists_the_tui_flag():
 
 def test_the_choir_card_and_band_row_state_the_syllable_numbers_the_code_has():
     # The choir sings syllables when a patch gives it a trigger source; the page says how many consonants and sources there are, the howl's cap
-    # and the crush's bit range (all from the code), and says that it was measured and that nobody has listened to it.
+    # and the crush's bit range (all from the code), and says the clip was made before the syllables.
     from tensixinet.music.consonants import CONSONANTS
     from tensixinet.music.patch import CHOIR_SOURCES
     from tensixinet.music.ttchoir import CRUSH_BITS, HOWL_MAX_S
@@ -398,7 +420,7 @@ def test_the_choir_card_and_band_row_state_the_syllable_numbers_the_code_has():
     row = HTML[HTML.index('["ttchoir", "A singer'):]
     row = row[: row.index("],\n")]
     for text in (f"{numbers[len(CONSONANTS)]} consonants", f"{numbers[len(CHOIR_SOURCES)]} sources", f"{HOWL_MAX_S:g} s", f"{CRUSH_BITS[0]} to {CRUSH_BITS[1]} bits",
-                 "no word list", "Not listened to"):
+                 "no word list", "made before the syllables"):
         assert text in card, text
     assert "syllables" in row and "ERD/WORM speech module, a separate design by a different maker" in row
     assert "not words" not in card and "not a Ciat-Lonbarde" not in row  # plain statements (the house style)
@@ -423,3 +445,19 @@ def test_the_choir_band_row_names_every_field_the_choir_reads():
     for field in sorted(DEVICE_INPUTS["ttchoir"]):
         # "clock" (the AI clock) must stand on its own: "AXI clock" does not count for it.
         assert re.search(rf"(?<!AXI )\b{re.escape(FIELD_WORDS[field])}\b", drives), (field, drives)
+
+
+def test_the_kernels_section_names_and_counts_every_kernel_the_worker_runs():
+    from tensixinet.kernels.backend import KERNEL_DEVICES
+    from tensixinet.media.chip import CHIP_OPS
+    words = {6: "Six", 7: "Seven", 8: "Eight"}
+    section = HTML[HTML.index('id="kernels"'): HTML.index('id="hardware"')]
+    first = section[section.index("<p>"): section.index("</p>")]
+    assert f"{words[len(CHIP_OPS)]} kernels" in first
+    for op in CHIP_OPS:
+        assert f"<code>{op}</code>" in first and f"<tr><td><code>{op}</code></td>" in section, op
+    whole = section[section.index("<code>--kernels chips</code>"):]
+    listed = whole[whole.index("runs each chip's"): whole.index("on that chip's own kernels")]  # the devices the sentence names
+    assert "choir" in listed and "ttchoir" in KERNEL_DEVICES
+    hardware = HTML[HTML.index('id="hardware"'):]
+    assert f"{words[len(KERNEL_DEVICES)].lower()} devices" in hardware[: hardware.index("</section>")]

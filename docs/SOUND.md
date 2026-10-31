@@ -313,8 +313,13 @@ only (the maker's page was not read). The ERD/WORM is a separate design by a dif
   start in it, and a chip whose source does not fire in a reading is logged as waiting on its source (the choir is silent there). In fast
   mode (`--interval`) there are no howl lines and no per-segment choir lines, and the waiting line is logged from the first reading only.
 
-Not modelled: words, breath noise between syllables, a soft l or r, and a kernel. Measured only: nobody has listened to the consonants,
-the howl or the crush, and the listening clips and videos were not remade.
+Not modelled: words, breath noise between syllables, and a soft l or r. The owner has listened to the consonants, the
+howl and the crush (2026-10-31). The listening clips on the site were not remade.
+
+* **On a chip.** With `--kernels` the choir's voiced part (the sum of its harmonics) runs on the chip as `kernels/ttchoir.py`, eight
+  harmonics per run. Everything else in this section runs on the host, through the same code. On two Blackhole chips the result matched the
+  CPU choir to 1.5e-7 for the vowel choir and 1.2e-7 for the syllable choir. A crushed choir can differ from the CPU by one crush step on a
+  sample that sits on a step's edge; in the measured 30 s renders none did.
 
 ## The coco bus
 
