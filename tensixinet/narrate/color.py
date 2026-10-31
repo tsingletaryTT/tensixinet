@@ -56,6 +56,8 @@ EVENT_JACKS = {
     "events": "red", "evict": "red", "fill": "green", "mix": "white", "render": "white", "eq": "white", "loudness": "white", "only": "white",
     "weight": "green", "turn": "green", "live": "green", "backend": "teal", "llm": "brown", "player": "yellow", "done": "yellow",
     "midi": "yellow", "midi file": "yellow",
+    "choir": "pink",  # a howl: the same colour as the ttchoir device in DEVICE_JACKS
+    "tui": "grey",  # the TUI hook failed and was turned off: a notice about the screen, not the sound
     "delay": "yellow",  # fast mode's delay from a reading to the sound, as the run calculates it: about the output
 }
 DEVICE_JACKS = {

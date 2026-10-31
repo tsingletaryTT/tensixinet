@@ -224,3 +224,23 @@ def test_an_event_for_a_chip_that_is_not_being_played_is_dropped():
     knobs = Knobs(2)
     knobs.trigger(3, "memory_error")
     assert knobs.take_events() == []
+
+
+def test_knobs_hold_a_syllable_pick_and_ignore_unknown_values():
+    k = Knobs(2)
+    assert k.syllable() == ("", "")
+    k.set_syllable("t", "i")
+    assert k.syllable() == ("t", "i")
+    k.set_syllable("x", "a")  # an unknown onset is ignored, and so is its vowel's change with it
+    assert k.syllable() == ("t", "i")
+    k.set_syllable("s", "y")
+    assert k.syllable() == ("t", "i")
+    k.set_syllable("", "")  # empty is a value: back to the readings
+    assert k.syllable() == ("", "")
+
+
+def test_the_pick_lists_are_any_plus_every_consonant_and_vowel():
+    from tensixinet.music.consonants import CONSONANTS
+    from tensixinet.music.ttchoir import VOWEL_ORDER
+    from tensixinet.ui.knobs import CHOIR_ONSETS, CHOIR_VOWELS
+    assert CHOIR_ONSETS == ("",) + tuple(CONSONANTS) and CHOIR_VOWELS == ("", "u", "o", "a", "e", "i") == ("",) + tuple(VOWEL_ORDER)

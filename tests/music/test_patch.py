@@ -552,3 +552,135 @@ def test_a_patch_saved_before_the_modulation_existed_has_none_and_the_value_roun
     d["quantus_mod"] = 1.0                                              # full modulation is allowed
     path.write_text(json.dumps(d))
     assert load_patch(path).quantus_mod == 1.0
+
+
+# --- the choir's consonant fields ------------------------------------------------
+
+from tensixinet.music.patch import CHOIR_FIELDS, CHOIR_ONSET_ODDS, CHOIR_SOURCES, patch_from_dict  # noqa: E402
+from tensixinet.telemetry.mock import mock_telemetry  # noqa: E402
+
+CHOIR_CHIPS = mock_telemetry(4, 2)
+
+# every field of draw_patch(11, CHOIR_CHIPS) as taken before the choir fields existed
+OLD_DRAW_11 = dict(
+    seed=11, scale_name="in_sen", scale=(0, 2, 5, 7, 8), motif=(0, 1, -2, -4, -2, -4, -2, 0, 1, 0), gong_tuning="tamtam",
+    gong_partials=(1.0, 1.471, 2.311, 3.641, 5.572), gong_amps=(1.0, 0.653, 0.446, 0.38, 0.21), gong_beat_hz=1.211,
+    shimmer_band=(11586.7, 19487.1), bars_per_turn=6, floor=0.261, rax_bars=14, steam_routes=("strikes", "avdog"), style="",
+    emphasis=(), mode=2, snare=0.0, coco_send=0.602, coco_reverb=0.388, reverb_s=2.186, rests=0.397, lead_rests=0.232,
+    roll_rests=0.151, quantus_mod=0.47,
+)
+
+
+def test_a_drawn_patch_always_has_an_onset_source_and_the_choir_fields_in_range():
+    for seed in range(40):
+        p = draw_patch(seed, CHOIR_CHIPS)
+        assert p.choir_onset in CHOIR_SOURCES and p.choir_howl in CHOIR_SOURCES
+        assert p.choir_coda in ("",) + CHOIR_SOURCES and 0.02 <= p.choir_howl_odds <= 0.08
+        assert all(0.2 <= w <= 1.0 for w in p.choir_mix) and len(p.choir_mix) == 3
+        assert 0.3 <= p.choir_crush <= 1.0 and 0.3 <= p.choir_drift <= 1.0
+
+
+def test_the_choir_draw_has_its_own_stream_so_no_other_field_moved():
+    p = draw_patch(11, CHOIR_CHIPS)
+    old = dataclasses.replace(p, **{f: getattr(DEFAULT_PATCH, f) for f in CHOIR_FIELDS})
+    assert dataclasses.asdict(old) == dataclasses.asdict(dataclasses.replace(DEFAULT_PATCH, **OLD_DRAW_11))
+
+
+def test_the_choir_fields_are_the_seven_listed():
+    assert CHOIR_FIELDS == ("choir_onset", "choir_coda", "choir_howl", "choir_howl_odds", "choir_mix", "choir_crush", "choir_drift")
+
+
+def test_the_coda_odds_are_none_same_and_other():
+    patches = [draw_patch(s, CHOIR_CHIPS) for s in range(2000)]
+    none = sum(p.choir_coda == "" for p in patches) / 2000
+    same = sum(p.choir_coda == p.choir_onset for p in patches) / 2000
+    other = 1.0 - none - same
+    assert abs(none - 0.40) < 0.03 and abs(same - 0.30) < 0.03 and abs(other - 0.30) < 0.03, (none, same, other)
+    # "another source" is spread evenly over the five others
+    others = [p.choir_coda for p in patches if p.choir_coda not in ("", p.choir_onset)]
+    for src in CHOIR_SOURCES:
+        share = sum(c == src for c in others) / len(others)
+        assert abs(share - 1 / 6) < 0.06, (src, share)  # 1/6 overall: each is the "other" for five of six onsets
+
+
+def test_onset_sources_follow_their_odds():
+    patches = [draw_patch(s, CHOIR_CHIPS) for s in range(4000)]
+    assert CHOIR_ONSET_ODDS == (0.25, 0.2, 0.15, 0.15, 0.15, 0.1)
+    for src, odds in zip(CHOIR_SOURCES, CHOIR_ONSET_ODDS):
+        assert abs(sum(p.choir_onset == src for p in patches) / 4000 - odds) < 0.03, src
+
+
+def test_the_howl_source_is_chosen_evenly_and_its_odds_reach_the_ends_of_the_range():
+    patches = [draw_patch(s, CHOIR_CHIPS) for s in range(3000)]
+    for src in CHOIR_SOURCES:
+        assert abs(sum(p.choir_howl == src for p in patches) / 3000 - 1 / 6) < 0.04, src
+    odds = [p.choir_howl_odds for p in patches]
+    assert min(odds) < 0.025 and max(odds) > 0.075
+    mixes = [w for p in patches for w in p.choir_mix]
+    assert min(mixes) < 0.22 and max(mixes) > 0.98
+    for field in ("choir_crush", "choir_drift"):
+        vals = [getattr(p, field) for p in patches]
+        assert min(vals) < 0.32 and max(vals) > 0.98, field
+
+
+def test_an_old_saved_patch_has_no_choir_source_and_round_trips(tmp_path):
+    old = {k: v for k, v in dataclasses.asdict(DEFAULT_PATCH).items() if k not in CHOIR_FIELDS}
+    p = patch_from_dict(old)
+    assert p.choir_onset == "" and p.choir_coda == "" and p.choir_howl == "" and p.choir_howl_odds == 0.0
+    assert p.choir_mix == (1.0, 1.0, 1.0) and p.choir_crush == 0.0 and p.choir_drift == 0.0
+    drawn = draw_patch(5, CHOIR_CHIPS)
+    save_patch(drawn, tmp_path / "p.json")
+    assert load_patch(tmp_path / "p.json") == drawn
+
+
+@pytest.mark.parametrize("bad", [
+    {"choir_onset": "snare"}, {"choir_coda": "gong"}, {"choir_howl": "gong"},
+    {"choir_onset": "gong", "choir_coda": "snare"}, {"choir_onset": "gong", "choir_howl": "snare"},
+    {"choir_onset": "gong", "choir_howl_odds": 1.5}, {"choir_onset": "gong", "choir_howl_odds": -0.1},
+    {"choir_onset": "gong", "choir_howl_odds": float("nan")},
+    {"choir_onset": "gong", "choir_mix": [0, 0, 0]}, {"choir_onset": "gong", "choir_mix": [1, 1]},
+    {"choir_onset": "gong", "choir_mix": [1, -1, 1]}, {"choir_onset": "gong", "choir_mix": [1, float("nan"), 1]},
+    {"choir_onset": "gong", "choir_mix": [1, float("inf"), 1]},
+    {"choir_onset": "gong", "choir_crush": float("nan")}, {"choir_onset": "gong", "choir_crush": 1.1},
+    {"choir_onset": "gong", "choir_crush": -0.1},
+    {"choir_onset": "gong", "choir_drift": -0.1}, {"choir_onset": "gong", "choir_drift": 1.1},
+    {"choir_onset": "gong", "choir_drift": float("nan")},
+])
+def test_a_broken_choir_field_is_refused(bad):
+    d = dataclasses.asdict(DEFAULT_PATCH) | bad
+    with pytest.raises(ValueError):
+        patch_from_dict(d)
+
+
+def test_a_coda_or_howl_without_an_onset_is_refused_with_a_reason():
+    for bad in ({"choir_coda": "gong"}, {"choir_howl": "rolls"}):
+        with pytest.raises(ValueError, match="needs an onset source"):
+            patch_from_dict(dataclasses.asdict(DEFAULT_PATCH) | bad)
+
+
+def test_edge_values_of_the_choir_fields_are_allowed():
+    d = dataclasses.asdict(DEFAULT_PATCH) | {"choir_onset": "gong", "choir_howl_odds": 1.0, "choir_crush": 1.0,
+                                             "choir_drift": 1.0, "choir_mix": [0.0, 0.0, 1.0]}
+    p = patch_from_dict(d)
+    assert p.choir_mix == (0.0, 0.0, 1.0) and p.choir_howl_odds == 1.0
+
+
+def test_a_bad_choir_pick_is_refused_and_an_empty_or_half_pick_is_accepted():
+    base = dataclasses.asdict(DEFAULT_PATCH)
+    for bad in (("x", "a"), ("s", "y"), ("s", "ae"), ("sh", "A"), ("s",), ("s", "a", "e")):
+        with pytest.raises(ValueError):
+            patch_from_dict(base | {"choir_pick": bad})
+    for good in (("", ""), ("sh", ""), ("", "i"), ("t", "u")):
+        assert patch_from_dict(base | {"choir_pick": list(good)}).choir_pick == good
+
+
+def test_a_saved_patch_with_no_pick_loads_with_none_and_a_pick_survives_a_round_trip():
+    assert DEFAULT_PATCH.choir_pick == ("", "")
+    old = {k: v for k, v in dataclasses.asdict(DEFAULT_PATCH).items() if k != "choir_pick"}
+    assert patch_from_dict(old).choir_pick == ("", "")
+    p = dataclasses.replace(DEFAULT_PATCH, choir_pick=("k", "o"))
+    assert patch_from_dict(json.loads(json.dumps(dataclasses.asdict(p)))).choir_pick == ("k", "o")
+
+
+def test_a_drawn_patch_has_no_pick():
+    assert all(draw_patch(s, CHOIR_CHIPS).choir_pick == ("", "") for s in range(10))

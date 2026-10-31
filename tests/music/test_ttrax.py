@@ -324,3 +324,36 @@ def test_quatrax_uses_barres_past_the_ttrolzer_tempo_table_without_crashing():
     patch = dataclasses.replace(DEFAULT_PATCH, rax_bars=14)
     audio = ttrax(calm(), 2.0, SR, 0, patch=patch)
     assert np.any(audio != 0.0)
+
+
+# ---- gesture_times: the moments the barres are pressed and released, for the choir's trigger ----
+from tensixinet.music.ttrax import GESTURE_STEPS, gesture_envelopes, gesture_times  # noqa: E402
+
+
+def test_rax_gestures_fall_where_the_envelopes_peak():
+    sr = 2000
+    times, press = gesture_times(100.0, 7, 10.0)
+    assert (np.diff(times) >= 0).all() and press.any() and (~press).any()
+    envs = [gesture_envelopes(100.0, b, 10.0, sr) for b in range(7)]
+    best_press = np.max([e[0] for e in envs], axis=0)
+    best_release = np.max([e[1] for e in envs], axis=0)
+    # (a gesture between two samples may land on either neighbour) at a press some barre's press envelope is at its peak; at a release some barre's release envelope is
+    assert all(best_press[max(int(round(x * sr)) - 1, 0):int(round(x * sr)) + 2].max() > 0.99 for x in times[press])
+    assert all(best_release[max(int(round(x * sr)) - 1, 0):int(round(x * sr)) + 2].max() > 0.99 for x in times[~press])
+
+
+def test_rax_gesture_count_is_two_per_barre_per_period_and_all_before_the_end():
+    bpm, bars, dur = 100.0, 7, 10.0
+    times, press = gesture_times(bpm, bars, dur)
+    assert (times >= 0).all() and (times < dur).all()
+    expected = 0
+    for b in range(bars):
+        period = GESTURE_STEPS * 60.0 / barre_bpm(bpm, b)
+        expected += len([k for k in range(1000) if k * period < dur]) + len([k for k in range(1000) if k * period + period / 2 < dur])
+    assert len(times) == expected
+    assert press.sum() == len(times) - (~press).sum()
+
+
+def test_rax_gestures_with_no_time_are_empty():
+    times, press = gesture_times(100.0, 7, 0.0)
+    assert len(times) == 0 and len(press) == 0

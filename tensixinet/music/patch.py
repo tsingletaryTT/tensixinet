@@ -18,6 +18,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence, Tuple
@@ -25,6 +26,10 @@ from typing import Sequence, Tuple
 import numpy as np
 
 from ..telemetry import Telemetry
+from .consonants import CONSONANTS
+
+# The devices the choir can take its syllable triggers from (`devices.choir_triggers` says what each one fires on).
+CHOIR_SOURCES: Tuple[str, ...] = ("gong", "rolls", "register", "quantus", "lead", "rax")
 
 # Semitone offsets. A scale may have any length; degrees wrap by octave.
 SCALES = {
@@ -98,6 +103,14 @@ REVERB_S_RANGE = (0.8, 3.5)
 RESTS_RANGE = (0.15, 0.45)  # a drawn patch rests this share of the coco's notes
 LEAD_RESTS_RANGE = (0.1, 0.3)  # ... and this share of the lead's notes
 ROLL_RESTS_RANGE = (0.1, 0.3)  # ... and this share of ttrollz's pulses
+# The vowels a pick can name, from the darkest to the brightest. ttchoir.VOWEL_ORDER is the same string (a test ties them).
+PICK_VOWELS = "uoaei"
+CHOIR_ONSET_ODDS = (0.25, 0.2, 0.15, 0.15, 0.15, 0.1)  # the odds of each CHOIR_SOURCES entry starting the choir's syllables
+CHOIR_CODA_ODDS = (0.4, 0.3, 0.3)  # no coda, the onset's own source, another source
+CHOIR_HOWL_ODDS_RANGE = (0.02, 0.08)  # the share of the howl source's triggers that fire self-oscillation
+CHOIR_MIX_RANGE = (0.2, 1.0)  # each consonant family's weight (plosive, fricative, nasal)
+CHOIR_CRUSH_RANGE = (0.3, 1.0)  # the speech-chip crush at full pressure
+CHOIR_DRIFT_RANGE = (0.3, 1.0)  # how far the voice type, register and syllable length drift
 QUANTUS_MOD_RANGE = (0.35, 0.9)  # a drawn patch moves the looping line's pitch this much (devices.ttquantus_steps)
 
 MOTIF_LENGTHS = (6, 7, 8, 9, 10, 12)  # eighth notes; the lead's bar is as long as its motif
@@ -133,6 +146,23 @@ class Patch:
     lead_rests: float = 0.0  # the share of the lead's notes that rest (lead.py, rests.rest_flags); the first note of a phrase always plays
     roll_rests: float = 0.0  # the share of ttrollz's clock and lane pulses that rest (devices.ttrollz); the gong still follows the rolls whole
     quantus_mod: float = 0.0  # how far the looping line's pitch is moved (devices.ttquantus_steps): its register, glides between notes and vibrato; 0 is the fixed line from before
+    # The choir's consonants (ttchoir.py). With no onset source the choir is the old one, vowels on its bar clock, and every other choir field is ignored.
+    choir_onset: str = ""  # the source (one of CHOIR_SOURCES) whose triggers start syllables; "" is the old choir
+    choir_coda: str = ""  # the source of closing consonants; "" is none
+    choir_howl: str = ""  # the source that may fire self-oscillation; "" is none
+    choir_howl_odds: float = 0.0  # the share of that source's triggers that fire it
+    choir_mix: Tuple[float, float, float] = (1.0, 1.0, 1.0)  # the family weights (plosive, fricative, nasal)
+    choir_crush: float = 0.0  # the speech-chip crush at full pressure; 0 is none
+    choir_drift: float = 0.0  # how far the voice type, register and syllable length drift
+    # The Play tab's pick of the next syllable: (onset consonant, vowel). "" leaves that part to the readings. It sets every syllable's onset
+    # and vowel until it is changed; the source still decides when they sound. Never drawn, and ignored while choir_onset is "".
+    choir_pick: Tuple[str, str] = ("", "")
+
+
+# The seven choir fields, in the order the log and the tests list them.
+CHOIR_FIELDS: Tuple[str, ...] = (
+    "choir_onset", "choir_coda", "choir_howl", "choir_howl_odds", "choir_mix", "choir_crush", "choir_drift",
+)
 
 
 DEFAULT_PATCH = Patch(
@@ -254,6 +284,30 @@ def _draw_quantus_mod(seed: int) -> float:
     return round(float(np.random.default_rng([seed, 0x70D5]).uniform(*QUANTUS_MOD_RANGE)), 3)
 
 
+def _draw_choir(seed: int) -> dict:
+    """The seven choir fields as keyword arguments, from their own random stream, so no other drawn field moved when they were added."""
+    rng = np.random.default_rng([seed, 0xC401])
+    onset = CHOIR_SOURCES[int(rng.choice(len(CHOIR_SOURCES), p=CHOIR_ONSET_ODDS))]
+    kind = int(rng.choice(len(CHOIR_CODA_ODDS), p=CHOIR_CODA_ODDS))
+    if kind == 0:
+        coda = ""
+    elif kind == 1:
+        coda = onset
+    else:
+        others = [s for s in CHOIR_SOURCES if s != onset]
+        coda = others[int(rng.integers(0, len(others)))]
+    howl = CHOIR_SOURCES[int(rng.integers(0, len(CHOIR_SOURCES)))]
+    return dict(
+        choir_onset=onset,
+        choir_coda=coda,
+        choir_howl=howl,
+        choir_howl_odds=round(float(rng.uniform(*CHOIR_HOWL_ODDS_RANGE)), 3),
+        choir_mix=tuple(round(float(rng.uniform(*CHOIR_MIX_RANGE)), 3) for _ in range(3)),
+        choir_crush=round(float(rng.uniform(*CHOIR_CRUSH_RANGE)), 3),
+        choir_drift=round(float(rng.uniform(*CHOIR_DRIFT_RANGE)), 3),
+    )
+
+
 def draw_patch(seed: int, telemetry: Sequence[Telemetry]) -> Patch:
     rng = np.random.default_rng(seed)
     lead_rests, roll_rests = _draw_pulse_rests(seed)
@@ -288,6 +342,7 @@ def draw_patch(seed: int, telemetry: Sequence[Telemetry]) -> Patch:
         lead_rests=lead_rests,
         roll_rests=roll_rests,
         quantus_mod=_draw_quantus_mod(seed),
+        **_draw_choir(seed),
     )
 
 
@@ -325,6 +380,26 @@ def _validate(p: Patch) -> Patch:
             raise ValueError(f"{field} must be at least 0 and below 1")
     if not 0.0 <= p.quantus_mod <= 1.0:  # also false for NaN
         raise ValueError("quantus_mod must be between 0 and 1")
+    for field in ("choir_onset", "choir_coda", "choir_howl"):
+        if getattr(p, field) != "" and getattr(p, field) not in CHOIR_SOURCES:
+            raise ValueError(f"{field} must be empty or one of {', '.join(CHOIR_SOURCES)}")
+    if (p.choir_coda or p.choir_howl) and not p.choir_onset:
+        raise ValueError("a coda or howl needs an onset source")
+    if not 0.0 <= p.choir_howl_odds <= 1.0:  # also false for NaN
+        raise ValueError("choir_howl_odds must be between 0 and 1")
+    if len(p.choir_mix) != 3 or not all(math.isfinite(w) and w >= 0.0 for w in p.choir_mix) or not sum(p.choir_mix) > 0.0:
+        raise ValueError("choir_mix needs three finite, non-negative weights with a positive sum")
+    if not 0.0 <= p.choir_crush <= 1.0:  # also false for NaN
+        raise ValueError("choir_crush must be between 0 and 1")
+    if not 0.0 <= p.choir_drift <= 1.0:
+        raise ValueError("choir_drift must be between 0 and 1")
+    if len(p.choir_pick) != 2:
+        raise ValueError("choir_pick needs an onset and a vowel (either may be empty)")
+    pick_onset, pick_vowel = p.choir_pick
+    if pick_onset != "" and pick_onset not in CONSONANTS:
+        raise ValueError(f"choir_pick onset must be empty or one of {', '.join(CONSONANTS)}")
+    if pick_vowel != "" and not (len(pick_vowel) == 1 and pick_vowel in PICK_VOWELS):
+        raise ValueError(f"choir_pick vowel must be empty or one of {', '.join(PICK_VOWELS)}")
     unknown = [r for r in p.steam_routes if r not in STEAM_ROUTES]
     if unknown:
         raise ValueError(f"unknown steam route {', '.join(unknown)}; the routes are {', '.join(STEAM_ROUTES)}")
@@ -362,6 +437,15 @@ def patch_from_dict(d: dict) -> Patch:
             roll_rests=float(d.get("roll_rests", 0.0)),
             # nor was the looping line's pitch moved
             quantus_mod=float(d.get("quantus_mod", 0.0)),
+            # nor did the choir have consonants: no onset source is the old choir
+            choir_onset=str(d.get("choir_onset", "")),
+            choir_coda=str(d.get("choir_coda", "")),
+            choir_howl=str(d.get("choir_howl", "")),
+            choir_howl_odds=float(d.get("choir_howl_odds", 0.0)),
+            choir_mix=tuple(float(x) for x in d.get("choir_mix", (1.0, 1.0, 1.0))),
+            choir_crush=float(d.get("choir_crush", 0.0)),
+            choir_drift=float(d.get("choir_drift", 0.0)),
+            choir_pick=tuple(str(x) for x in d.get("choir_pick", ("", ""))),
             # a patch saved before the coco bus existed had no send and no room
             coco_send=float(d.get("coco_send", 0.0)),
             coco_reverb=float(d.get("coco_reverb", 0.0)),
