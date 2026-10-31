@@ -55,7 +55,7 @@ def test_the_page_and_readme_carry_the_hardly_strictly_line():
     readme = (SITE.parent / "README.md").read_text()
     for text in (HTML, readme):
         assert "Tenstorrent hardware hardly strictly required" in text
-        assert "Hardly Strictly Bluegrass" in text
+        assert "Bluegrass" not in text  # the allusion stays unexplained
 
 
 def test_the_credits_thank_the_erd_worm_the_speak_and_spell_and_the_linear_prediction_research():

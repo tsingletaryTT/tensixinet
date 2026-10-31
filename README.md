@@ -25,7 +25,7 @@ You can prompt a local language model first. Its work heats the chips, so you ca
 thinking. Every choice the program makes is written to a log with the reason for it, and each run
 draws a different patch, so no two runs sound alike unless you replay one.
 
-You do not need Tenstorrent hardware to try it. It can play any number of synthetic chips. Tenstorrent hardware hardly strictly required: a nod to the Hardly Strictly Bluegrass festival, which is not strictly bluegrass either.
+You do not need Tenstorrent hardware to try it. It can play any number of synthetic chips. Tenstorrent hardware hardly strictly required.
 
 **Project site:** <https://tsingletaryTT.github.io/tensixinet/> has the routing diagrams (with animated signal paths for five scenarios), the cable explorer and audio samples. Its source is in `site/`.
 
