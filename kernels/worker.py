@@ -39,6 +39,7 @@ HOST_OPS = {
     "ttavdog": pk.avdog_on_host,
     "ttmix": pk.mix_on_host,
     "ttcoco": pk.coco_on_host,
+    "ttchoir": pk.choir_on_host,
 }
 
 
@@ -82,13 +83,14 @@ def chip_compute(board):
     """`compute(op, chunk_inputs, samples, index)` that runs the kernels on the board's chip number `index`."""
     from _common import from_device, to_device
     from ttavdog import ttavdog_op
+    from ttchoir import ttchoir_op
     from ttcoco import ttcoco_op
     from ttgong import ttgong_op
     from ttmix import ttmix_op
     from ttshimmer import ttshimmer_op
     from ttshock import ttshock_op
     ops = {"ttshock": ttshock_op, "ttshimmer": ttshimmer_op, "ttgong": ttgong_op, "ttavdog": ttavdog_op, "ttmix": ttmix_op,
-           "ttcoco": ttcoco_op}
+           "ttcoco": ttcoco_op, "ttchoir": ttchoir_op}
 
     def compute(op, chunk, samples, index):
         device = board.use(index)

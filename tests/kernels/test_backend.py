@@ -15,13 +15,16 @@ from tensixinet.music.chorus import DEVICES, render_chorus
 from tensixinet.music.devices import current_mix, gong, ttdrone, ultrasonic_shimmer
 from tensixinet.music.patch import DEFAULT_PATCH, STEAM_ROUTES
 from tensixinet.music.ttavdog import ttavdog
+from tensixinet.music.ttchoir import ttchoir
 from tensixinet.music.ttcoco import ttcoco
 from tensixinet.telemetry import FALLBACK
 from tensixinet.telemetry.mock import mock_telemetry
 
 SR = 8000
-CPU = {"gong": gong, "ultrasonic_shimmer": ultrasonic_shimmer, "ttdrone": ttdrone, "ttavdog": ttavdog, "ttcoco": ttcoco}
-OPS = {"gong": {"ttgong"}, "ultrasonic_shimmer": {"ttshimmer"}, "ttdrone": {"ttshock"}, "ttavdog": {"ttavdog"}, "ttcoco": {"ttcoco"}}
+CPU = {"gong": gong, "ultrasonic_shimmer": ultrasonic_shimmer, "ttdrone": ttdrone, "ttavdog": ttavdog, "ttcoco": ttcoco,
+       "ttchoir": ttchoir}
+OPS = {"gong": {"ttgong"}, "ultrasonic_shimmer": {"ttshimmer"}, "ttdrone": {"ttshock"}, "ttavdog": {"ttavdog"}, "ttcoco": {"ttcoco"},
+       "ttchoir": {"ttchoir"}}
 
 
 class Spy:
@@ -145,7 +148,7 @@ def test_a_whole_chorus_on_the_backend_matches_the_cpu_chorus_and_uses_every_ker
         want = render_chorus(chips, 4.0, SR, patch)
         assert got.dtype == np.float32 and got.shape == want.shape
         assert np.allclose(got, want, atol=3e-3), float(np.abs(got - want).max())
-        assert {"ttshock", "ttshimmer", "ttavdog", "ttcoco", "ttmix"} <= set(s.calls)
+        assert {"ttshock", "ttshimmer", "ttavdog", "ttcoco", "ttchoir", "ttmix"} <= set(s.calls)
     finally:
         s.close()
 
@@ -221,3 +224,70 @@ def test_device_for_names_the_device_and_the_chip_and_the_default_is_the_first_c
     assert backend.device_for("ttavdog", 0) is backend.devices["ttavdog"]
     assert backend.device_for("ttavdog", 0).__name__ == "ttavdog"
     assert backend.device_for("ttrollz", 3) is None          # no kernel for it
+
+
+# --- the choir: the voiced part on the chip, eight harmonics a run; the plan, the noise, the howl and the crush on the host --
+
+SYLLABLE_PATCHES = [
+    dataclasses.replace(DEFAULT_PATCH, seed=4, choir_onset="gong", choir_coda="gong", choir_drift=0.5),
+    dataclasses.replace(DEFAULT_PATCH, seed=6, choir_onset="rolls", choir_coda="register", choir_howl="rolls", choir_howl_odds=0.6),
+]
+
+
+@pytest.mark.parametrize("patch_index", range(len(SYLLABLE_PATCHES)))
+def test_the_syllable_choir_on_the_chip_matches_the_numpy_choir(spy, patch_index):
+    patch, backend = SYLLABLE_PATCHES[patch_index], KernelBackend(spy)
+    for chip in range(4):
+        t = _chip(chip)
+        before = len(spy.calls)
+        got, want = backend.devices["ttchoir"](t, 8.0, SR, 3, patch), ttchoir(t, 8.0, SR, 3, patch)
+        assert got.dtype == np.float32 and got.shape == want.shape
+        assert np.allclose(got, want, atol=1e-4), (chip, float(np.abs(got - want).max()))
+        assert set(spy.calls[before:]) <= {"ttchoir"}
+
+
+def test_the_choir_runs_one_kernel_for_every_eight_harmonics_it_sings():
+    from tensixinet.kernels.packing import CHOIR_GROUP
+    from tensixinet.music.ttchoir import choir_voice, harmonic_sum
+    counts = []
+
+    def count(sample_t, frame_t, harmonics, phase, ks):
+        counts.append(len(list(ks)))
+        return harmonic_sum(sample_t, frame_t, harmonics, phase, ks)
+    s = Spy()
+    try:
+        t = _chip(1)
+        choir_voice(t, 4.0, SR, 3, DEFAULT_PATCH, sines=count)
+        KernelBackend(s).devices["ttchoir"](t, 4.0, SR, 3, DEFAULT_PATCH)
+        assert counts and s.calls == ["ttchoir"] * -(-counts[0] // CHOIR_GROUP)
+    finally:
+        s.close()
+
+
+def test_a_crushed_choir_on_the_chip_differs_from_the_cpu_only_by_whole_crush_steps_and_rarely():
+    """The crush rounds toward zero to as few as 4 bits. The chip's sum is a little off, so a sample sitting on a step's edge can
+    round the other way: those samples differ by a step, the rest agree to the kernel's own error."""
+    from tensixinet.music.ttchoir import CRUSH_BITS
+    patch = dataclasses.replace(SYLLABLE_PATCHES[0], choir_crush=1.0)
+    t = _chip(1, asic_temperature=95.0, thm_limit_throttle=100.0, power=200.0, tdp_limit=210.0)
+    s = Spy()
+    try:
+        got, want = KernelBackend(s).devices["ttchoir"](t, 6.0, SR, 3, patch), ttchoir(t, 6.0, SR, 3, patch)
+    finally:
+        s.close()
+    diff = np.abs(got.astype(np.float64) - want)
+    off = diff > 1e-4
+    assert np.abs(want).max() > 0.05 and off.mean() < 0.01
+    assert np.all(diff[off] <= 2.0 ** (1 - CRUSH_BITS[1]) + 1e-4)
+
+
+def test_each_chips_choir_runs_on_that_chips_own_kernels():
+    s = Spy(devices=4)
+    try:
+        backend = KernelBackend(s)
+        for chip in range(4):
+            before = len(s.where)
+            backend.device_for("ttchoir", chip)(_chip(chip), 2.0, SR, 3, DEFAULT_PATCH)
+            assert s.where[before:] and set(s.where[before:]) == {("ttchoir", chip)}
+    finally:
+        s.close()

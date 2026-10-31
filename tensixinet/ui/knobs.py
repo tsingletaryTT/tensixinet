@@ -16,7 +16,9 @@ import dataclasses
 import threading
 from typing import Dict, List, Optional, Tuple
 
+from ..music.consonants import CONSONANTS
 from ..music.live import Tracker
+from ..music.ttchoir import VOWEL_ORDER
 from ..telemetry import Telemetry, mock_telemetry
 
 MAX_CHIPS = 4
@@ -33,6 +35,9 @@ KNOB_RANGES: Dict[str, Tuple[float, float, float]] = {
 EVENTS = ("memory_error", "thermal_trip", "load_burst")
 LOAD_BURST_W = 70.0  # a burst adds this much power to its chip ...
 LOAD_BURST_S = 4.0  # ... for this long, from the block that takes the event
+# What the choir's two pickers offer: "" leaves that part of the next syllables to the readings.
+CHOIR_ONSETS: Tuple[str, ...] = ("",) + tuple(CONSONANTS)
+CHOIR_VOWELS: Tuple[str, ...] = ("",) + tuple(VOWEL_ORDER)
 GDDR_TOP_C = 40.0  # the hottest GDDR channel; the rest sit below it by the spread
 
 _BASE: Optional[List[Telemetry]] = None
@@ -71,6 +76,7 @@ class Knobs:
         self._pending: List[Tuple[int, str]] = []
         self._counts: List[Dict[str, int]] = [{"corr_errs": 0, "thermal_trips": 0} for _ in range(MAX_CHIPS)]
         self._burst_until: List[Optional[float]] = [None] * MAX_CHIPS
+        self._syllable: Tuple[str, str] = ("", "")  # the choir's picked onset and vowel; "" leaves that part to the readings
 
     def set(self, chip: int, name: str, value: float) -> None:
         """Set one knob, held inside its range. An unknown chip or knob, and NaN, are ignored. A chip that is not being played keeps its value."""
@@ -89,6 +95,19 @@ class Knobs:
         """A copy of the knob values of the chips that are being played."""
         with self._lock:
             return [dict(v) for v in self._values[: self._n]]
+
+    def set_syllable(self, onset: str, vowel: str) -> None:
+        """Pick the choir's onset consonant and vowel (either may be "" for the readings' own choice). A pair with an unknown value is ignored
+        whole, so a half-bad request never leaves half a pick."""
+        if onset not in CHOIR_ONSETS or vowel not in CHOIR_VOWELS:
+            return
+        with self._lock:
+            self._syllable = (onset, vowel)
+
+    def syllable(self) -> Tuple[str, str]:
+        """The choir's picked (onset, vowel); it holds until it is changed."""
+        with self._lock:
+            return self._syllable
 
     def trigger(self, chip: int, event: str) -> None:
         """Queue an event for the next block. An unknown chip or event is ignored."""

@@ -25,30 +25,7 @@ BASE_OVERRIDES = {
 }
 # The looping line's vibrato reads the chip's pressure only when the patch moves its pitch, so those two devices are judged with a patch that does.
 PATCH_OVERRIDES = {"ttquantus": dataclasses.replace(DEFAULT_PATCH, quantus_mod=0.8), "ttcoco": dataclasses.replace(DEFAULT_PATCH, quantus_mod=0.8)}
-CHANGES = {
-    "asic_temperature": 90.0,
-    "aiclk": 1350.0,
-    "gddr_temps": (26.0, 99.0) * 4,
-    "ddr_status": (1, 1, 1, 1),
-    "voltage": 0.90,
-    "power": 125.0,
-    "axiclk": 1920.0,
-    "arcclk": 1600.0,
-    "heartbeat": 8,
-    "tensix_mask": 0x1235,  # picked so the lead offset and gong detune both differ from the default chip
-    "eth_mask": 0x0F0C,
-    "pcie_usage": 5,
-    "thm_limit_throttle": 45.0,
-    "tdp_limit": 40.0,
-    "temp_rate": 1.0,
-    "power_rate": 25.0,
-    # read by the chorus or by events.py, never by a device: every device must stay the same
-    "board_power": 300.0,
-    "busy": 3,
-    "corr_errs": 5,
-    "uncorr_errs": 1,
-    "thermal_trips": 1,
-}
+from tests.telemetry_changes import CHANGES  # noqa: E402  (shared with tests/music/test_choir_triggers.py)
 
 
 # --- the claim "device X uses fields Y" is true --------------------------------
@@ -56,6 +33,8 @@ CHANGES = {
 @pytest.mark.parametrize("device", DEVICES, ids=lambda d: d.__name__)
 @pytest.mark.parametrize("field", sorted(CHANGES))
 def test_device_inputs_match_what_the_device_actually_reads(device, field):
+    if device.__name__ == "ttchoir":
+        pytest.skip("one patch cannot exercise every trigger source; tests/music/test_choir_triggers.py runs the choir once per source")
     base = dataclasses.replace(FALLBACK, ddr_status=(0, 0, 0, 0), **BASE_OVERRIDES.get(device.__name__, {}))
     changed = dataclasses.replace(base, **{field: CHANGES[field]})
     patch = PATCH_OVERRIDES.get(device.__name__, DEFAULT_PATCH)
@@ -535,3 +514,190 @@ def test_the_patch_log_says_how_far_the_looping_lines_pitch_is_moved():
     assert len(on) == len(off) == 1 and "80%" in on[0].what and "none" in off[0].what
     for text in ("3 scale degrees", "glide", "vibrato", "0.35 to 0.9"):
         assert text in on[0].why, text
+
+
+def test_the_patch_log_names_the_choirs_sources_and_numbers():
+    p = dataclasses.replace(DEFAULT_PATCH, choir_onset="gong", choir_coda="rolls", choir_howl="register",
+                            choir_howl_odds=0.05, choir_mix=(0.5, 0.3, 0.2), choir_crush=0.6, choir_drift=0.4)
+    ds = explain_patch(p, UNEVEN, "test")
+    text = " | ".join(d.what for d in ds)
+    assert "choir syllables on the gong's strikes" in text and "codas on the rolls" in text
+    assert "5% of the register's hits" in text and "4 s" in " ".join(d.why for d in ds)
+    assert "plosive 50%" in text and "fricative 30%" in text and "nasal 20%" in text
+    assert "speech-chip crush 60% at full pressure" in text
+    assert "drift 40%" in text
+    off = " | ".join(d.what for d in explain_patch(DEFAULT_PATCH, UNEVEN, "test"))
+    assert "choir: vowels on the bar" in off and "choir syllables" not in off
+
+
+def test_the_choir_log_says_where_each_value_came_from_and_handles_no_coda_or_howl():
+    p = dataclasses.replace(DEFAULT_PATCH, choir_onset="rax", choir_mix=(0.1, 0.3, 0.6), choir_crush=0.0, style="enya")
+    ds = explain_patch(p, UNEVEN, "test")
+    what = " | ".join(d.what for d in ds)
+    why = " | ".join(d.why for d in ds)
+    assert "choir syllables on ttrax's gestures" in what
+    assert "no codas" in what and "no howl" in what and "crush: none" in what
+    crushed = explain_patch(dataclasses.replace(p, choir_crush=0.5), UNEVEN, "test")
+    assert "speech-chip crush 50% at full pressure, none at rest" in " | ".join(d.what for d in crushed)
+    assert "set by the enya style" in why
+    drawn = explain_patch(dataclasses.replace(DEFAULT_PATCH, choir_onset="lead"), UNEVEN, "test")
+    assert "drawn from the seed" in " ".join(d.why for d in drawn)
+
+
+def _choir_lines(**kw):
+    """The patch log's choir lines as 'what | why' strings, keyed by the start of their subject."""
+    ds = explain_patch(dataclasses.replace(DEFAULT_PATCH, **kw), UNEVEN, "test")
+    return {d.what.split(" ")[0] + " " + d.what.split(" ")[1]: d.what + " | " + d.why for d in ds}
+
+
+def test_the_consonant_mix_line_says_the_trigger_strength_scales_the_mix():
+    line = _choir_lines(choir_onset="gong", choir_mix=(0.5, 0.3, 0.2))["consonant mix:"]
+    assert "plosive 50%" in line and "base lean" in line
+    assert "a stronger trigger leans to plosives, a weaker one to fricatives and nasals" in line
+    assert "at least 30% of its weight" in line
+    assert "shares of the consonants that are sung" not in line
+
+
+def test_the_crush_line_names_the_bits_from_the_crush_constants():
+    line = _choir_lines(choir_onset="gong", choir_crush=0.5)["speech-chip crush"]
+    assert "8-bit" not in line and "12 bits" in line and "8 bits at full pressure" in line  # round(12 - 8 * 0.5) = 8
+    assert "4 bits at the strongest crush" in line
+    assert "7 bits at full pressure" in _choir_lines(choir_onset="gong", choir_crush=0.6)["speech-chip crush"]  # round(7.2)
+
+
+def test_the_choir_lines_build_their_numbers_from_the_constants(monkeypatch):
+    from tensixinet.narrate import explain as explain_module
+    monkeypatch.setattr(explain_module, "XFADE_S", 0.035)
+    monkeypatch.setattr(explain_module, "CHOIR_CODA_ODDS", (0.5, 0.2, 0.3))
+    monkeypatch.setattr(explain_module, "CRUSH_BITS", (16, 2))
+    monkeypatch.setattr(explain_module, "FAMILY_FLOOR", 0.25)
+    lines = _choir_lines(choir_onset="gong", choir_coda="rolls", choir_crush=0.5)
+    assert "35 ms" in lines["choir syllables"] and "20 ms" not in lines["choir syllables"]
+    assert "none 50% of the time, the onset's own source 20%, another source 30%" in lines["codas on"]
+    assert "16 bits" in lines["speech-chip crush"] and "9 bits at full pressure" in lines["speech-chip crush"]  # 16 - 14 * 0.5
+    assert "2 bits at the strongest crush" in lines["speech-chip crush"]
+    assert "at least 25% of its weight" in lines["consonant mix:"]
+    assert "no coda source 50% of the time" in _choir_lines(choir_onset="gong")["no codas"]
+
+
+def test_the_choir_lines_say_what_a_style_sets_and_what_the_seed_draws():
+    # A style sets the consonant mix and the crush; the sources (onset, coda, howl) and the drift come from the seed in every style.
+    styled = _choir_lines(choir_onset="gong", choir_crush=0.5, style="enya")
+    assert "set by the enya style" in styled["consonant mix:"] and "set by the enya style" in styled["speech-chip crush"]
+    assert "drawn from the seed" in styled["choir syllables"] and "enya" in styled["choir syllables"]
+    plain = _choir_lines(choir_onset="gong", choir_crush=0.5)
+    assert "drawn from the seed" in plain["choir syllables"] and "style" not in plain["choir syllables"]
+    assert "drawn from the seed" in plain["consonant mix:"]
+
+
+# --- the choir's chip lines and its howls -------------------------------------------------------------------------
+
+from tensixinet.music.chorus import SEGMENT_SEED_STRIDE  # noqa: E402
+from tensixinet.music.ttchoir import howl_times  # noqa: E402
+from tensixinet.narrate.explain import explain_howls  # noqa: E402
+
+HARVESTED_CHIP = dataclasses.replace(FALLBACK, tensix_mask=0x37F7, ddr_status=(1, 1, 1, 1))  # its register fires
+
+
+def test_the_chip_log_says_what_triggers_the_choir():
+    p = dataclasses.replace(DEFAULT_PATCH, choir_onset="lead", choir_coda="rax")
+    text = subjects(explain_chip(9, FALLBACK, 11, p))  # slot 9 plays ttchoir on 11 chips
+    assert "syllables on the lead's notes" in text and "codas on ttrax's gestures" in text
+    whys = " | ".join(d.why for d in explain_chip(9, FALLBACK, 11, p))
+    assert "each bar" not in whys and "on each trigger" in whys
+    old = explain_chip(9, FALLBACK, 11)  # the old choir's line is unchanged: its reason (not its subject) says "each bar"
+    assert "each bar" in " | ".join(d.why for d in old) and "syllables" not in subjects(old)
+
+
+def test_a_choir_with_no_coda_says_so_on_the_chip_line():
+    p = dataclasses.replace(DEFAULT_PATCH, choir_onset="lead")
+    text = subjects(explain_chip(9, FALLBACK, 11, p))
+    assert "syllables on the lead's notes" in text and "codas on" not in text
+
+
+def test_a_source_that_cannot_fire_on_this_chip_is_said():
+    p = dataclasses.replace(DEFAULT_PATCH, choir_onset="register")
+    waiting = [d for d in explain_chip(9, FALLBACK, 11, p, duration=10.0) if "waiting" in d.what]  # every Tensix column is on: no hits
+    assert len(waiting) == 1 and "register" in waiting[0].what and "silent" in waiting[0].what
+    firing = explain_chip(9, HARVESTED_CHIP, 11, p, duration=10.0)
+    assert not any("waiting" in d.what for d in firing)
+    assert not any("waiting" in d.what for d in explain_chip(9, FALLBACK, 11, p))  # no duration, nothing to check
+    assert not any("waiting" in d.what for d in explain_chip(9, FALLBACK, 11, duration=10.0))  # the old choir has no source
+    assert not any("waiting" in d.what for d in explain_chip(0, FALLBACK, 11, p, duration=10.0))  # a chip that plays no choir
+
+
+def test_explain_howls_gives_one_line_per_fire_with_its_chip_and_time():
+    p = dataclasses.replace(DEFAULT_PATCH, choir_onset="gong", choir_howl="register", choir_howl_odds=1.0)
+    lines = explain_howls([HARVESTED_CHIP] * 4, 20.0, p, sample_rate=8000)
+    expected = howl_times(HARVESTED_CHIP, 20.0, 0 * SEGMENT_SEED_STRIDE + 9, p, 8000)
+    assert len(expected) > 0 and len(lines) == len(expected)
+    assert all(chip == 9 % 4 for chip, _ in lines)
+    assert "howls" in lines[0][1].what and "-1 dBFS" in lines[0][1].why
+    assert f"{expected[0]:.2f}" in lines[0][1].what
+
+
+def test_explain_howls_uses_the_seed_the_chorus_gives_the_slot_and_its_segment():
+    p = dataclasses.replace(DEFAULT_PATCH, choir_onset="gong", choir_howl="register", choir_howl_odds=0.5)
+    chips = [HARVESTED_CHIP] * 4
+    for segment in (0, 3):
+        got = [round(float(w), 3) for w in howl_times(HARVESTED_CHIP, 40.0, segment * SEGMENT_SEED_STRIDE + 9, p, 8000)]
+        said = [d.what for _, d in explain_howls(chips, 40.0, p, segment=segment, sample_rate=8000)]
+        assert len(said) == len(got) and all(f"{w:.2f}" in line for w, line in zip(got, said))
+
+
+def test_explain_howls_is_empty_without_a_howl_source_or_without_a_choir_slot():
+    assert explain_howls([HARVESTED_CHIP] * 4, 20.0, dataclasses.replace(DEFAULT_PATCH, choir_onset="gong"), sample_rate=8000) == []
+    assert explain_howls([HARVESTED_CHIP] * 4, 20.0, DEFAULT_PATCH) == []
+
+
+def test_the_howl_line_builds_its_numbers_from_the_choirs_constants(monkeypatch):
+    from tensixinet.narrate import explain as explain_module
+    p = dataclasses.replace(DEFAULT_PATCH, choir_onset="gong", choir_howl="register", choir_howl_odds=1.0)
+    monkeypatch.setattr(explain_module, "HOWL_MAX_S", 2.5)
+    monkeypatch.setattr(explain_module, "HOWL_CEILING", 10 ** (-3 / 20))
+    why = explain_howls([HARVESTED_CHIP] * 4, 20.0, p, sample_rate=8000)[0][1].why
+    assert "2.5 s" in why and "-3 dBFS" in why and "4 s" not in why and "-1 dBFS" not in why
+    patch_why = " ".join(d.why for d in explain_module.explain_patch(p, [HARVESTED_CHIP] * 4, "test"))
+    assert "2.5 s" in patch_why and "-3 dBFS" in patch_why
+
+
+def test_howls_are_not_claimed_for_a_choir_that_is_not_rendered():
+    p = dataclasses.replace(DEFAULT_PATCH, choir_onset="gong", choir_howl="register", choir_howl_odds=1.0)
+    chips = [HARVESTED_CHIP] * 4
+    assert explain_howls(chips, 20.0, p, sample_rate=8000)
+    assert explain_howls(chips, 20.0, p, sample_rate=8000, only=["gong"]) == []
+    assert explain_howls(chips, 20.0, p, sample_rate=8000, only=["ttchoir", "gong"])
+    assert explain_howls(chips, 20.0, p, sample_rate=8000, silent={9 % 4}) == []  # an idle (evicted) chip is silent
+    assert explain_howls(chips, 20.0, p, sample_rate=8000, silent={0})
+
+
+def test_explain_howls_can_leave_out_the_crossfade_tail():
+    p = dataclasses.replace(DEFAULT_PATCH, choir_onset="gong", choir_howl="register", choir_howl_odds=1.0)
+    every = explain_howls([HARVESTED_CHIP] * 4, 20.0, p, sample_rate=8000)
+    times = howl_times(HARVESTED_CHIP, 20.0, 9, p, 8000)
+    assert len(times) >= 2
+    cut = (times[0] + times[1]) / 2
+    kept = explain_howls([HARVESTED_CHIP] * 4, 20.0, p, sample_rate=8000, before=cut)
+    assert len(every) == len(times) and len(kept) == 1 and f"{times[0]:.2f}" in kept[0][1].what
+
+
+def test_the_waiting_check_uses_the_segment_it_is_given(monkeypatch):
+    from tensixinet.narrate import explain as explain_module
+    seen = []
+    real = explain_module.choir_triggers
+    monkeypatch.setattr(explain_module, "choir_triggers", lambda *a, **k: seen.append(a[4]) or real(*a, **k))
+    p = dataclasses.replace(DEFAULT_PATCH, choir_onset="register")
+    explain_chip(9, FALLBACK, 11, p, duration=10.0, segment=7)
+    assert seen == [7]
+
+
+def test_the_patch_log_says_when_a_saved_patch_picks_the_choirs_consonant_and_vowel():
+    def texts(**kw):
+        ds = explain_patch(dataclasses.replace(DEFAULT_PATCH, **kw), UNEVEN, "test")
+        return [d.what + " | " + d.why for d in ds if "pick" in d.what]
+    assert texts(choir_onset="gong") == [] and texts(choir_onset="gong", choir_pick=("", "")) == []
+    both = texts(choir_onset="gong", choir_pick=("sh", "i"))
+    assert len(both) == 1 and "sh" in both[0] and "ee" in both[0]
+    assert "consonant" in texts(choir_onset="gong", choir_pick=("t", ""))[0] and "vowel" not in texts(choir_onset="gong", choir_pick=("t", ""))[0].split("|")[0]
+    assert "vowel" in texts(choir_onset="gong", choir_pick=("", "o"))[0].split("|")[0]
+    assert "no onset source" in texts(choir_pick=("t", "a"))[0]

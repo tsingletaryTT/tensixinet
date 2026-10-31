@@ -876,3 +876,146 @@ def test_a_held_change_is_counted_once_when_errors_start_phrases_back_to_back(tm
     _, _, ev, _, _ = go(tmp_path, clock=clock, source=Source(clock, readings), duration=4.0)
     (delay,) = [e for e in ev if e["event"] == "delay"]
     assert delay["held_s"] == pytest.approx(0.1, abs=0.05)
+
+
+# --- on_segment: the terminal view's hook (tui/playhead.py), one call a block with the phrase that block plays ------------------------------
+
+def _hooked(tmp_path, **kw):
+    """`go` with an `on_segment` that records (seconds, state) for each call."""
+    got = []
+    sink, n, ev, source, clock = go(tmp_path, on_segment=lambda seconds, state: got.append((seconds, state)), **kw)
+    return got, sink, n, ev, source, clock
+
+
+def test_run_fast_hands_each_block_its_length_and_the_sessions_state(tmp_path):
+    got, sink, n, _, _, _ = _hooked(tmp_path, duration=2.0)
+    assert n == 20 and len(got) == n  # one call a block; the tail after the last block gets none
+    assert all(seconds == pytest.approx(0.1) for seconds, _ in got)
+    assert all(state is not None and state.soloist_device for _, state in got)
+    assert [state.seconds for _, state in got] == [pytest.approx(0.1 * k) for k in range(n)]  # each block's own state, in order
+
+
+def test_the_seconds_handed_over_are_each_blocks_real_length(tmp_path):
+    # an interval that is not a whole number of samples: a block is int(0.1234 * 8000) = 987 samples, a little under 0.1234 s
+    got, sink, n, _, _, _ = _hooked(tmp_path, duration=2.0, interval_s=0.1234)
+    assert [seconds for seconds, _ in got] == [len(c) / SR for c in sink.chunks[:-1]]
+
+
+def test_the_hook_is_called_before_its_block_can_reach_the_sink(tmp_path):
+    import time as real_time
+
+    calls, seen_at_write = [], []
+
+    def hook(seconds, state):
+        if len(calls) < 3:
+            real_time.sleep(0.05)  # long enough for the player thread to write a block that was already queued
+        calls.append(seconds)
+
+    class Watching(Sink):
+        def write(self, audio):
+            seen_at_write.append(len(calls))
+            super().write(audio)
+
+    clock = Clock()
+    sink, n, _, _, _ = go(tmp_path, clock=clock, sink=Watching(clock), duration=1.0, on_segment=hook)
+    # the k-th write (counting from 0) comes after the hook's (k+1)-th call, except the tail, which has no call
+    assert len(seen_at_write) == n + 1 and all(seen >= k + 1 for k, seen in enumerate(seen_at_write[:n]))
+
+
+def test_the_state_follows_the_phrase_a_change_starts(tmp_path):
+    clock = Clock()
+
+    def readings(t):
+        chips = mock_telemetry(2)
+        if t >= START + 2.5:  # the last phrase began at 1.0 s (the first one ran out), so this change is past the minimum gap
+            chips[0] = dataclasses.replace(chips[0], asic_temperature=chips[0].asic_temperature + 5.0)
+        return chips
+
+    source = Source(clock, readings)
+    got, _, n, _, _, _ = _hooked(tmp_path, clock=clock, source=source, duration=4.0)
+    reads = source.calls[1:]  # the first sample is taken before the loop; then one a block
+    j = next(b for b in range(n) if reads[b] >= START + 2.5)
+    segments = [state.segment for _, state in got]
+    assert segments[j] == segments[j - 1] + 1 and segments[j + 1] == segments[j]
+    hot = mock_telemetry(2)[0].asic_temperature + 5.0
+    assert got[j][1].chips[0].temp_c == pytest.approx(hot) and got[j - 1][1].chips[0].temp_c != pytest.approx(hot)
+
+
+class _Bare:
+    """A stand-in session with everything `run_fast` uses except `handed_state`, as a session made before that property existed."""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        if name in ("handed_state", "_inner"):
+            raise AttributeError(name)
+        return getattr(self._inner, name)
+
+
+def test_a_stand_in_session_without_states_still_runs_with_the_hook(tmp_path):
+    clock = Clock()
+    factory = lambda *a, **k: _Bare(InstrumentSession(*a, render=Render(clock), worker_factory=lambda: InlineWorker(clock), **k))
+    got, sink, n, _, _, _ = _hooked(tmp_path, clock=clock, duration=1.0, session_factory=factory)
+    assert n == 10 and len(got) == n and all(state is None for _, state in got)
+    assert sink.closed == 1
+
+
+def test_after_the_block_is_lengthened_the_states_come_from_the_new_session(tmp_path):
+    clock = Clock()
+    got, sink, n, ev, _, _ = _hooked(tmp_path, clock=clock, source=_slow_heads(clock), render=Render(clock, cost=0.3), duration=6.0)
+    assert len([e for e in ev if "lengthened" in e["what"]]) == 1 and len(got) == n
+    k = [seconds for seconds, _ in got].index(pytest.approx(0.4))  # the new session's first block, faded in over the old one's tail
+    assert k > 10 and got[k - 1][1].seconds == pytest.approx(0.1 * (k - 1))
+    assert [state.seconds for _, state in got[k:]] == [pytest.approx(0.4 * i) for i in range(n - k)]  # the new session counts from 0
+    assert got[k][1].segment >= got[k - 1][1].segment  # the phrase number carries on (carry_from)
+
+
+def test_a_hook_that_raises_is_logged_once_and_the_audio_is_unchanged(tmp_path):
+    calls = []
+
+    def hook(seconds, state):
+        calls.append(seconds)
+        raise RuntimeError("the screen went away")
+
+    (tmp_path / "plain").mkdir()
+    plain, n, _, _, _ = go(tmp_path / "plain", duration=2.0)
+    hooked, m, ev, _, _ = go(tmp_path, duration=2.0, on_segment=hook)
+    assert len(calls) == 1 and m == n  # not called again
+    assert np.array_equal(plain.audio, hooked.audio)
+    tui = [e for e in ev if e["event"] == "tui"]
+    assert len(tui) == 1 and "the screen went away" in tui[0]["what"] and "music goes on" in tui[0]["why"]
+
+
+def test_the_listener_time_through_a_playhead_matches_run_fasts_own(tmp_path):
+    from tensixinet.tui.playhead import Playhead, TimedSink
+
+    import threading
+
+    clock = Clock()
+    written = threading.Event()
+    calls = [0]
+
+    def readings(t):
+        # The second block's read waits for the first write, so the playhead's clock starts (on the player thread) before the loop's
+        # first pacing sleep moves the clock: both then start the listener at the same clock time, and the comparison is exact.
+        calls[0] += 1
+        if calls[0] == 3:
+            assert written.wait(2.0)
+        return mock_telemetry(2)
+
+    class Inner(Sink):
+        def write(self, audio):
+            super().write(audio)
+            written.set()
+
+    p = Playhead(clock, buffer_s=0.02)
+    inner = Inner(clock)
+    sink, n, ev, _, _ = go(tmp_path, clock=clock, source=Source(clock, readings), sink=p.wrap(inner), duration=2.0, on_segment=p.hand_over)
+    assert isinstance(sink, TimedSink) and n == 20
+    delivered = sum(len(c) for c in inner.chunks[:-1]) / SR  # run_fast's own `delivered`: the blocks, not the tail
+    # run_fast's own listener when it handed over its last block: that block and the lead (one block) were still ahead of it
+    assert p.heard_s() + 0.02 == pytest.approx(delivered - 0.1 - 0.1)
+    assert delivered - p.heard_s() - 0.02 <= 0.1 + 0.1 + 1e-9  # within one block of the seconds handed over, plus the lead
+    shown = p.shown().state
+    assert shown is not None and shown.seconds == pytest.approx(1.7)  # the block the listener is in: 1.78 s is inside 1.7 to 1.8 s

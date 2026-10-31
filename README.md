@@ -25,7 +25,7 @@ You can prompt a local language model first. Its work heats the chips, so you ca
 thinking. Every choice the program makes is written to a log with the reason for it, and each run
 draws a different patch, so no two runs sound alike unless you replay one.
 
-You do not need Tenstorrent hardware to try it. It can play any number of synthetic chips.
+You do not need Tenstorrent hardware to try it. It can play any number of synthetic chips. Tenstorrent hardware hardly strictly required: a nod to the Hardly Strictly Bluegrass festival, which is not strictly bluegrass either.
 
 **Project site:** <https://tsingletaryTT.github.io/tensixinet/> has the routing diagrams (with animated signal paths for five scenarios), the cable explorer and audio samples. Its source is in `site/`.
 
@@ -61,6 +61,7 @@ tensixinet --patch logs/patch_20261017_120000.json        # replay an earlier ru
 tensixinet --live --duration 120                          # play as it goes, reading the chips every turn
 tensixinet --live --interval 100                          # read the chips every 100 ms; how soon a change is heard is under "Fast sampling"
 tensixinet --live --with-tt-toplike                       # tmux: the synth and tt-toplike side by side, reading at the same rate
+tensixinet --live --tui                                   # the patch layout and the log, full screen
 ```
 
 Reading telemetry does not open the chips. `tt-smi -s` is read-only, so none of this needs a lease on a shared
@@ -81,7 +82,7 @@ chips play one each. Anything in between shares them.
 | **Gong** | Inharmonic strikes with slowly beating partials, a gamelan or tam-tam ring. A strike waits for the chip's clock to get through a blocking window | temperature, clock, heartbeat, chip identity |
 | **Ultrasonic shimmer** | Two close tones at 12 to 20 kHz that swell and fade, swell more near a limit, and snap on every gong strike | temperature, clock, GDDR temperatures, pressure, heartbeat, chip identity |
 | **ttavdog** | A droning oscillator that a ringing filter opens. A white voice sounds on one half of each swing and a red voice answers on the other half, at the same pitch with the opposite slope. The wave is a triangle at rest and skews toward a saw near a limit | temperature, clock, heartbeat, pressure, chip identity |
-| **ttchoir** | A chip as a singer: a glottal buzz through a vocal tract of formant resonances, sung on "oo", "oh", "ah", "eh" and "ee". The pitch is the chip's, snapped to the patch's scale, so the chips sing in tune. Each bar reads the next GDDR channel: a hotter channel sings toward "ee", a cooler one toward "oo". The voice type comes from the chip's identity | temperature, clock, GDDR temperatures, pressure, chip identity |
+| **ttchoir** | A chip as a singer: a glottal buzz through a vocal tract of formant resonances, sung on "oo", "oh", "ah", "eh" and "ee". The pitch is the chip's, snapped to the patch's scale, so the chips sing in tune. Each bar reads the next GDDR channel: a hotter channel sings toward "ee", a cooler one toward "oo". The voice type comes from the chip's identity. A patch can give it a trigger source (the gong, a roll, the shift register, the looping coco, the lead or the ttrax), and then it sings syllables with consonants (s, sh, f, h, p, t, k, b, d, g, m, n) that start on that source's triggers, with no word list (a real word can only turn up by chance), and may fire a rare self-oscillating howl. Measured only; nobody has heard the consonants | temperature, clock, GDDR temperatures, pressure, chip identity, and the fields of the six trigger sources |
 | **ttcoco** | The Cocoquantus's own delay chips, reimagined: eight parallel echo taps (the real instrument affords two) echoing the ttquantussy's own tone, one per GDDR channel. A hotter channel echoes faster and holds fewer bits, the real chips' own trade of delay length against resolution. Feedback is pressure | clock, GDDR temperatures, pressure, chip identity |
 | **ttsteam and Snare** | A noise snare on the steps of a 14-step shift register. The steps are the chip's harvested Tensix columns, so each chip has its own rhythm of holes | clock, Tensix mask, pressure, PCIe usage |
 
@@ -223,13 +224,54 @@ tensixinet --live --with-tt-toplike --interval 50 --toplike-args "--mode arcade"
 ```
 
 This starts a tmux session named `tensixinet` with the synth in the left pane and tt-toplike in the right, both at the same `--interval` (100 ms when it
-is not given). Inside tmux it splits the current window and leaves your own pane. Ctrl-C in the synth pane ends both, and so does quitting tt-toplike.
+is not given). Outside tmux the session runs on its own tmux socket (`tmux -L tensixinet attach -t tensixinet`) with the config in
+`tensixinet/media/tmux-toplike.conf`: no status bar and full 24-bit colour, the same settings tt-demo-maker records with. Your own `~/.tmux.conf` is not read
+there, so your key bindings and prefix do not apply in this session. Inside tmux it splits the current window and leaves your own pane and your own config (with `--tui` it opens a new window for the two panes). Ctrl-C in the synth pane ends both, and so does quitting tt-toplike.
 If the synth ends with an error, its pane waits for Enter so the message can be read. `--toplike-args` passes extra arguments to tt-toplike as one quoted
 string. It needs `--live`, tmux and tt-toplike on the PATH, and is refused with `--mock-chips` or `--kernels`. Nothing here opens `/dev/tenstorrent/*`,
 so it needs no gozer lease.
 
 **The command line no longer accepts abbreviated flags** (`--dur 30` was `--duration 30`). An abbreviated `--with-tt-toplike` would start sessions
 without end, because the synth pane would start another. A `TENSIXINET_IN_SESSION` variable also stops a synth pane from starting a session.
+
+### Full screen: `--tui`
+
+```bash
+tensixinet --live --tui --mock-chips 4         # try it with no hardware
+tensixinet --live --tui --player none          # on your chips, with the picture exactly on time (no sound)
+tensixinet --live --tui --interval 100         # fast mode, one frame per phrase
+tensixinet --live --with-tt-toplike --tui      # the synth pane shows it, tt-toplike beside it
+```
+
+`--tui` replaces the scrolling log with one full-screen picture of what is playing, drawn as the music plays. Each chip has a readings line (phase,
+temperature, power, pressure and the devices it drives), under a READINGS heading when there is a spare row. The devices are grouped by the role they play: RHYTHM, MELODY, AIR and MOD/DELAY. Each device
+shows which chip plays it and a four-cell bar for its share of the mix. The soloist and its chip are bold and the rest are dimmed, and the chip marks of each column line up. Below them are
+the five strongest cables as `source ═kind depth═▶ target` lines, a stereo line that places each device's two-letter code from left to right (`ld` is the lead, `rz` ttrollz; a legend
+under the line lists them when there is a spare row), and the run log, built
+into the same screen with the same jack colours, chip colours and device colours as the plain log. The picture is made from the same data as the
+Gradio page's flow chart (`FlowState`), so the two cannot disagree. It is made for 80 by 24 and redraws at most 10 times a second, changing only the cells that differ.
+At 24 rows or fewer it lists three cables, so the log has at least six rows for the reasons under each line.
+A frame with nothing new is not drawn again, and the whole screen is redrawn every 5 s (or on Ctrl-L), so a warning written over it does not stay.
+
+`q` and Ctrl-C both end the run the same way. The heading says at once that the run is stopping, the segments already made play out, and a second `q` or
+Ctrl-C stops at once. With `--tui` the player runs in its own session, so a Ctrl-C reaches only the run and not the player. On the way out the screen returns to normal and the last lines are printed, and the plain log still goes
+to the `.txt` file and the JSONL as before. `NO_COLOR` and `--color` are respected. `--tui` needs a terminal: with its output going to a pipe or a file it is refused.
+
+Limits, as measured so far:
+
+* Below 60 columns or 16 rows the screen is one line saying it is too small. A chip that is evicting or idle is drawn at one of three dimmer levels. The log pane keeps the newest 400 records.
+* In plain `--live` the run does not know how much sound the player has buffered, so with a real player the picture can run ahead of the sound.
+  `--player none` keeps exact time. In fast mode the run asks the player for a small buffer and counts it.
+* After `q` the run plays the segments it has already made, so it can take several seconds to end; the heading says so while it does.
+* In fast mode on the four real chips (`--interval 100 --player none`, 30 s runs, two with `--tui` and two without), the run's own delay report counted
+  0 gaps in the sound in every run.
+* In fast mode (`--interval`) the line saying who has the floor appears one phrase late, and the log has no howl lines or per-segment choir lines.
+* `--with-tt-toplike --tui` inside your own tmux opens a new window named `tensixinet`, with the synth and tt-toplike side by side, each half its width; your
+  own pane is left as it was, and the window closes when the run ends. Without `--tui` it splits your current window, as before. Outside tmux there are two panes.
+* A module's cable hint names the device at the other end of the cable. It does not name that device's chip, so with 12 or more chips (where a device is
+  dealt to two chips) it does not say which one.
+* The design mock for this screen also draws trigger lamps and output waves. The screen does not, because the flow data has neither.
+* Nobody has watched it for long. It was measured on pseudo-terminals and in tmux at 80 by 24 and 60 by 16, with synthetic chips and with the four real chips in fast mode.
 
 ## The Cocoquantus as an effects unit
 
@@ -327,9 +369,10 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--interval MS` | With `--live`: read the chips every MS ms, 10 to 1000 (blocks are at least 100 ms). See [Fast sampling](#fast-sampling---interval) |
 | `--with-tt-toplike` | With `--live`: start a tmux session with the synth and tt-toplike at the same `--interval` (100 ms by default) |
 | `--toplike-args ARGS` | With `--with-tt-toplike`: extra arguments for tt-toplike, as one quoted string |
+| `--tui` | With `--live`: draw the chips, the devices by role, who has the floor, the strongest cables, the stereo field and the log full screen; `q` or Ctrl-C ends the run. See [Full screen](#full-screen---tui) |
 | `--player NAME` | With `--live`: `auto` (the default), `none`, `paplay`, `aplay` or `ffplay` |
 | `--only DEVICES` | Audition: play only these devices (comma separated, for example `--only ttchoir,ttavdog`). The others are silent and there is no turn-taking, so you hear each device as it is |
-| `--kernels [MODE]` | Run the devices that have TT-Lang kernels (the gong, shimmer, drone ripple, AVDog, ttcoco mix and the mixer) on chips. `chip` (the default when no mode is given) takes a gozer lease on one board, `chips` on as many chips as the run plays with each chip's devices on that chip, `host` runs the same kernels' formulas in numpy with no chip, `sim` runs the kernels themselves in the TT-Lang simulator (needs `tt-lang-sim`; set `TT_LANG_SIM` if it is not on the path). The rest of the band stays on the CPU. See [kernels/README.md](kernels/README.md) |
+| `--kernels [MODE]` | Run the devices that have TT-Lang kernels (the gong, shimmer, drone ripple, AVDog, ttcoco mix, the choir's harmonics and the mixer) on chips. `chip` (the default when no mode is given) takes a gozer lease on one board, `chips` on as many chips as the run plays with each chip's devices on that chip, `host` runs the same kernels' formulas in numpy with no chip, `sim` runs the kernels themselves in the TT-Lang simulator (needs `tt-lang-sim`; set `TT_LANG_SIM` if it is not on the path). The rest of the band stays on the CPU. See [kernels/README.md](kernels/README.md) |
 | `--style NAME` | Draw the patch in a style: `chiptune`, `enya`, `blues` or `aphex`. A style narrows the scales, gong tunings, motif and turn length and sets the band's balance. The system and the seed still decide the rest, so no two runs match |
 | `--color MODE` | `auto` (the default) colours a terminal with the Ciat-Lonbarde jack colours unless `NO_COLOR` is set, `always` colours a recording that is not a terminal, `never` turns it off. The text log and the JSONL are never coloured |
 | `--mono` | One channel, the sound as it was before stereo. By default every voice is placed in a stereo field: a home for each chip, an offset for each device, an orbit that follows the chip's chaos and clock, depth, and movements from inside the devices (see [docs/SOUND.md](docs/SOUND.md#stereo-a-field-and-not-a-pair)) |
@@ -376,6 +419,7 @@ If the endpoint is down, the music still plays and the log says so.
 | `tensixinet/live.py` | The live loop: read, render a turn, play it while the next is made |
 | `tensixinet/fast.py` | The fast loop for `--interval`: read hwmon every block, play phrases from the Play tab's engine, report the delay |
 | `tensixinet/narrate/` | The what-and-why log |
+| `tensixinet/tui/` | The `--tui` screen: `layout.py` and `frame.py` turn the flow data into a grid of styled cells, `logpane.py` wraps and colours the log, `playhead.py` times what is shown to what is heard, `app.py` owns the terminal. Standard library only |
 | `tensixinet/media/` | The language model client, the ffmpeg soundtrack step, and the players live mode sends sound to, and the tmux session for `--with-tt-toplike` |
 | `tests/` | One test file per module, in a folder that matches the module's |
 | `demo/` | The [tt-demo-maker](https://github.com/tsingletaryTT/tt-demo-maker) manifest and scripts that record the video |
@@ -420,6 +464,18 @@ Deerhorn. The behaviour comes from three guides by Josh Singer (the Sidrax Guide
 Plumbutter & Rolzer Dance Party Guide). [docs/CIRCUITS.md](docs/CIRCUITS.md) says what each guide describes and which parts
 the code takes from it. Please buy and play the real instruments. Telemetry comes from [tt-smi](https://github.com/tenstorrent/tt-smi), and the
 demo uses [tt-toplike](https://github.com/tenstorrent/tt-toplike).
+
+The choir has influences of its own. Its consonants were inspired by the
+[ERD/WORM](https://modulargrid.net/e/erd-erd-worm-populus-edition), a Eurorack speech module from ERD Modular that bends emulated
+speech chips of the 1970s to the 1990s (facts from its [ModularGrid](https://modulargrid.net/e/erd-erd-worm-populus-edition) and
+[Perfect Circuit](https://www.perfectcircuit.com/erd-modular-erd-worm-populus-edition.html) listings). The ERD/WORM is a separate design by
+a different maker, and nothing is copied from it. The other influence is the Speak & Spell, Texas Instruments' talking toy of 1978: its
+TMS5100 chip was the first single chip to generate speech with linear predictive coding, and Richard Wiggins, Paul Breedlove, Larry
+Brantingham and Gene Frantz led the team
+([IEEE Milestone](https://ethw.org/Milestones:Speak_&_Spell,_the_First_Use_of_a_Digital_Signal_Processing_IC_for_Speech_Generation,_1978)).
+Behind it is the research on linear prediction by Fumitada Itakura and Shuzo Saito at NTT and by Bishnu Atal and Manfred Schroeder at
+Bell Labs in 1966 and 1967 (Atal's "The history of linear prediction", IEEE Signal Processing Magazine, 2006). `ttchoir` does not use
+linear prediction; it is formant synthesis.
 
 ## License
 

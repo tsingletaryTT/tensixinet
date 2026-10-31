@@ -19,6 +19,7 @@ from .narrate.explain import (
     explain_cables,
     explain_chip,
     explain_events,
+    explain_howls,
     explain_lead,
     explain_mix,
     explain_patch,
@@ -109,6 +110,7 @@ def describe_readings(
     patch_source: str,
     turns: bool = True,
     stereo: bool = False,
+    only: Optional[Sequence[str]] = None,
 ) -> None:
     """Log what the readings and the patch decide, one line each with its reason.
 
@@ -122,8 +124,9 @@ def describe_readings(
     if stereo:
         for d in explain_space(telemetry, patch):
             log.event("space", d.what, d.why)
+    choir_heard = only is None or "ttchoir" in only  # the waiting line is about a choir that is rendered
     for i, t in enumerate(telemetry):
-        for d in explain_chip(i, t, n, patch):
+        for d in explain_chip(i, t, n, patch, duration=duration if choir_heard else None):
             log.event("chip", d.what, d.why, chip=i)
         if any(dev.__name__ == "lead" for dev in chip_devices(i, n)):
             d = explain_lead(t, duration)
@@ -161,12 +164,14 @@ def run(
         log.event("discover", "no chips found, nothing to play",
                   f"{source} returned zero devices; refusing to invent any")
         raise ValueError("no chips in telemetry")
-    describe_readings(telemetry, duration, log, source, patch, patch_source, stereo=stereo)
+    describe_readings(telemetry, duration, log, source, patch, patch_source, stereo=stereo, only=only)
     log.event("render", f"rendering {duration:g}s at {sample_rate} Hz",
               "all chips are rendered, scaled by power, then mixed by current")
     log_only(log, only)
     log_cables(log, telemetry, patch, cables)
     audio = render_chorus(telemetry, duration, sample_rate, patch=patch, only=only, cables=None if cables else [], backend=backend, stereo=stereo)
+    for chip, d in explain_howls(telemetry, duration, patch, sample_rate=sample_rate, only=only):  # the howls of the render just made
+        log.event("choir", d.what, d.why, chip=chip)
     if score_sink is not None:  # the events of the same render, handed out as data; the audio above is not touched
         score_sink.add(chorus_score(telemetry, duration, patch, only=only, sample_rate=sample_rate), 0.0)
         close_score_sink(score_sink, log)

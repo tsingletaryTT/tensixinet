@@ -753,3 +753,45 @@ def test_a_session_that_has_run_out_ends_the_stream_and_frees_the_place(monkeypa
     made[0].next_audio = lambda timeout=0.0: None
     made[0].snapshot = lambda: type("S", (), {"running": False, "error": None, "telemetry": (), "playing": (), "notes": ()})()
     assert _take(g, 3) != [] and not app.visitors.player(app.LOCAL).active
+
+
+def test_the_play_tab_has_a_consonant_and_a_vowel_picker_and_no_fire_button():
+    from tensixinet.ui.knobs import CHOIR_ONSETS, CHOIR_VOWELS
+    components = _app().build().config["components"]
+    pickers = {c["props"]["label"]: c["props"] for c in components if c["type"] == "dropdown" and str(c["props"].get("label", "")).startswith("choir ")}
+    assert set(pickers) == {"choir consonant", "choir vowel"}
+    consonants, vowels = pickers["choir consonant"], pickers["choir vowel"]
+    assert [value for _, value in consonants["choices"]] == list(CHOIR_ONSETS) and tuple(consonants["choices"][0]) == ("any", "")
+    assert [value for _, value in vowels["choices"]] == list(CHOIR_VOWELS) and tuple(vowels["choices"][0]) == ("any", "")
+    assert [label for label, _ in vowels["choices"]][1:] == ["oo", "oh", "ah", "eh", "ee"]
+    assert consonants["value"] == "" and vowels["value"] == ""
+    assert not any("fire" in str(c["props"].get("value", "")).lower() for c in components if c["type"] == "button")
+
+
+def test_a_picker_change_writes_the_visitors_knobs_and_does_not_restart_the_session(monkeypatch):
+    app, made = _app(), []
+    _fake_new_instrument(app, monkeypatch, made)
+    a, b = _Req("a"), _Req("b")
+    g = app.instrument_play(*_iargs(), request=a)
+    next(g), next(g)
+    app.syllable_setter("t", "i", request=a)
+    assert made[0].knobs.syllable() == ("t", "i") and len(made) == 1 and not made[0].stopped
+    app.syllable_setter("s", "", request=b)  # another visitor has their own
+    assert made[0].knobs.syllable() == ("t", "i") and app._knobs("b").syllable() == ("s", "")
+    deps = app.build().config["dependencies"]
+    picks = [d for d in deps if d["api_name"].startswith("syllable_")]
+    assert len(picks) == 2 and not any(d["cancels"] for d in deps) and all("restart" not in d["api_name"] for d in picks)
+    g.close()
+
+
+def test_gradio_hands_the_syllable_setter_the_request():
+    app = _app()  # skips when gradio does not import
+    from gradio.helpers import special_args
+    sentinel = _Req("a visitor")
+    assert special_args(app.syllable_setter, ["t", "a"], sentinel)[0] == ["t", "a", sentinel]
+
+
+def test_the_two_choir_pickers_say_the_pick_is_sung_only_with_a_trigger_source():
+    components = _app().build().config["components"]
+    infos = [c["props"].get("info") for c in components if c["type"] == "dropdown" and str(c["props"].get("label", "")).startswith("choir ")]
+    assert len(infos) == 2 and all(i and "trigger source" in i for i in infos)

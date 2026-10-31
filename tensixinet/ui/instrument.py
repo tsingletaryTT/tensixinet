@@ -52,8 +52,9 @@ import queue
 import threading
 import time
 from collections import deque
+import dataclasses
 from dataclasses import dataclass
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -185,6 +186,7 @@ class _Plan:
     soloist: Optional[int]
     until: float  # with hold_soloist: when the soloist's turn ends
     segment: int
+    pick: Tuple[str, str] = ("", "")  # the Play tab's choir pick when the phrase was planned
 
 
 @dataclass(frozen=True)
@@ -251,6 +253,8 @@ class InstrumentSession:
         self._phrase: Optional[np.ndarray] = None  # the render being played out, and how far into it
         self._pos = 0
         self._sig: Optional[tuple] = None
+        self._pick: Tuple[str, str] = ("", "")  # the choir pick the playing phrase was rendered with
+        self._wanted_pick: Tuple[str, str] = ("", "")  # the knobs' choir pick as of the block being made
         self._phrases = 0  # phrases rendered: the next one's segment number
         self._meta: tuple = ((), (), ())  # the playing phrase's readings, devices heard and notes
         self._phases: dict = {}  # the playing phrase's chips that are not running, for the chart
@@ -261,6 +265,7 @@ class InstrumentSession:
         self._t0: Optional[float] = None  # the clock at the first hand-over: the listener's time 0
         self._pending: deque = deque()  # (seconds into the audio where a block starts, block, readings, devices heard, notes)
         self._shown: Optional[tuple] = None
+        self._handed: Optional[FlowState] = None  # the state of the latest block handed over (`handed_state`), set with `_pending` under the lock
         self._error: Optional[str] = None
         self._timing: Optional[tuple] = None  # (read_at, written_at, held, rendered) of the latest block, set as one value so a reader sees a matching set
         self._loop_rendered = False  # whether the block being made rendered (or waited for a render) on the loop's own thread
@@ -333,7 +338,11 @@ class InstrumentSession:
             notes += [event.what for event in self._evictor.take_events()]
         sig = _signature(chips, defrag)
         news = any(t.corr_errs or t.uncorr_errs or t.thermal_trips for t in chips)  # an error or a trip is heard, so it starts a phrase
-        changed = self._phrase is None or news or sig[1] != self._sig[1] or self._moved(sig, now)
+        self._wanted_pick = self.knobs.syllable() if self.knobs is not None else ("", "")
+        # a new choir pick is a hand on the instrument as an error is: it starts a phrase at once, with no minimum gap (when it can be heard)
+        # a pick can change the sound only when the patch's choir has a trigger source; without one it would only restart every device's clock
+        picked = bool(self.patch.choir_onset) and self._wanted_pick != self._pick
+        changed = self._phrase is None or news or picked or sig[1] != self._sig[1] or self._moved(sig, now)
         exhausted = self._phrase is not None and self._pos + self._block_samples > len(self._phrase) - self._xfade_samples
         self._raise_render_error()
         held = 0.0
@@ -363,7 +372,8 @@ class InstrumentSession:
         with self._lock:
             if self._t0 is None:
                 self._t0 = self._clock()
-            self._pending.append((self._delivered, self._block) + self._meta + (self._flow(),))
+            self._handed = self._flow()
+            self._pending.append((self._delivered, self._block) + self._meta + (self._handed,))
             self._delivered += len(ready) / self.sample_rate
         self._audio.put(np.clip(ready, -1.0, 1.0).astype(np.float32))
         self._timing = (now, self._clock(), held, self._loop_rendered)  # `now` is when this block's readings were taken
@@ -391,12 +401,15 @@ class InstrumentSession:
                 soloist = pick_soloist(slot_weights(chips, self.patch), self._phrases, self._soloist)
                 if self._hold_soloist is not None:
                     until = now + self._hold_soloist(chips)
-        return _Plan(list(chips), defrag, sig, notes, blocks, soloist, until, self._phrases)
+        return _Plan(list(chips), defrag, sig, notes, blocks, soloist, until, self._phrases, self._wanted_pick)
 
     def _render_plan(self, plan: _Plan, n: int) -> np.ndarray:
         """`n` samples of the phrase `plan` describes."""
         extra = {"soloists": [plan.soloist]} if self._only is None else {}
-        return self._render(plan.chips, (n + 0.5) / self.sample_rate, self.sample_rate, patch=self.patch, segment=plan.segment, only=self._only,
+        # the Play tab's pick fills in the choir's onset and vowel; a part it leaves empty keeps the session patch's own
+        pick = (plan.pick[0] or self.patch.choir_pick[0], plan.pick[1] or self.patch.choir_pick[1])
+        patch = self.patch if pick == self.patch.choir_pick else dataclasses.replace(self.patch, choir_pick=pick)
+        return self._render(plan.chips, (n + 0.5) / self.sample_rate, self.sample_rate, patch=patch, segment=plan.segment, only=self._only,
                             cables=None if self.config.cables else [], stereo=self.config.stereo, defrag=plan.defrag, **extra)
 
     def _start_phrase(self, chips, defrag, sig, notes, blocks, now: Optional[float] = None) -> Optional[np.ndarray]:
@@ -435,6 +448,7 @@ class InstrumentSession:
             block[:x] = block[:x] * fade_in + self._phrase[self._pos: self._pos + x] * fade_out
         self._soloist, self._soloist_until = plan.soloist, plan.until
         self._phrase, self._pos, self._sig, self._phrase_t = phrase, self._block_samples, plan.sig, now
+        self._pick = plan.pick
         self._phrases = plan.segment + 1
         self._head_end, self._silent = None, False
         chips = plan.chips
@@ -588,6 +602,14 @@ class InstrumentSession:
             return None
         read_at, written_at, _, _ = timing
         return interval_s + (written_at - read_at) + buffer_s
+
+    @property
+    def handed_state(self) -> Optional[FlowState]:
+        """The chart's data for the latest block handed over: the same `FlowState` that `snapshot()` shows once the listener reaches that block.
+        None before the first block. Fast mode hands it to its `on_segment` hook with the block (`tensixinet/fast.py`), and the terminal view
+        holds it until the listener reaches the block (`tui/playhead.py`). This is the newest block made, which is ahead of the one being heard."""
+        with self._lock:
+            return self._handed
 
     @property
     def rendered_on_loop(self) -> bool:

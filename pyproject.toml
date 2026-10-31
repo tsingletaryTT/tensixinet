@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tensixinet"
-version = "0.2.0"
+version = "0.3.1"
 description = "Tenstorrent chip telemetry played as a chorus of Ciat-Lonbarde-style devices"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,6 +25,9 @@ tensixinet = "tensixinet.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["tensixinet*"]
+
+[tool.setuptools.package-data]
+tensixinet = ["media/*.conf"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

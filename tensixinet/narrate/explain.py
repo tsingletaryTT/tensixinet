@@ -9,12 +9,12 @@ describe a mapping that is not in the sound.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 import math
 
 from ..music.cables import Cable, strength
-from ..music.chorus import DEVICES, assign_device, chip_devices, n_slots, plan_turns, slot_chip
+from ..music.chorus import DEVICES, SEGMENT_SEED_STRIDE, assign_device, chip_devices, n_slots, plan_turns, slot_chip
 from ..music.devices import (
     DEVICE_INPUTS,
     QUANTUS_GLIDE_NOTES,
@@ -26,6 +26,7 @@ from ..music.devices import (
     TRIGGER_RESPONSE_SPREAD,
     TRIGGER_RESPONSE_STEPS,
     VIBRATO_MAX_ST,
+    choir_triggers,
     gong_detune_cents,
     gong_trigger_roll,
     strike_times,
@@ -34,13 +35,15 @@ from ..music.devices import (
 from ..music.space import ORBIT_CALM, ORBIT_CHAOS, ORBIT_HZ_PER_BPM, chip_azimuth
 from ..music.ttrolzer import draw_links, roll_drift
 from ..music.ttsteam import STEPS, dust_per_second, snare_decay, step_pattern
-from ..music.ttchoir import voice_scale, vowel_sequence
+from ..music.consonants import FAMILY_FLOOR
+from ..music.ttchoir import CRUSH_BITS, HOWL_CEILING, HOWL_MAX_S, XFADE_S, howl_times, voice_scale, vowel_sequence
 from ..music.ttquantussy import castle_offset
 from ..music.ttcoco import N_TAPS, tap_bits, tap_delay_ms, tap_feedback
 from ..music.ttrax import FALLBACK_ARCCLK, N_BARRES, barre_bounds
 from ..music.events import MAX_BREATHS, MAX_SWEEPS, MAX_TICKS
 from ..music.lead import BRIGHTNESS, identity_offset, lead_transforms
 from ..music.patch import (
+    CHOIR_CODA_ODDS,
     DEFAULT_PATCH,
     DEGREES_PER_SCALE_STEP_C,
     GONG_TUNING_NAMES,
@@ -75,7 +78,7 @@ class Decision:
     why: str
 
 
-def explain_chip(index: int, t: Telemetry, n_chips: Optional[int] = None, patch: Patch = DEFAULT_PATCH) -> List[Decision]:
+def explain_chip(index: int, t: Telemetry, n_chips: Optional[int] = None, patch: Patch = DEFAULT_PATCH, duration: Optional[float] = None, segment: int = 0) -> List[Decision]:
     """What this chip plays and what each reading it feeds into those devices becomes."""
     n_chips = len(DEVICES) if n_chips is None else n_chips
     devices = [d.__name__ for d in chip_devices(index, n_chips)]
@@ -112,7 +115,7 @@ def explain_chip(index: int, t: Telemetry, n_chips: Optional[int] = None, patch:
             "each DDR field adds a ttrolzer roll of 3, 4, 5 or 6 sides on its own barre, so the lanes drift against "
             "each other; an odd roll is unsteady and an even one swings; status 0 grounds the roll and mutes it",
         ))
-    out.extend(_explain_wider_readings(t, devices, patch))
+    out.extend(_explain_wider_readings(t, devices, patch, duration, segment))
     out.append(Decision(
         f"power {t.power:.0f} W -> volume {power_to_volume(t.power):.2f}",
         "0-200 W maps onto volume 0.3-1.0 on an exponential curve",
@@ -124,7 +127,7 @@ def _percent_list(levels) -> str:
     return ", ".join(f"{lv:.0%}" for lv in levels)
 
 
-def _explain_wider_readings(t: Telemetry, devices: List[str], patch: Patch = DEFAULT_PATCH) -> List[Decision]:
+def _explain_wider_readings(t: Telemetry, devices: List[str], patch: Patch = DEFAULT_PATCH, duration: Optional[float] = None, segment: int = 0) -> List[Decision]:
     """Decisions for the readings beyond temperature, clock and power, only for devices on this chip."""
     out: List[Decision] = []
     pressure = chip_pressure(t)
@@ -216,11 +219,25 @@ def _explain_wider_readings(t: Telemetry, devices: List[str], patch: Patch = DEF
             f"ASIC {t.asic_temperature:.0f} C -> ttchoir pitch {temp_to_pitch_hz(t.asic_temperature):.0f} Hz, snapped to the patch's scale",
             "the chip's pitch is moved to the nearest note of the patch's scale so a choir of chips sings in tune with itself, with a gentle vibrato",
         ))
-        out.append(Decision(
-            f"GDDR channels -> vowels {' '.join(vowels)}",
-            "each bar the singer reads the next GDDR channel: a channel hotter than the average sings toward ee, a cooler one toward oo, "
-            "and equal temperatures sing ah; the formants glide from one vowel to the next",
-        ))
+        if patch.choir_onset:
+            codas = f", codas on {_CHOIR_SOURCE_PHRASE[patch.choir_coda][0]}" if patch.choir_coda else ""
+            out.append(Decision(
+                f"GDDR channels -> vowels {' '.join(vowels)}, syllables on {_CHOIR_SOURCE_PHRASE[patch.choir_onset][0]}{codas}",
+                "each syllable the singer reads the next GDDR channel: a channel hotter than the average sings toward ee, a cooler one toward oo, "
+                "and equal temperatures sing ah; the choir sings a syllable on each trigger and is silent between them",
+            ))
+            if duration is not None and not len(choir_triggers(patch.choir_onset, t, duration, _WAITING_RATE, segment, patch)[0]):
+                out.append(Decision(
+                    f"the choir is waiting on {_CHOIR_SOURCE_PHRASE[patch.choir_onset][0]}: none fire on this chip here, so it is silent",
+                    f"{_CHOIR_SOURCE_PHRASE[patch.choir_onset][1]} triggers are the only thing that starts a syllable, and this chip's "
+                    f"readings give none in {duration:g} s; the choir sings again when they do",
+                ))
+        else:
+            out.append(Decision(
+                f"GDDR channels -> vowels {' '.join(vowels)}",
+                "each bar the singer reads the next GDDR channel: a channel hotter than the average sings toward ee, a cooler one toward oo, "
+                "and equal temperatures sing ah; the formants glide from one vowel to the next",
+            ))
         out.append(Decision(
             f"chip identity {ident:08x} -> a {scale_name} voice (vocal tract x{voice_scale(ident):.2f}); pressure {pressure:.2f} -> glottal slope",
             f"{pressure_why}; the Tensix columns and ethernet links a chip has pick its voice type, and pressure flattens the glottal "
@@ -528,6 +545,84 @@ def _pitch_movement_decision(patch: Patch) -> Decision:
     )
 
 
+# The sample rate the "waiting" check works at: whether a source fires at all does not depend on it, and a low one is quick.
+_WAITING_RATE = 8000
+
+# How the log names what each choir source fires on (devices.choir_triggers).
+_CHOIR_SOURCE_PHRASE = {
+    "gong": ("the gong's strikes", "the gong's"),
+    "rolls": ("the rolls' pulses", "the rolls'"),
+    "register": ("the register's hits", "the register's"),
+    "quantus": ("ttquantus's notes", "ttquantus's"),
+    "lead": ("the lead's notes", "the lead's"),
+    "rax": ("ttrax's gestures", "ttrax's"),
+}
+
+
+_PICK_VOWEL_SPELLING = {"u": "oo", "o": "oh", "a": "ah", "e": "eh", "i": "ee"}  # how each vowel letter is sung
+
+
+def _choir_pick_decisions(patch: Patch) -> list:
+    """A line for a patch that carries the Play tab's pick of consonant and vowel (a saved patch); nothing when the pick is empty."""
+    onset, vowel = patch.choir_pick
+    parts = ([f"consonant {onset}"] if onset else []) + ([f"vowel {_PICK_VOWEL_SPELLING[vowel]}"] if vowel else [])
+    if not parts:
+        return []
+    what = f"choir pick: {' and '.join(parts)}"
+    if not patch.choir_onset:
+        return [Decision(what, "saved in the patch, but it has no onset source, so the choir has no syllables to apply it to")]
+    return [Decision(what, "saved in the patch: every syllable takes it, and the source still decides when they sound")]
+
+
+def _choir_decisions(patch: Patch) -> list:
+    """What starts the choir's syllables and how its consonants sound (the lines are off when no onset source is drawn)."""
+    if not patch.choir_onset:
+        return [Decision("choir: vowels on the bar, no consonants",
+                         "this patch has no onset source, so the choir sings its vowels on its own bar clock as before"),
+                *_choir_pick_decisions(patch)]
+    where = f"set by the {patch.style} style" if patch.style else "drawn from the seed"
+    # A style sets the consonant mix and the crush; the sources and the drift are drawn from the seed in every style.
+    seeded = f"drawn from the seed (the {patch.style} style leaves the sources to it)" if patch.style else "drawn from the seed"
+    onset = _CHOIR_SOURCE_PHRASE[patch.choir_onset][0]
+    out = [Decision(
+        f"choir syllables on {onset}",
+        f"{seeded}: one syllable on each trigger, silent between them apart from the last vowel dying away; "
+        f"a new trigger cuts the syllable and crossfades into the next in {XFADE_S * 1000:g} ms",
+    )]
+    none, own, other = CHOIR_CODA_ODDS
+    if patch.choir_coda:
+        out.append(Decision(f"codas on {_CHOIR_SOURCE_PHRASE[patch.choir_coda][0]}",
+                            f"{seeded}: none {none:.0%} of the time, the onset's own source {own:.0%}, another source {other:.0%}; "
+                            "a closing consonant ends the vowel"))
+    else:
+        out.append(Decision("no codas", f"{seeded}: no coda source {none:.0%} of the time"))
+    if patch.choir_howl:
+        out.append(Decision(
+            f"howl: {patch.choir_howl_odds:.0%} of {_CHOIR_SOURCE_PHRASE[patch.choir_howl][1]} hits fire self-oscillation",
+            f"{seeded}: a source chosen evenly and 2 to 8% of its triggers; the howl replaces the syllable, lasts at most {HOWL_MAX_S:g} s "
+            f"and is held under {_howl_ceiling_db()} dBFS, and the log says when it fires"))
+    else:
+        out.append(Decision("no howl", f"{seeded}: no source is set to fire self-oscillation"))
+    total = sum(patch.choir_mix)
+    plosive, fricative, nasal = (w / total for w in patch.choir_mix)
+    out.append(Decision(
+        f"consonant mix: plosive {plosive:.0%}, fricative {fricative:.0%}, nasal {nasal:.0%}",
+        f"{where if patch.style else 'drawn from the seed: each family weighted 0.2 to 1'}; the mix is the base lean: a stronger trigger "
+        f"leans to plosives, a weaker one to fricatives and nasals, and each family in the mix keeps at least {FAMILY_FLOOR:.0%} of its weight",
+    ))
+    crush_why = f"set by the {patch.style} style" if patch.style else "drawn from the seed: 0.3 to 1"
+    if patch.choir_crush <= 0.0:
+        out.append(Decision("speech-chip crush: none", f"{crush_why}; the voice keeps its full resolution"))
+    else:
+        bits = round(CRUSH_BITS[0] + (CRUSH_BITS[1] - CRUSH_BITS[0]) * patch.choir_crush)  # as ttchoir.speech_crush rounds them
+        out.append(Decision(f"speech-chip crush {patch.choir_crush:.0%} at full pressure, none at rest",
+                            f"{crush_why}; as the chip nears its limits the voice is rounded from {CRUSH_BITS[0]} bits down to "
+                            f"{bits} bits at full pressure ({CRUSH_BITS[1]} bits at the strongest crush)"))
+    out.append(Decision(f"voice drift {patch.choir_drift:.0%}",
+                        "drawn from the seed: 0.3 to 1; it sets how far the voice type, register and syllable length drift (the longest a syllable may be)"))
+    return out + _choir_pick_decisions(patch)
+
+
 def _pulse_rests_decisions(patch: Patch) -> list:
     """How many of the lead's notes and of ttrollz's pulses are left out."""
     where = f"set by the {patch.style} style" if patch.style else "drawn from the seed: 10 to 30%"
@@ -619,4 +714,39 @@ def explain_patch(patch: Patch, telemetry: Sequence[Telemetry], source: str) -> 
         _rests_decision(patch),
         *_pulse_rests_decisions(patch),
         _pitch_movement_decision(patch),
+        *_choir_decisions(patch),
     ] + _style_decision(patch)
+
+
+def _howl_ceiling_db() -> str:
+    """The howl's level ceiling in dBFS, as text, from the choir's own constant."""
+    return f"{20 * math.log10(HOWL_CEILING):.0f}"
+
+
+def explain_howls(telemetry: Sequence[Telemetry], duration: float, patch: Patch, segment: int = 0,
+                  sample_rate: int = 44100, only: Optional[Sequence[str]] = None, silent: Sequence[int] = (),
+                  before: Optional[float] = None) -> List[Tuple[int, Decision]]:
+    """One decision for each howl the choir fires in a render of `duration` seconds: (chip, decision), in time order for each
+    slot that plays ttchoir. A slot's howls use the seed the chorus gives it (`segment * SEGMENT_SEED_STRIDE + slot`), so
+    the log names the moments the audio howls. Empty when the patch has no onset or no howl source.
+
+    The log claims only howls that are heard: `only` is the render's device list (a render that plays other devices has no
+    choir), `silent` the chips that are silent (an idle, evicted chip), and `before` drops the howls that start at or after
+    that time (a live segment's crossfade tail belongs to the next segment)."""
+    out: List[Tuple[int, Decision]] = []
+    n = len(telemetry)
+    if n == 0 or (only is not None and "ttchoir" not in only):
+        return out
+    for slot in range(n_slots(n)):
+        if assign_device(slot).__name__ != "ttchoir" or slot_chip(slot, n) in silent:
+            continue
+        chip = slot_chip(slot, n)
+        for when in howl_times(telemetry[chip], duration, segment * SEGMENT_SEED_STRIDE + slot, patch, sample_rate):
+            if before is not None and when >= before:
+                continue
+            out.append((chip, Decision(
+                f"ttchoir howls at {when:.2f} s, on {_CHOIR_SOURCE_PHRASE[patch.choir_howl][0]}",
+                "the choir's feedback goes into self-oscillation on this trigger: it replaces the syllable, grows from nothing for up to "
+                f"{HOWL_MAX_S:g} s and is held under {_howl_ceiling_db()} dBFS",
+            )))
+    return out

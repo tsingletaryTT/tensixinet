@@ -32,3 +32,4 @@ demo/assets/*
 .venv/
 .venv-app/
 *.egg-info/
+dntel/

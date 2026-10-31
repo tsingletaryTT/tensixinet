@@ -160,7 +160,7 @@ def test_the_gong_carries_the_beat_in_every_style_as_much_as_the_snare_does():
 
 def test_each_style_sets_how_much_goes_through_the_coco_and_how_big_the_room_is():
     assert {n: s.bus for n, s in STYLES.items()} == {
-        "chiptune": (0.4, 0.1, 0.6), "enya": (0.8, 0.5, 3.5), "blues": (0.3, 0.3, 1.4), "aphex": (0.7, 0.25, 1.0)}
+        "chiptune": (0.4, 0.1, 0.6), "enya": (0.35, 0.15, 1.6), "blues": (0.3, 0.3, 1.4), "aphex": (0.7, 0.25, 1.0)}
     for name in STYLES:
         p = draw_styled_patch(3, CHIPS, name)
         assert (p.coco_send, p.coco_reverb, p.reverb_s) == STYLES[name].bus
@@ -206,3 +206,34 @@ def test_in_enya_the_looping_coco_devices_are_in_the_background_by_balance_and_b
             energy[device.__name__] = float(np.mean((emphasis_of(patch, device.__name__) * gains[s] * voice) ** 2))
         shares.append((energy["ttcoco"] + energy["ttquantus"]) / sum(energy.values()))
     assert max(shares) < 0.2 and np.mean(shares) < 0.15
+
+
+def test_enya_keeps_the_low_voices_and_the_room_down_so_the_stereo_field_keeps_its_shape():
+    # Measured against Dntel's "Enya Mixes": left/right correlation 0.2 to 0.65. With a send of 0.8 into a 3.5 s room enya was 0.1 to 0.2,
+    # a wash with nothing placed in it.
+    emphasis = dict(STYLES["enya"].emphasis)
+    assert (emphasis["ttdrone"], emphasis["ultrasonic_shimmer"], emphasis["lead"], emphasis["ttchoir"]) == (0.9, 1.0, 1.3, 1.8)
+    corr = []
+    for seed in (1, 2, 3, 5):
+        tel = mock_telemetry(4, seed=seed)
+        audio = render_chorus(tel, 24.0, 22050, draw_styled_patch(seed, tel, "enya"), stereo=True)
+        corr.append(float(np.corrcoef(audio[:, 0], audio[:, 1])[0, 1]))
+    assert np.mean(corr) > 0.25 and min(corr) > 0.1, corr  # the old settings gave a mean of 0.03 on these seeds
+
+
+def test_each_style_sets_the_choirs_consonant_mix_and_crush():
+    assert {n: (s.choir_mix, s.choir_crush) for n, s in STYLES.items()} == {
+        "chiptune": ((0.5, 0.3, 0.2), 1.0),
+        "enya": ((0.1, 0.3, 0.6), 0.0),
+        "blues": ((0.7, 0.15, 0.15), 0.3),
+        "aphex": ((0.4, 0.4, 0.2), 0.8),
+    }
+    enya, blues = STYLES["enya"].choir_mix, STYLES["blues"].choir_mix
+    assert enya[0] < enya[2] and blues[0] > max(blues[1:])  # enya leans soft, blues plosive
+    for name in STYLES:
+        p = draw_styled_patch(3, CHIPS, name)
+        assert (p.choir_mix, p.choir_crush) == (STYLES[name].choir_mix, STYLES[name].choir_crush)
+        plain = draw_patch(3, CHIPS)
+        # the sources still come from the seed
+        assert (p.choir_onset, p.choir_coda, p.choir_howl, p.choir_howl_odds, p.choir_drift) == (
+            plain.choir_onset, plain.choir_coda, plain.choir_howl, plain.choir_howl_odds, plain.choir_drift)

@@ -309,3 +309,87 @@ def test_more_than_eight_taps_are_refused():
 def test_fewer_than_eight_taps_are_padded_with_silence():
     tiles = coco_inputs([np.full(5, 0.3)], n=5)
     assert len(tiles) == COCO_TAPS and not tiles[1].any() and not tiles[-1].any()
+
+
+# --- ttchoir: the voiced part, a sum of sines, in groups of eight harmonics -------------------------------------------
+
+from tensixinet.kernels.packing import CHOIR_GROUP, choir_groups, choir_inputs, choir_on_host  # noqa: E402
+
+
+def test_a_choir_group_is_eight_harmonics_so_sixteen_tiles():
+    assert CHOIR_GROUP == 8
+    tiles = choir_inputs(np.zeros(10), [np.ones(10)], [1], 10)
+    assert len(tiles) == 2 * CHOIR_GROUP and all(t.shape == tiles[0].shape and t.dtype == np.float32 for t in tiles)
+
+
+def test_choir_inputs_reduce_each_harmonics_phase_to_one_turn_and_carry_its_level():
+    """A phase of thousands of radians times a harmonic number up to 40: the chip must get it reduced to [0, 2 pi) in float64,
+    because float32 alone would be off by about a radian at that size."""
+    n = 30 * 8000
+    phase = 2 * math.pi * 400.0 * np.arange(n) / 8000  # 75000 rad by the end
+    levels = [np.linspace(0.0, 1.0, n), np.full(n, 0.25), np.linspace(1.0, 0.0, n)]
+    numbers = [1, 17, 40]
+    tiles = choir_inputs(phase, levels, numbers, n)
+    p, a = tiles[:CHOIR_GROUP], tiles[CHOIR_GROUP:]
+    for j, (lv, k) in enumerate(zip(levels, numbers)):
+        got_p = unpack(p[j], n)
+        assert got_p.min() >= 0.0 and got_p.max() < 2 * math.pi + 1e-6
+        assert np.allclose(np.sin(got_p), np.sin(k * phase), atol=2e-6)
+        assert np.allclose(unpack(a[j], n), lv, atol=1e-7)
+    want = sum(lv * np.sin(k * phase) for lv, k in zip(levels, numbers))
+    assert np.allclose(choir_on_host(tiles, n), want, atol=5e-6)
+
+
+def test_unused_slots_of_a_group_are_silent():
+    n = 2000
+    tiles = choir_inputs(np.linspace(0, 50, n), [np.full(n, 0.5)], [3], n)
+    for j in range(1, CHOIR_GROUP):
+        assert not tiles[CHOIR_GROUP + j].any()  # level 0
+    assert np.allclose(choir_on_host(tiles, n), 0.5 * np.sin(3 * np.linspace(0, 50, n)), atol=2e-6)
+
+
+def test_more_than_eight_harmonics_in_one_group_are_refused():
+    with pytest.raises(ValueError):
+        choir_inputs(np.zeros(4), [np.zeros(4)] * 9, list(range(1, 10)), 4)
+
+
+def _choir_tables(count=40, n=24000, sr=8000, seed=0):
+    rng = np.random.default_rng(seed)
+    sample_t = np.arange(n) / sr
+    frame_t = np.arange(int(n / sr * 200) + 2) / 200
+    harmonics = rng.uniform(0, 1, (len(frame_t), count)) / count
+    phase = 2 * math.pi * np.cumsum(np.full(n, 220.0) * (1 + 0.01 * np.sin(sample_t))) / sr
+    return sample_t, frame_t, harmonics, phase
+
+
+@pytest.mark.parametrize("ks", [list(range(40)), list(range(13)), [0, 2, 5, 9, 11, 30, 31, 32, 33, 39], [7]])
+def test_the_groups_cover_the_harmonics_in_order_eight_at_a_time_and_add_up_to_the_numpy_sum(ks):
+    from tensixinet.music.ttchoir import harmonic_sum
+    sample_t, frame_t, harmonics, phase = _choir_tables()
+    n = len(sample_t)
+    groups = list(choir_groups(sample_t, frame_t, harmonics, phase, ks))
+    assert len(groups) == math.ceil(len(ks) / CHOIR_GROUP)
+    got = sum(choir_on_host(g, n) for g in groups)
+    want = harmonic_sum(sample_t, frame_t, harmonics, phase, ks)
+    assert np.allclose(got, want, atol=1e-5) and np.abs(want).max() > 0.01  # one harmonic of level <= 1/40 still sounds
+
+
+def test_no_harmonics_means_no_groups():
+    assert list(choir_groups(*_choir_tables(), [])) == []
+
+
+@pytest.mark.parametrize("onset", ["", "gong"], ids=["vowel", "syllable"])
+def test_the_choir_on_the_host_formula_matches_ttchoir_on_a_real_chip(onset):
+    """The host/chip split proven on its own: `choir_voice` with the kernel's formula in place of the sum is `ttchoir`."""
+    import dataclasses
+    from tensixinet.music.patch import DEFAULT_PATCH
+    from tensixinet.music.ttchoir import choir_voice, ttchoir
+    t = dataclasses.replace(FALLBACK, tensix_mask=0x3002, ddr_status=(1, 1, 1, 1), asic_temperature=55.0)
+    patch = dataclasses.replace(DEFAULT_PATCH, choir_onset=onset, choir_coda=onset, choir_drift=0.4)
+
+    def on_host(sample_t, frame_t, harmonics, phase, ks):
+        n = len(sample_t)
+        return sum((choir_on_host(g, n) for g in choir_groups(sample_t, frame_t, harmonics, phase, ks)), np.zeros(n))
+    for sr in (8000, 44100):
+        got, want = choir_voice(t, 4.0, sr, 2, patch, sines=on_host), ttchoir(t, 4.0, sr, 2, patch)
+        assert np.abs(want).max() > 0.05 and np.allclose(got, want, atol=1e-5), float(np.abs(got - want).max())

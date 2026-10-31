@@ -214,11 +214,13 @@ def live(tmp_path, *extra, sample=None, ask=None, sink=None, **kw):
 
     asked = Asked()
     asked.channels = []
+    asked.options = []
     tmp_path.mkdir(exist_ok=True)
 
-    def make_sink(player, rate, out, channels=1):
+    def make_sink(player, rate, out, channels=1, **options):
         asked.append((player, rate, out))
         asked.channels.append(channels)
+        asked.options.append(options)
         return sink, "a memory sink"
 
     argv = ["--live", "--sample-rate", "8000", "--out", str(tmp_path / "o.wav"), "--log-dir", str(tmp_path / "logs"), *extra]
@@ -1274,11 +1276,18 @@ def test_without_an_interval_the_sample_rate_is_still_44100(tmp_path, monkeypatc
 
 # --- --with-tt-toplike -----------------------------------------------------------------------------------------------------------------------
 
+from tensixinet.media import toplike as toplike_module  # noqa: E402
+
+
 def toplike(tmp_path, *extra, which=None, exists=False, monkeypatch=None):
     """Run the CLI with --with-tt-toplike and a fake tmux. Returns (exit code, the tmux commands that ran)."""
     ran = []
 
+    own = list(toplike_module.own_tmux())
+
     def tmux_run(cmd, **kw):
+        if cmd[:len(own)] == own:  # outside tmux every command carries the session's own socket and config; the checks below look at the verb
+            cmd = ["tmux"] + list(cmd[len(own):])
         ran.append(cmd)
         return 0 if (cmd[1] == "has-session" and exists) else (1 if cmd[1] == "has-session" else 0)
 
@@ -1356,7 +1365,29 @@ def test_an_existing_session_message_says_how_to_end_it(tmp_path, capsys, monkey
     monkeypatch.delenv("TMUX", raising=False)
     with pytest.raises(SystemExit):
         toplike(tmp_path, exists=True)
-    assert "tmux kill-session -t tensixinet" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "tmux -L tensixinet kill-session -t tensixinet" in err and "tmux -L tensixinet attach -t tensixinet" in err  # the session is on its own socket
+
+
+def raw_toplike_commands(tmp_path):
+    """Every tmux command the CLI runs for --with-tt-toplike, exactly as given to tmux (the socket prefix kept)."""
+    ran = []
+    main(["--live", "--with-tt-toplike", "--log-dir", str(tmp_path / "logs")], which=lambda n: f"/bin/{n}",
+         tmux_run=lambda c, **k: ran.append(list(c)) or (1 if c[-3:-2] == ["has-session"] or "has-session" in c else 0))
+    return ran
+
+
+def test_outside_tmux_the_session_uses_the_recording_style_tmux_config(tmp_path, monkeypatch):
+    monkeypatch.delenv("TMUX", raising=False)
+    ran = raw_toplike_commands(tmp_path)
+    own = list(toplike_module.own_tmux())
+    assert len(ran) == 5 and all(c[:len(own)] == own for c in ran)  # the has-session check too, or it would look at the wrong server
+
+
+def test_inside_tmux_the_owners_own_server_is_left_alone(tmp_path, monkeypatch):
+    monkeypatch.setenv("TMUX", "/tmp/tmux-1/default,1,0")
+    ran = raw_toplike_commands(tmp_path)
+    assert ran and all(c[0] == "tmux" and "-L" not in c and "-f" not in c[:4] for c in ran)
 
 
 def test_with_tt_toplike_needs_live(tmp_path, capsys):
@@ -1397,3 +1428,439 @@ def test_the_session_commands_use_the_found_toplike_path_and_the_callers_path(tm
     _, ran = toplike(tmp_path, which=lambda n: f"/found/{n}")
     assert "/found/tt-toplike --interval 100" in ran[2][-1]
     assert "PATH=/caller/bin" in ran[1] and "TENSIXINET_IN_SESSION=1" in ran[1]
+
+
+# --- --tui: the full-screen view of what is heard ------------------------------------------------------------------------------
+
+import re  # noqa: E402
+import time  # noqa: E402
+
+from tensixinet.tui.playhead import Playhead, TimedSink  # noqa: E402
+from tests.tui.test_app import FakeTerminal  # noqa: E402
+from tests.tui.test_frame import Screen  # noqa: E402
+
+
+class SlowSink(MemorySink):
+    """A memory sink that takes a moment over each write, so the TUI's thread draws frames while the run plays."""
+
+    def __init__(self, pause=0.25, on_first=None):
+        super().__init__()
+        self.pause, self.on_first = pause, on_first
+
+    def write(self, audio):
+        if not self.chunks and self.on_first is not None:
+            self.on_first()
+        super().write(audio)
+        time.sleep(self.pause)
+
+
+def _split_at_leave(term):
+    """The terminal's writes before its first `leave` and after it, each joined."""
+    before, after, left = [], [], False
+    for kind, text in term.snapshot():
+        if kind == "leave":
+            left = True
+        elif kind == "write":
+            (after if left else before).append(text)
+    return "".join(before), "".join(after)
+
+
+def screen(term):
+    """What the alternate screen showed last, as plain text: the TUI's writes up to `leave`, fed through a small emulator."""
+    w, h = term.size_
+    s = Screen(w, h)
+    s.feed(_split_at_leave(term)[0])
+    return "\n".join("".join(row) for row in s.grid)
+
+
+def after_leave(term):
+    return _split_at_leave(term)[1]
+
+
+def txt_log(tmp_path):
+    (txt,) = (tmp_path / "logs").glob("*.txt")
+    return txt.read_text()
+
+
+def test_tui_needs_live(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--mock-chips", "2", "--tui"))
+    assert e.value.code == 2
+    assert "--tui needs --live: it draws what is playing as it plays, and an offline run plays nothing" in capsys.readouterr().err
+
+
+def test_a_tui_run_with_mock_chips_draws_and_writes_the_wav_and_logs(tmp_path):
+    term = FakeTerminal()
+    code, sink, _ = live(tmp_path, "--tui", sink=SlowSink(), terminal=term)
+    assert code == 0 and term.entered == 1 and term.left == 1
+    shown = screen(term)
+    assert "segment 0" in shown and "has the floor" in shown and "●0" in shown and "●1" in shown  # the heading and both chips
+    assert sink.closed == 1 and sink.chunks  # the memory sink stands in for the player, and got the audio
+    assert list((tmp_path / "logs").glob("*.txt")) and list((tmp_path / "logs").glob("*.jsonl"))
+    assert str(tmp_path / "logs") in after_leave(term)  # the exit lines are on the normal screen
+
+
+def test_in_tui_mode_the_plain_log_goes_only_to_the_files(tmp_path, capsys):
+    live(tmp_path, "--tui", "--color", "always", terminal=FakeTerminal())
+    captured = capsys.readouterr()
+    assert captured.out == "" and "║ [00:" not in captured.err  # neither the coloured log nor the banner reaches the screen
+    txt = txt_log(tmp_path)
+    assert "segment 0" in txt and "\x1b" not in txt
+    assert not txt.startswith("║ [00:") and txt.index("\n\n") < txt.index("║ [00:")  # the banner went to the text log, ahead of the first line
+
+
+def test_with_no_banner_a_tui_runs_text_log_starts_at_the_first_line(tmp_path):
+    live(tmp_path, "--tui", "--no-banner", terminal=FakeTerminal())
+    assert txt_log(tmp_path).startswith("║ [00:")
+
+
+def test_the_tui_log_has_every_record_the_jsonl_has(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    made = []
+
+    class Spy(Playhead):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.noted = []
+            made.append(self)
+
+        def note(self, record):
+            self.noted.append(record)
+            super().note(record)
+
+    monkeypatch.setattr(cli, "Playhead", Spy)
+    code, _, _ = live(tmp_path, "--tui", terminal=FakeTerminal())
+    assert code == 0 and len(made) == 1
+    assert made[0].noted == read_events(tmp_path / "logs") and len(made[0].noted) > 3
+
+
+def test_tui_hands_the_live_loop_the_playheads_hook_a_timed_sink_and_counts_segments(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    seen, apps, heads = {}, [], []
+
+    def fake_live(sample, sink, log, sample_rate, **kw):
+        seen.update(sink=sink, **kw)
+        return 1
+
+    class SpyApp(cli.TuiApp):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            apps.append(k)
+
+    class SpyHead(Playhead):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            heads.append(self)
+
+    monkeypatch.setattr(cli, "run_live", fake_live)
+    monkeypatch.setattr(cli, "TuiApp", SpyApp)
+    monkeypatch.setattr(cli, "Playhead", SpyHead)
+    code, sink, _ = live(tmp_path, "--tui", terminal=FakeTerminal())
+    assert code == 0 and len(heads) == 1
+    hook = seen["on_segment"]
+    assert hook.__self__ is heads[0] and hook.__func__ is Playhead.hand_over
+    assert isinstance(seen["sink"], TimedSink) and seen["sink"]._inner is sink and seen["sink"]._playhead is heads[0]
+    assert apps[0]["unit"] == "segment" and apps[0]["log_dir"] == str(tmp_path / "logs")
+    assert heads[0]._buffer_s == 0.0  # plain live mode does not know the player's buffer
+
+
+def test_without_tui_the_live_loop_gets_no_hook_and_no_terminal_is_made(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    seen = {}
+
+    def fake_live(sample, sink, log, sample_rate, **kw):
+        seen.update(sink=sink, **kw)
+        return 1
+
+    monkeypatch.setattr(cli, "run_live", fake_live)
+    monkeypatch.setattr(cli, "TtyTerminal", lambda *a, **k: pytest.fail("no --tui, so no terminal is taken over"))
+    code, sink, _ = live(tmp_path)
+    assert code == 0 and seen["sink"] is sink and seen.get("on_segment") is None
+
+
+def test_without_a_terminal_given_tui_takes_the_real_one(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    made = []
+
+    def factory():
+        made.append(FakeTerminal())
+        return made[-1]
+
+    monkeypatch.setattr(cli, "TtyTerminal", factory)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)  # a real run's --tui needs its output to be a terminal
+    code, _, _ = live(tmp_path, "--tui")
+    assert code == 0 and len(made) == 1 and made[0].entered == 1 and made[0].left == 1
+
+
+def _spy_fast(monkeypatch):
+    """run_fast replaced by a spy, and the Playhead and TuiApp the CLI makes recorded. Returns (what run_fast got, the apps' keywords, the heads)."""
+    import tensixinet.cli as cli
+    seen, apps, heads = {}, [], []
+
+    def fake_fast(source, sink, log, sample_rate, interval_s, duration, patch, patch_source, **kw):
+        seen.update(sink=sink, **kw)
+        return 1
+
+    class SpyApp(cli.TuiApp):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            apps.append(k)
+
+    class SpyHead(Playhead):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            heads.append(self)
+
+    monkeypatch.setattr(cli, "run_fast", fake_fast)
+    monkeypatch.setattr(cli, "run_live", lambda *a, **k: pytest.fail("--interval must not call run_live"))
+    monkeypatch.setattr(cli, "TuiApp", SpyApp)
+    monkeypatch.setattr(cli, "Playhead", SpyHead)
+    return seen, apps, heads
+
+
+def test_tui_with_interval_passes_the_hook_and_counts_phrases(tmp_path, monkeypatch):
+    seen, apps, heads = _spy_fast(monkeypatch)
+    sink = MemorySink()
+    code, _, _ = fast(tmp_path, "--interval", "100", "--tui", sink=sink, terminal=FakeTerminal())
+    assert code == 0 and len(heads) == 1
+    hook = seen["on_segment"]
+    assert hook.__self__ is heads[0] and hook.__func__ is Playhead.hand_over
+    assert isinstance(seen["sink"], TimedSink) and seen["sink"]._inner is sink and seen["sink"]._playhead is heads[0]
+    assert apps[0]["unit"] == "phrase"  # fast mode's view counts phrases; plain live mode's counts segments (the test above)
+
+
+def test_the_playheads_buffer_is_the_delay_reports_in_fast_mode_and_zero_otherwise(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    real_live = cli.run_live
+    seen, _, heads = _spy_fast(monkeypatch)
+    fast(tmp_path / "a", "--interval", "100", "--tui", "--player", "paplay", terminal=FakeTerminal())
+    assert heads[-1]._buffer_s == pytest.approx(0.020)  # paplay is asked for PLAYER_LATENCY_MS, the buffer the delay report counts
+    assert seen["player_name"] == "paplay" and seen["latency_ms"] == 20
+    fast(tmp_path / "b", "--interval", "100", "--tui", "--player", "none", terminal=FakeTerminal())
+    assert heads[-1]._buffer_s == 0.0  # no player, no buffer
+    monkeypatch.setattr(cli, "run_live", real_live)
+    code, _, _ = live(tmp_path / "c", "--tui", terminal=FakeTerminal())
+    assert code == 0 and heads[-1]._buffer_s == 0.0  # plain live mode does not know the player's buffer
+
+
+def test_without_tui_fast_mode_gets_no_hook_and_its_own_sink(tmp_path, monkeypatch):
+    seen, apps, heads = _spy_fast(monkeypatch)
+    sink = MemorySink()
+    code, _, _ = fast(tmp_path, "--interval", "100", sink=sink)
+    assert code == 0 and seen["sink"] is sink and seen.get("on_segment") is None and not apps and not heads
+
+
+def test_a_tui_run_in_fast_mode_draws_phrases_and_writes_the_wav_and_logs(tmp_path):
+    term = FakeTerminal()
+    code, sink, _ = fast(tmp_path, "--interval", "100", "--tui", "--duration", "3", sink=SlowSink(pause=0.05), terminal=term)
+    assert code == 0 and term.entered == 1 and term.left == 1 and sink.closed == 1 and sink.chunks
+    shown = screen(term)
+    assert "phrase " in shown and "has the floor" in shown and "●0" in shown and "●1" in shown
+    assert list((tmp_path / "logs").glob("*.jsonl")) and str(tmp_path / "logs") in after_leave(term)
+
+
+def test_with_tt_toplike_and_tui_the_synth_pane_runs_the_tui_and_the_session_has_two_panes(tmp_path, monkeypatch):
+    monkeypatch.delenv("TMUX", raising=False)
+    code, ran = toplike(tmp_path, "--tui", "--player", "none")
+    verbs = [c[1] for c in ran]
+    assert code == 0 and verbs == ["has-session", "new-session", "split-window", "set-option", "attach-session"]  # two panes
+    synth, toplike_pane = ran[1][-1], ran[2][-1]
+    assert "--tui" in synth and "--interval 100" in synth and "--with-tt-toplike" not in synth
+    assert "--tui" not in toplike_pane
+    assert not (tmp_path / "logs").exists()  # the launcher took no terminal and wrote no log; the synth pane does both
+
+
+def test_tui_keeps_the_midi_rules_of_the_loop(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(["--live", "--tui", "--interval", "100", "--midi-file", str(tmp_path / "x.mid"), "--mock-chips", "2"])
+    assert e.value.code == 2 and "--interval cannot be used with --midi-file or --midi-port yet" in capsys.readouterr().err
+    # plain live mode keeps its MIDI file with the TUI
+    code, _, _ = live(tmp_path / "m", "--tui", "--midi-file", str(tmp_path / "y.mid"), terminal=FakeTerminal())
+    assert code == 0 and (tmp_path / "y.mid").exists()
+
+
+def test_q_in_the_tui_ends_a_live_run_like_ctrl_c(tmp_path):
+    term = FakeTerminal()
+    sink = SlowSink(pause=0.05, on_first=lambda: term.keys.put("q"))  # pressed once the music is playing
+    code, _, _ = live(tmp_path, "--tui", "--duration", "0", sink=sink, terminal=term)
+    assert code == 0 and term.left == 1 and sink.closed == 1
+    assert any(e["what"] == "stopped by Ctrl-C" for e in read_events(tmp_path / "logs"))  # the run's own Ctrl-C path, which writes the logs
+    assert "tensixinet: played" in after_leave(term) and str(tmp_path / "logs") in after_leave(term)  # the run's last line, on the normal screen
+
+
+def test_a_tui_run_with_no_chips_leaves_the_alternate_screen_before_the_error(tmp_path):
+    term = FakeTerminal()
+    code, _, _ = live(tmp_path, "--tui", sample=lambda: [], terminal=term)
+    assert code == 2 and term.left == 1
+    out = after_leave(term)
+    assert "no chips found" in out and str(tmp_path / "logs") in out
+    assert "no chips found" not in _split_at_leave(term)[0]  # not drawn under the alternate screen only
+
+
+def test_a_run_that_ends_before_the_tui_started_still_prints_the_exit_lines(tmp_path):
+    def make_sink(player, rate, out, channels=1, **options):
+        raise PlayerError("cannot start paplay: not installed")
+    term = FakeTerminal()
+    code, _, _ = live(tmp_path, "--tui", make_sink=make_sink, terminal=term)
+    out = "".join(term.writes)
+    assert code == 3 and term.entered == 0
+    assert "the audio output could not be used" in out and str(tmp_path / "logs") in out
+
+
+def test_an_exception_in_a_tui_run_restores_the_terminal_prints_it_and_is_raised(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+
+    def boom(*a, **k):
+        raise RuntimeError("the loop broke")
+
+    monkeypatch.setattr(cli, "run_live", boom)
+    term = FakeTerminal()
+    with pytest.raises(RuntimeError):
+        live(tmp_path, "--tui", terminal=term)
+    assert term.left == 1 and "RuntimeError: the loop broke" in after_leave(term)
+    assert str(tmp_path / "logs") in after_leave(term)
+
+
+def test_the_tui_closes_before_the_log(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    from tensixinet.narrate.runlog import RunLog
+    order = []
+    real_close, real_log_close = cli.TuiApp.close, RunLog.close
+    monkeypatch.setattr(cli.TuiApp, "close", lambda self, code: order.append(("tui", code)) or real_close(self, code))
+    monkeypatch.setattr(RunLog, "close", lambda self: order.append(("log",)) or real_log_close(self))
+    live(tmp_path, "--tui", sample=lambda: [], terminal=FakeTerminal())
+    assert order == [("tui", 2), ("log",)]
+
+
+def test_tui_respects_no_color(tmp_path, monkeypatch):
+    sgr_colour = re.compile(r"\x1b\[[0-9;]*38;")
+    monkeypatch.setenv("FORCE_COLOR", "1")  # the captured stdout is not a terminal; this makes "auto" colour it
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    coloured = FakeTerminal()
+    live(tmp_path / "a", "--tui", "--color", "auto", sink=SlowSink(), terminal=coloured)
+    assert sgr_colour.search("".join(coloured.writes))
+    monkeypatch.setenv("NO_COLOR", "1")
+    plain = FakeTerminal()
+    live(tmp_path / "b", "--tui", "--color", "auto", sink=SlowSink(), terminal=plain)
+    assert not sgr_colour.search("".join(plain.writes)) and "has the floor" in screen(plain)
+
+
+def test_tui_works_with_kernels_host(tmp_path):
+    worker = _Worker(2)
+    term = FakeTerminal(size=(160, 400))  # tall enough that the opening lines have not scrolled off
+    code, _, _ = live(tmp_path, "--tui", "--kernels", "host", sink=SlowSink(), terminal=term,
+                      make_worker=lambda mode, chips: worker)
+    assert code == 0 and worker.closed and term.left == 1
+    assert "TT-Lang kernels on" in screen(term)
+
+
+# --- --tui: q and Ctrl-C end the same way; the terminal it needs ---------------------------------------------------------------
+
+def test_with_tui_the_player_runs_in_its_own_session_and_without_it_as_before(tmp_path):
+    # A player in Python's process group dies of a terminal Ctrl-C; in its own session only Python gets it, so Ctrl-C and q drain alike.
+    _, _, asked = live(tmp_path / "a", "--tui", terminal=FakeTerminal())
+    assert asked.options == [{"own_session": True}]
+    _, _, asked = live(tmp_path / "b")
+    assert asked.options == [{}]
+
+
+class _DiesWithCtrlC(MemorySink):
+    """A player that shares the terminal's Ctrl-C: once the run is interrupted, every write fails as a dead paplay's would."""
+
+    def __init__(self, interrupted):
+        super().__init__()
+        self.interrupted = interrupted
+
+    def write(self, audio):
+        if self.interrupted:
+            raise PlayerError("paplay stopped before the audio was done")
+        super().write(audio)
+
+
+def _ctrl_c_on_the_third_read(interrupted):
+    reads = []
+
+    def sample():
+        reads.append(1)
+        if len(reads) == 3:
+            interrupted.append(1)
+            raise KeyboardInterrupt
+        return mock_telemetry(2)
+    return sample
+
+
+def test_a_player_that_dies_with_the_ctrl_c_ends_the_run_as_ctrl_c_does(tmp_path):
+    interrupted = []
+    code, _, _ = live(tmp_path, "--duration", "0", sample=_ctrl_c_on_the_third_read(interrupted), sink=_DiesWithCtrlC(interrupted))
+    assert code == 130  # a normal end by Ctrl-C, not exit code 3
+    events = read_events(tmp_path / "logs")
+    assert any(e["what"] == "stopped by Ctrl-C" for e in events)
+    assert any(e["event"] == "player" and "after Ctrl-C" in e["what"] for e in events)
+
+
+def test_with_tui_a_player_that_dies_with_the_ctrl_c_prints_no_error(tmp_path):
+    interrupted = []
+    term = FakeTerminal()
+    code, _, _ = live(tmp_path, "--tui", "--duration", "0", sample=_ctrl_c_on_the_third_read(interrupted),
+                      sink=_DiesWithCtrlC(interrupted), terminal=term)
+    out = after_leave(term)
+    assert code == 130 and term.left == 1
+    assert "why:" not in out and out.count("\n") == 1 and str(tmp_path / "logs") in out  # one exit line, no error dump
+
+
+def test_a_player_error_with_no_ctrl_c_is_still_exit_code_3(tmp_path):
+    code, _, _ = live(tmp_path, sink=_DiesWithCtrlC([1]))
+    assert code == 3
+
+
+def test_the_tui_is_disarmed_once_the_run_loop_returns_and_before_the_chips_are_released(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    order = []
+
+    class SpyApp(cli.TuiApp):
+        def disarm(self):
+            order.append("disarm")
+            super().disarm()
+
+    class Worker:
+        def start(self):
+            pass
+
+        def close(self):
+            order.append("release")
+
+    def fake_live(*a, **k):
+        order.append("run")
+        return 1
+
+    monkeypatch.setattr(cli, "TuiApp", SpyApp)
+    monkeypatch.setattr(cli, "run_live", fake_live)
+    code, _, _ = live(tmp_path, "--tui", "--kernels", "chip", terminal=FakeTerminal(), make_worker=lambda mode, chips: Worker())
+    assert code == 0 and order[:3] == ["run", "disarm", "release"]
+
+
+def test_fast_mode_sets_the_playheads_buffer_through_set_buffer(tmp_path, monkeypatch):
+    seen, _, heads = _spy_fast(monkeypatch)
+    calls = []
+    real = Playhead.set_buffer
+    monkeypatch.setattr(Playhead, "set_buffer", lambda self, s: calls.append(s) or real(self, s))
+    fast(tmp_path, "--interval", "100", "--tui", "--player", "paplay", terminal=FakeTerminal())
+    assert calls == [pytest.approx(0.020)] and heads[-1].heard_s() is None  # the public setter, not the private field
+
+
+def test_tui_refuses_when_its_output_is_not_a_terminal(tmp_path, capsys):
+    # The captured stdout here is not a terminal, as a pipe or a file is not; no terminal is handed in.
+    with pytest.raises(SystemExit) as e:
+        main(["--live", "--tui", "--mock-chips", "2", "--duration", "1", "--log-dir", str(tmp_path / "logs"), "--out", str(tmp_path / "o.wav")])
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "--tui needs a terminal" in err
+    assert not (tmp_path / "logs").exists()  # refused before any log was made
+
+
+def test_inside_tmux_with_tui_the_synth_and_tt_toplike_get_a_new_window_of_their_own(tmp_path, monkeypatch):
+    monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,1,0")
+    code, ran = toplike(tmp_path, "--tui", "--player", "none")
+    assert code == 0 and [c[1] for c in ran] == ["new-window", "split-window", "set-option"]
+    assert "--tui" in ran[0][-1]
+    code, ran = toplike(tmp_path, "--player", "none")  # without --tui the current window is split as before
+    assert [c[1] for c in ran] == ["split-window", "split-window", "set-option"]

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 import functools
-from typing import List, NamedTuple, Optional, Sequence, Tuple
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -26,9 +26,10 @@ from .mapping import (
     temp_to_pitch_hz,
     voltage_to_cents,
 )
-from .patch import DEFAULT_PATCH, SCALES, Patch
+from .lead import lead_notes
+from .patch import CHOIR_SOURCES, DEFAULT_PATCH, SCALES, Patch  # noqa: F401  (CHOIR_SOURCES is re-exported)
 from .register import step_times
-from .ttrax import FALLBACK_ARCCLK, barre_bounds, bounce_wave, ttrax  # noqa: F401  (re-exported: the chorus and the log import them from here)
+from .ttrax import FALLBACK_ARCCLK, barre_bounds, bounce_wave, gesture_times, ttrax  # noqa: F401  (re-exported: the chorus and the log import them from here)
 from .rests import rest_flags
 from .ttquantussy import castle_offset, castle_output, crunch, petal_phases, petal_ratios, pitch_offset, rest_offset
 from .ttrolzer import (
@@ -48,6 +49,18 @@ PENTATONIC = SCALES["major_pentatonic"]
 # work out how close its chip is to a limit (see mapping.pressure).
 PRESSURE_FIELDS = frozenset({"asic_temperature", "power", "thm_limit_throttle", "tdp_limit"})
 IDENTITY_FIELDS = frozenset({"tensix_mask", "eth_mask"})
+# The telemetry fields each source's trigger times and strengths read, under the patch the inputs test draws that source with
+# (tests/music/test_choir_triggers.py runs the choir once per source and checks this table against the audio). The choir's
+# `DEVICE_INPUTS` entry is its own fields plus the union of these sets, because a patch can draw any source.
+CHOIR_SOURCE_INPUTS: Dict[str, frozenset] = {
+    "gong": frozenset({"asic_temperature", "aiclk", "heartbeat", "ddr_status"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
+    "rolls": frozenset({"asic_temperature", "aiclk", "ddr_status", "eth_mask"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
+    "register": frozenset({"aiclk", "tensix_mask"}),
+    "quantus": frozenset({"aiclk", "axiclk"}) | IDENTITY_FIELDS,  # identity through the rest gate
+    "lead": frozenset({"aiclk"}),
+    "rax": frozenset({"aiclk"}),
+}
+
 DEVICE_INPUTS = {
     "ttrollz": frozenset({"asic_temperature", "aiclk", "ddr_status", "eth_mask"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ttrax": frozenset({"asic_temperature", "gddr_temps", "arcclk", "aiclk", "temp_rate", "power_rate"}) | PRESSURE_FIELDS,
@@ -57,7 +70,7 @@ DEVICE_INPUTS = {
     "gong": frozenset({"asic_temperature", "aiclk", "heartbeat", "ddr_status"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ttsteam": frozenset({"aiclk", "tensix_mask", "pcie_usage"}) | PRESSURE_FIELDS,
     "ttavdog": frozenset({"asic_temperature", "aiclk", "heartbeat", "ddr_status"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
-    "ttchoir": frozenset({"asic_temperature", "gddr_temps", "aiclk"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
+    "ttchoir": frozenset({"asic_temperature", "gddr_temps", "aiclk"}) | PRESSURE_FIELDS | IDENTITY_FIELDS | frozenset().union(*CHOIR_SOURCE_INPUTS.values()),
     "ultrasonic_shimmer": frozenset({"gddr_temps", "aiclk", "heartbeat", "ddr_status"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
     "ttcoco": frozenset({"aiclk", "axiclk", "gddr_temps"}) | PRESSURE_FIELDS | IDENTITY_FIELDS,
 }
@@ -463,6 +476,74 @@ def strike_times(t: Telemetry, duration: float, patch: Patch = DEFAULT_PATCH, se
     if "strikes" in patch.steam_routes:
         pulses = np.sort(np.concatenate([pulses, step_times(t, duration)]))
     return gate_triggers(pulses, window, first)
+
+
+# The chorus slot of the device whose seed the choir borrows for a source, so the source's rests and petals match the
+# device that is heard (`chorus.DEVICES`: ttquantus is slot 2, lead is slot 4; a test ties these to the tuple).
+SOURCE_SLOTS: Dict[str, int] = {"quantus": 2, "lead": 4}
+
+# A source with no strength of its own (the register, the roll pulses) triggers at this constant.
+NO_STRENGTH = 0.5
+
+
+def choir_roll(t: Telemetry) -> Optional[int]:
+    """The heard lane (index into the chip's rolls) the choir follows, picked by the chip's identity; None when no lane is up."""
+    heard = [lane.index for lane in ttrollz_lanes(t)]
+    return heard[personality(t) % len(heard)] if heard else None
+
+
+def ttquantus_onsets(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
+    """Start times (s) of the held notes of ttquantus that play. A note starts at k / `_note_rate` and plays when the rest
+    gate, read at the note's middle sample, is above 0.5 (the same rule as `score.collect.quantus_events`)."""
+    n = int(duration * sample_rate)
+    gate = ttquantus_gate(t, duration, sample_rate, seed, patch)
+    note_len = 1.0 / _note_rate(t)
+    starts = []
+    k = 0
+    while int(round(k * note_len * sample_rate)) < n:
+        start = k * note_len
+        k += 1
+        length = min(note_len, duration - start)
+        middle = min(n - 1, int(round((start + length / 2) * sample_rate)))
+        if gate[middle] > 0.5:
+            starts.append(start)
+    return np.array(starts, dtype=float)
+
+
+def choir_triggers(source: str, t: Telemetry, duration: float, sample_rate: int, segment: int,
+                   patch: Patch = DEFAULT_PATCH) -> Tuple[np.ndarray, np.ndarray]:
+    """(times, strengths) of the moments the choir sings a syllable, from one of `CHOIR_SOURCES`: times ascending inside
+    [0, duration), strengths in [0, 1]. `segment` is the stretch of the rolls' wander, as for `strike_times`.
+
+    gong: the strikes, at full strength. rolls: the whole roll of the lane the chip's identity picks (`choir_roll`), or the
+    chip's clock when no lane is up. register: every step that fires, whatever the snare share. quantus: the notes that play.
+    lead: its notes, strong on a phrase's first. rax: every press (strong) and release. Sources with no strength of their
+    own give `NO_STRENGTH`."""
+    if source not in CHOIR_SOURCES:
+        raise ValueError(f"unknown choir source {source!r}; choose from CHOIR_SOURCES: {', '.join(CHOIR_SOURCES)}")
+    bpm = aiclk_to_bpm(t.aiclk)
+    if source == "gong":
+        times = strike_times(t, duration, patch, segment)
+        strengths = np.ones(len(times))
+    elif source == "rolls":
+        lane = choir_roll(t)
+        times = ttrollz_pulse_times(bpm, duration) if lane is None else roll_pulses(t, duration, patch, segment)[lane][0]
+        strengths = np.full(len(times), NO_STRENGTH)
+    elif source == "register":
+        times = step_times(t, duration)
+        strengths = np.full(len(times), NO_STRENGTH)
+    elif source == "quantus":
+        times = ttquantus_onsets(t, duration, sample_rate, segment * SEGMENT_SEED_STRIDE + SOURCE_SLOTS["quantus"], patch)
+        strengths = np.full(len(times), NO_STRENGTH)
+    elif source == "lead":
+        notes = lead_notes(t, duration, sample_rate, segment * SEGMENT_SEED_STRIDE + SOURCE_SLOTS["lead"], patch)
+        times = np.array([n[0] for n in notes], dtype=float)
+        bar = int(round(30.0 / bpm * sample_rate)) * len(patch.motif)  # the lead's own phrase length, in samples
+        strengths = np.array([1.0 if round(s * sample_rate) % bar == 0 else NO_STRENGTH for s in times])
+    else:  # rax
+        times, is_press = gesture_times(bpm, patch.rax_bars, duration)
+        strengths = np.where(is_press, 1.0, NO_STRENGTH)
+    return np.asarray(times, dtype=float), np.asarray(strengths, dtype=float)
 
 
 def seconds_since(strikes: np.ndarray, n: int, sample_rate: int) -> np.ndarray:

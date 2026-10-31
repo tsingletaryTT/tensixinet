@@ -1248,3 +1248,101 @@ def test_a_body_still_missing_when_its_phrase_runs_out_is_dropped_so_the_worker_
     assert session.wait_render(2.0)
     session.render_block()  # a background error, if one was kept, would surface here
     assert background[0] == 0 and 1 not in background and session.snapshot().error is None
+
+
+# --- handed_state: the state of the block just handed over, for fast mode's terminal view (tui/playhead.py) -------------------------------
+
+def test_before_any_block_there_is_no_handed_state():
+    session, *_ = make()
+    assert session.handed_state is None
+
+
+def test_the_handed_state_is_the_one_the_snapshot_shows_when_the_listener_reaches_that_block():
+    session, _, _, clock = make(lead_s=1.5)
+    session.render_block()
+    first = session.handed_state
+    session.render_block()
+    assert first is not None and first.segment == 0 and first.seconds == pytest.approx(0.0)
+    assert session.handed_state is not first and session.handed_state.seconds == pytest.approx(BLOCK_S)  # the newest block, not the one heard
+    assert session.snapshot().state is first  # the listener is at 0 s, inside the first block
+    clock.t += BLOCK_S
+    assert session.snapshot().state is session.handed_state
+
+
+def test_the_handed_state_counts_phrases_and_follows_a_new_phrase():
+    session, _, knobs, _ = make(lead_s=9.0)
+    session.render_block()
+    assert session.handed_state.segment == 0
+    knobs.set(0, "power", 90.0)  # a knob move starts a phrase on the next block
+    session.render_block()
+    moved = session.handed_state
+    assert moved.segment == 1 and moved.chips[0].power_w == 90.0
+    session.render_block()  # the same phrase plays on
+    assert session.handed_state.segment == 1 and session.handed_state is not moved
+
+
+SINGING = dataclasses.replace(DEFAULT_PATCH, choir_onset="gong")  # a patch whose choir has a trigger source, so a pick changes the sound
+
+
+def test_a_new_pick_starts_a_phrase_at_once_and_renders_with_it():
+    session, render, knobs, clock = make(patch=SINGING)
+    session.render_block()
+    assert render.calls[0]["patch"] is SINGING  # no pick: the patch itself, as before
+    knobs.set_syllable("t", "i")
+    clock.sleep(1.0)
+    session.render_block()
+    assert len(render.calls) == 2 and render.calls[1]["patch"].choir_pick == ("t", "i")
+    clock.sleep(1.0)
+    session.render_block()  # the same pick again: the phrase plays on
+    assert len(render.calls) == 2
+    knobs.set_syllable("t", "")
+    clock.sleep(1.0)
+    session.render_block()
+    assert len(render.calls) == 3 and render.calls[2]["patch"].choir_pick == ("t", "")
+
+
+def test_a_pick_is_held_until_it_is_changed_and_a_session_with_no_knobs_has_none():
+    session, render, knobs, clock = make(patch=SINGING)
+    knobs.set_syllable("m", "a")
+    for _ in range(4):
+        session.render_block()
+        clock.sleep(1.0)
+    assert {c["patch"].choir_pick for c in render.calls} == {("m", "a")}
+    reading = _readings()
+    session = InstrumentSession(InstrumentConfig(scope="system", chips=2, style="", seed=1, stereo=True, cables=True, evict=True), None,
+                                SINGING, render=(r := Render()), clock=Clock(), sleep=lambda s: None, lead_s=1.5, read=lambda now: reading)
+    session.render_block()
+    assert r.calls[0]["patch"].choir_pick == ("", "")
+
+
+def test_a_pick_in_the_sessions_own_patch_stays_where_the_knobs_are_empty():
+    patch = dataclasses.replace(SINGING, choir_pick=("k", "u"))
+    session, render, knobs, clock = make(patch=patch)
+    session.render_block()
+    assert render.calls[0]["patch"] is patch
+    knobs.set_syllable("", "e")
+    clock.sleep(1.0)
+    session.render_block()
+    assert render.calls[1]["patch"].choir_pick == ("k", "e")
+
+
+def test_a_pick_on_a_patch_with_no_choir_source_starts_no_phrase():
+    session, render, knobs, clock = make()  # the default patch has no choir_onset
+    session.render_block()
+    knobs.set_syllable("t", "i")
+    clock.sleep(1.0)
+    session.render_block()
+    assert len(render.calls) == 1 and render.calls[0]["patch"] is DEFAULT_PATCH
+
+
+def test_a_pick_starts_its_phrase_at_once_inside_the_minimum_gap_where_a_slider_has_to_wait():
+    session, render, knobs, clock = make(patch=SINGING, min_gap_s=5.0, short_s=10 * BLOCK_S)  # a phrase long enough that running out cannot start the next one
+    session.render_block()
+    knobs.set(0, "power", 90.0)
+    clock.sleep(0.1)
+    session.render_block()
+    assert len(render.calls) == 1  # the slider's move waits for the gap, so the clock seam is doing its job
+    knobs.set_syllable("s", "o")
+    clock.sleep(0.1)
+    session.render_block()
+    assert len(render.calls) == 2 and render.calls[1]["patch"].choir_pick == ("s", "o")

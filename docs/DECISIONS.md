@@ -225,6 +225,10 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   synth pane open behind "Press Enter" and tt-toplike's pane with it. Now only Python gets the signal, and `close()` still waits for the player to finish. If a player does stop
   after a Ctrl-C, fast mode logs it and still ends as stopped (exit 0).
 * **The soloist is held for the patch's turn length** (`turn_seconds`) and chosen the way live mode chooses it. A short phrase started by a change keeps the held soloist.
+* **`--with-tt-toplike` runs on a tmux socket of its own, with a config of its own.** `tensixinet/media/tmux-toplike.conf` turns the status bar off and asks for truecolor
+  (`terminal-features ",*:RGB"`, `COLORTERM`), which is what tt-demo-maker's recordings use; without it tmux flattens tt-toplike's 24-bit gradients to 256 colours. tmux reads `-f` only when it starts a new server,
+  so outside tmux the session is `tmux -L tensixinet -f <conf>`, and your own tmux and `~/.tmux.conf` are not involved (and your prefix key and bindings do not exist in it). Inside tmux we split your
+  window on your server and change nothing about it. The config ships as package data (`pyproject.toml`).
 * **`--with-tt-toplike` uses tmux, and a command line without abbreviations.** Each pane tags itself (`@tensixinet_role`), and when its program ends it closes or interrupts the pane tagged the other way
   (tmux resolves `{right-of}` against the window's active pane, whichever pane ran the command). A reviewer found that an abbreviated `--with-tt` would not be stripped from the synth pane's command line and the
   pane would start another session without end. The parser therefore has `allow_abbrev=False`, and a `TENSIXINET_IN_SESSION` variable in the synth pane refuses a nested start. Abbreviated flags
@@ -252,3 +256,106 @@ Why the code is the way it is. Each item says what was chosen and what the evide
   The demo recording runs on a private Xvfb display, a null sink and a private Rack user folder (`-u`), which `ffmpeg -f x11grab` can read, where the desktop is Wayland and a screen grab there is black or needs a share dialog. Rack Free renders there with Mesa's software GL.
   The first attempts failed because display :99 belonged to another agent's `xvfb-run` and Rack died with "Could not initialize GLFW"; `Xvfb -displayfd` now picks a free number.
   The filter and envelope values are a first guess. The alternative, MIDI-CAT as in `~/code/vcv-cv-harness`, is for CCs onto knobs and is not needed to play notes.
+
+## Terminal view (`--tui`)
+
+* **A `Playhead` in the terminal package, next to `Session._pending` and not in place of it.** The Gradio `Session` already holds each segment's state until the listener
+  reaches its offset. The terminal view needs the same rule in a process with no Gradio, and the fast loop has no `Session`. `tui/playhead.py` holds the rule for both loops
+  (`hand_over(seconds, state)` before a block is queued, `note(record)` for each log record, `wrap(sink)` to learn when audio is written). The Gradio session was left as it is,
+  so the page's behaviour did not change. The cost is two copies of one idea. Merging them is open.
+* **`buffer_s` is 0 in plain live mode.** The player's own buffer is unknown there: `paplay`, `aplay` and `ffplay` each hold some audio the loop cannot see. With a real player the
+  picture can therefore run ahead of the sound by that buffer. `--player none` has no player buffer and keeps exact time. Fast mode asks the player for a small buffer, so it
+  passes the buffer it asked for (`player_buffer_s`), and the picture follows the sound to within that estimate.
+* **In fast mode the "has the floor" line is logged after the block is queued, so the screen shows it one phrase late.** `InstrumentSession` logs it when a phrase has been
+  made, and the hook runs before the put. Fast mode also logs no howls and no per-segment choir lines, because the Play tab's engine does not produce them. The screen is drawn from the
+  `FlowState` and is complete without them.
+* **The screen is made from `FlowState`, the data behind the Gradio chart.** A test compares them. The layout is built around instruments: a readings line per chip, then the modules
+  grouped by role, then the five strongest cables, then the stereo line, then the log in whatever height remains (at least 3 rows at 80x24). An early plan drew a box per chip with its
+  devices under it. That was replaced after the owner asked for a layout organised by instrument, since the cables and the soloist cross chips.
+* **Limits of the size.** Below 60x16 the screen is a single line. At 100 columns MOD/DELAY becomes a fourth column. Each chip has one readings line; when rows run short the
+  strip collapses to four lines (the soloist's chip among them) and a `+N more chips` line. The terminal is redrawn at most 10 times a second and only the cells that changed are sent.
+* **24 rows: three cables, so the log has six rows.** At 80x24 with four chips the log had four rows after the five cables and the two labels, so most reasons never showed. At 24 rows
+  or fewer three cables are listed; taller, five. The optional rows below take only rows above six rows of log at any height, so a taller screen does not give the log fewer
+  rows for them. When the plan cuts cables, folds and collapses, it still keeps three rows of log, as before.
+* **Optional rows go first, in a fixed order.** The CABLES and STEREO labels, a legend of the stereo codes and a READINGS heading that names the readings columns take only rows left over
+  above the log's floor. When rows run short the READINGS heading goes first, then the legend, then the STEREO label, then the CABLES label. A dim `q quit` sits at the right end of the
+  heading when the heading fits beside it (only the patch's parts are given up for it).
+* **Two-letter stereo codes.** With one letter, the lead (`L`) and ttrollz (`R`) could not be told from the `L` and `R` that label the ends of the line. Each device now has two lower-case
+  letters (`ld`, `rz`, `tx`, `sh` and so on, the owner's mock used several of them), and a code stops short of the end labels.
+* **The soloist's module row lines up without widening the others.** The soloist's row had an arrow and room for brackets, so its chip mark sat one or two cells right of the others.
+  Padding every row by those cells would have cost the cable hint on most rows at 80 columns. Instead the arrow takes the blank cell after the bar (`┃▶gong`), and without colour the row is
+  `▶[gong]`: the arrow takes the bar's cell and the brackets take cells that are blank on every other row. The readings line keeps the heavy bar for the focused chip.
+* **A frame with nothing new is not drawn again.** Re-rendering every frame cost 5 to 6 ms (about 5% of a core at 10 frames a second, under the GIL), and fast mode has little headroom.
+  The log rows are kept for the same records and width, and a frame is skipped when the state, the records, the size, the colour flag and the heading's notice are unchanged
+  (measured: 0.013 ms for such a frame against 5 ms for one with a new record). The whole screen is still redrawn every 5 s and on Ctrl-L, because diff-only drawing never repairs
+  a screen that something else wrote to. On the four real chips in fast mode (`--interval 100 --player none`, 30 s, two runs with `--tui` and two without) the run's own delay report
+  counted 0 gaps in every run; the worst block renders were 57 to 82 ms without `--tui` and 74 to 117 ms with it, while another agent held two of the chips.
+* **Standard library only, and cbreak, so Ctrl-C keeps working.** `tui/app.py` sets cbreak with `termios` (as `tty.setcbreak` does), which leaves signal characters on, so Ctrl-C reaches
+  Python as it does in the plain log. It also turns off IXON: with it on, Ctrl-S stops the terminal's output and the exit would wait on a frame stuck in `write`. The mode is put back with
+  `TCSANOW`, which does not wait for the output to drain. `q` and Ctrl-C both end the run through the loop's existing stop path, which plays the segments already made to the end.
+* **`q` sends a real SIGINT.** `_thread.interrupt_main()` only sets a flag, which a main thread blocked in the live loop's `room.acquire()` sees when the wait ends (measured: an
+  interrupt sent 0.3 s into a 3 s wait raised after 3.0 s; a real SIGINT raised after 0.3 s). So `q` calls `os.kill(os.getpid(), SIGINT)`, and the drawing thread blocks SIGINT and
+  SIGWINCH for itself so the main thread takes them. The heading says at once that the run is stopping, and a second `q` sends again, as a second Ctrl-C would. The check that `q` may
+  still send and the send are one step under a lock that `close` and `disarm` take, and the CLI disarms `q` once the run loop has returned, so it cannot interrupt the 40 s chip release.
+* **With `--tui` the player has a session of its own.** Plain live mode leaves the player in Python's process group, so a terminal Ctrl-C killed it, the drain write failed and the run
+  ended with exit code 3 and an error printout, while `q` drained cleanly. With `--tui` the player starts with `own_session=True`, as fast mode's does. And in every live run, a player
+  error that follows a Ctrl-C ends the run as Ctrl-C does (exit code 130), with a log line saying the player stopped after Ctrl-C.
+* **`--tui` needs a terminal.** With its output going to a pipe or a file, the alternate-screen codes would be written into it, so it is refused at the argument check. A run that ends with an error leaves the
+  alternate screen first, prints the last five log records and the message on the normal screen, and a `--with-tt-toplike` pane then waits for Enter.
+* **The screen is off the audio path.** A hook that raises is logged as one `tui` line, switched off, and the music goes on. The plain log goes to the `.txt` file and the JSONL exactly as before.
+* **`--with-tt-toplike --tui` runs `--tui` in the synth pane.** Inside the owner's own tmux, splitting the current window twice gave the synth a third of it, under 60 columns unless
+  the window was about 180 wide. With `--tui` it now opens a new window named `tensixinet` (`tmux new-window`, then `split-window -h -t :`, where `:` is the session's current window,
+  the new one), so the owner's pane is left as it was and each pane gets half the width. The panes still tag themselves and end each other: `close` lists the panes of its own window.
+  Checked in a scratch tmux server at 160 columns: the synth pane was 80 wide and tt-toplike's 79, `q` in the synth closed both, and the owner's window stayed. Without `--tui` the
+  current window is split as before. Outside tmux there are two panes.
+* **Known limit: a cable hint names a device and leaves out its chip.** With 12 or more chips a device is dealt to two chips, and the hint does not say which.
+* **Not done.** Nobody has watched the screen for long; it was measured on pseudo-terminals and in tmux. The design mock's trigger lamps and output waves are not drawn, because `FlowState`
+  has no data for them.
+
+## The choir's syllables (`ttchoir`)
+
+* **The owner's words.** "we're all vowels now. let's get some cosances too. my favorite modules is the ERD/WORM vocal synthesis module. There's a great point of inspiration";
+  "only things that sound like syllables but not words. words should only come by chance or by playing the instrument with intent"; "everything should be triggered by _something_ --
+  even the cocoquantus has triggering outs. and the trax. patches determine that. if it's on the beat it's because the beat says so. if it's off the beat it's because the beat says so.";
+  "triggering a self-oscillation/vocalization mode is a fair feature to add". What we know of the ERD/WORM comes from third-party ModularGrid listings only (the maker's page was not read).
+  The ERD/WORM is a separate design by a different maker. It is a point of inspiration, and nothing is copied from it.
+* **No trigger, no syllable.** With an onset source in the patch the choir sings on each trigger and is silent between them. A quiet chip, or a source with rests, gives a quiet choir.
+  With no source (`choir_onset == ""`) the choir is the old one on its bar clock, kept byte for byte as `_vowel_choir`, so a patch saved before syllables replays as it did. 72 hashes in
+  `tests/music/test_ttchoir.py` pin that, and every other choir field is ignored in that case. `CHOIR_ONSET_ODDS` has no "none" entry, so every drawn patch has an onset source,
+  and `--patch-seed N` no longer gives that seed's old vowel choir. A saved JSON patch still replays as it was.
+* **No word list.** The inventory is twelve consonants and five vowels. It can spell a few words by chance, and nothing aims at any.
+* **The sources live in `devices.py`, beside `strike_times`.** `choir_triggers` calls the functions the source devices already use (`strike_times`, `roll_pulses`, `step_times`, `lead_notes`,
+  `ttquantus_onsets`, and `ttrax.gesture_times`, which is new), so the choir and the device it follows cannot disagree about when something happens. `ttchoir` imports `devices` and `devices`
+  does not import `ttchoir`. A source is recomputed from the chip's own readings. The choir does not follow another chip's device.
+* **The register source ignores the snare share.** The shift register keeps stepping whatever share of its hits the snare plays (`Patch.snare`), so a patch with a silent snare still has a
+  register to follow. The choir fires on every step that fires, which keeps "use the register for more than the snare" true for the voice as well.
+* **`quantus` and `lead` borrow the seed of their own chorus slot** (`SOURCE_SLOTS`: slot 2 and slot 4, tied by a test to `chorus.DEVICES`). Their rests and petals come from the device's seed,
+  so the choir's triggers are the notes that device plays. The choir draws nothing of its own for them.
+* **A gong strike has strength 1.0.** A strike is an event with no velocity. The trigger's strength leans the consonant: a stronger trigger leans to plosives, a weaker one to fricatives
+  and nasals, and the patch's `choir_mix` is the base lean. So the gong, the beat's own voice, sings more plosives than its mix alone would give. The register and the roll pulses have no
+  strength of their own and give 0.5 (`NO_STRENGTH`).
+* **Every family keeps a floor, and a second draw nudges the consonant** (`consonants.pick_consonant`). The first rule weighted the families `mix[0] * s`, `mix[1] * (1 - s)` and
+  `mix[2] * (1 - s)` for a trigger of strength s, and took the member nearest the channel's sharpness. The final review measured what that did on the real chips with the gong as the source:
+  every syllable was a plosive, chip 0 sang "ga" 8 of 10 syllables and chip 1 "bo" 9 of 11, and an enya patch on the gong was all plosives against a plosive weight of 0.1. The owner had asked
+  for range and variance. Now the weights are `mix[0] * (0.3 + 0.7 s)`, `mix[1] * (1 - 0.7 s)` and `mix[2] * (1 - 0.7 s)` (`FAMILY_FLOOR` 0.3), so a strength-1 source still leans to plosives and
+  sings some fricatives and nasals. A second uniform from the same per-syllable stream moves the sharpness by up to 0.25 either way (`MEMBER_NUDGE` 0.5), held inside 0 to 1, before the member
+  is chosen. The nudges are drawn after the family draws, so each family draw keeps its place in the stream. The old choir (`choir_onset == ""`) never picks a consonant and is unchanged.
+* **A coda on the onset's own source alternates.** With one source for both roles the even triggers start syllables and the odd ones close them. Without that rule a closing trigger would
+  always be the next onset and would never land inside a syllable, so the coda would never sound.
+* **The howl runs at frame rate.** Its level follows a gain law at `FRAME_HZ` (200 a second), the rate the tract is updated at. The level changes slowly against that rate, and a loop per sample
+  in numpy would be slow for no audible gain. The cut that keeps it under -1 dBFS is applied to the frame whose growth would pass the ceiling, so the level never passes it and no clamp is needed.
+  A howl is capped at 4 s and one runs at a time. The cost is the pulse: once at the ceiling the level is halved and regrows about every 0.2 s, which is audible as a 5 Hz flutter.
+* **The howl is louder than the syllables and is not scaled by `CHOIR_LEVEL`.** It peaks near 0.87 where the syllables peak near 0.6 to 0.7, about 4 dB louder in RMS over its body. It was left
+  at the ceiling the spec asks for. The owner has heard it in the enya recording and made no complaint about it. The difference matters most for `--only ttchoir` and the Play tab's single device, where no other voice covers it. If it is too
+  loud by ear, scaling the howl by `CHOIR_LEVEL` is the knob.
+* **In live mode every render is stateless.** A howl cut by a segment boundary has no memory of its start, so the next segment may fire another before 4 s have passed. The stitcher's crossfade
+  hides the cut. Carrying a howl across segments needs the start-time offset that is open for the other devices (`docs/ROADMAP.md`, item 3).
+* **The crush is inside the choir's own render,** after the howl and before the final clip, so the cables see the crushed voice. It rounds toward zero, so it cannot raise a peak above the howl's ceiling.
+* **Low sample rates.** Below 16000 Hz a plosive's burst has its band top lowered to 0.40 of the rate, because a short burst's envelope spreads its spectrum past Nyquist (1.5% of its power on
+  average at 8000 Hz, up to 8% on some draws). At 22050 Hz and above the bursts are unchanged.
+* **Enya.** The whole choir keeps at most 5% of its energy above 4 kHz (a test), so the consonants sit inside the voice and the style stays dark.
+* **The Play tab picks a consonant and a vowel and has no fire button.** The owner, asked about a button to fire a syllable at will: "not yet. maybe some day". The pick only fills in the next
+  syllables. The patch's source still decides when they sound. A fire button needs a new control type in `ui/knobs.py` and `ui/instrument.py`.
+* **Fast mode (`--interval`) logs no howls and no per-segment choir lines,** because the Play tab's engine does not produce them. The line saying a chip's source is silent is logged from the first reading only.
+* **The choir's kernel does only the sum of sines.** Only the harmonics are a `sin` per sample; the syllable plan, the consonants' noise, the howl and the crush are sequential or need a table, so they stay on the host. `ttchoir.choir_voice` takes a `sines` callable, and the CPU choir passes `harmonic_sum`, the loop it always had, so the CPU output is unchanged to the bit. The kernel takes eight harmonics a run (sixteen input buffers and two of its own, the gong's count), and the host adds the runs.
+* **Not done.** MIDI events for the choir, a soft l or r, and a longer listen. The owner has heard the consonants, the howl and the crush (2026-10-31).

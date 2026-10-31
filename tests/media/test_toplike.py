@@ -10,8 +10,11 @@ from tensixinet.media.toplike import (
     DEFAULT_INTERVAL_MS,
     IN_SESSION,
     PASS_ENV,
+    CONF,
+    SOCKET,
     build_session,
     check_available,
+    own_tmux,
     run_session,
     session_exists,
     split_toplike_args,
@@ -25,7 +28,7 @@ def pane_commands(commands):
     """The shell script of each new pane, in order. Each pane command must be `sh -c <script>`, whatever the user's default shell is."""
     scripts = []
     for c in commands:
-        if c[1] in ("new-session", "split-window"):
+        if c[1] in ("new-session", "new-window", "split-window"):
             words = shlex.split(c[-1])
             assert words[:2] == ["sh", "-c"] and len(words) == 3
             scripts.append(words[2])
@@ -225,3 +228,58 @@ def test_the_synth_script_run_with_a_failing_program_waits_for_enter_then_closes
     calls = log.read_text().splitlines()
     assert "kill-pane -t %9" in calls and not any("%8" in c and c.startswith("kill-pane") for c in calls)
     assert calls[0].startswith("set-option -p -t %8 @tensixinet_role synth")
+
+
+def test_the_session_has_its_own_tmux_socket_and_config():
+    assert SOCKET == "tensixinet"
+    assert list(own_tmux()) == ["tmux", "-L", "tensixinet", "-f", str(CONF)]  # -f is only honoured on a socket whose server starts now
+    assert CONF.is_file() and CONF.parent.name == "media"
+
+
+def test_the_config_turns_the_status_bar_off_and_asks_for_truecolor():
+    lines = [ln.strip() for ln in CONF.read_text().splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    assert "set -g status off" in lines  # the owner's own status bar, clock and session name stay out of the picture
+    assert 'set -g default-terminal "tmux-256color"' in lines
+    assert 'set -as terminal-features ",*:RGB"' in lines  # without this tmux flattens tt-toplike's 24-bit gradients to 256 colours
+    assert 'set -as terminal-overrides ",*:Tc"' in lines
+    assert "setenv -g COLORTERM truecolor" in lines
+
+
+def test_the_config_is_shipped_with_the_package():
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text()
+    assert "package-data" in text and "media/*.conf" in text  # an installed copy has no repo folder to read it from
+
+
+def test_tui_is_passed_to_the_synth_pane_and_the_session_still_has_two_panes():
+    commands = build_session(["--live", "--with-tt-toplike", "--tui"], 100, [])
+    synth, toplike = pane_commands(commands)
+    assert "-m tensixinet --live --tui --interval 100" in synth and "--tui" not in toplike
+    assert sum(c[1] in ("new-session", "split-window") for c in commands) == 2
+
+
+def test_with_tui_a_failing_synth_still_waits_for_enter():
+    synth, _ = pane_commands(build_session(["--live", "--tui"], 100, []))
+    assert "Press Enter to close this pane" in synth
+
+
+def test_inside_tmux_with_tui_it_opens_a_new_window_split_in_two_and_leaves_the_users_pane_alone():
+    # Splitting the user's own window twice would give the TUI a third of it, under 60 columns on most screens.
+    commands = build_session(["--live", "--tui"], 100, [], inside_tmux=True, tui=True, cwd="/work", environ={"PATH": "/bin"})
+    assert [c[1] for c in commands] == ["new-window", "split-window", "set-option"]
+    assert commands[0][:4] == ["tmux", "new-window", "-n", "tensixinet"]
+    assert commands[1][:5] == ["tmux", "split-window", "-h", "-t", ":"]  # the session's current window: the new one
+    assert commands[2] == ["tmux", "set-option", "-w", "-t", ":", "remain-on-exit", "off"]
+    synth, toplike = pane_commands(commands)
+    assert "--tui" in synth and "--interval 100" in synth and "--tui" not in toplike
+    assert "@tensixinet_role synth" in synth and "@tensixinet_role toplike" in toplike  # each pane still tags itself and ends the other
+    assert f"{IN_SESSION}=1" in env_of(commands[0]) and not any(e.startswith(IN_SESSION) for e in env_of(commands[1]))
+    assert "/work" in commands[0] and "/work" in commands[1] and "PATH=/bin" in env_of(commands[1])
+
+
+def test_inside_tmux_without_tui_the_current_window_is_still_split_twice():
+    assert [c[1] for c in build_session(["--live"], 100, [], inside_tmux=True, tui=False)] == ["split-window", "split-window", "set-option"]
+
+
+def test_outside_tmux_tui_changes_nothing_in_the_session():
+    assert build_session(["--live", "--tui"], 100, [], tui=True) == build_session(["--live", "--tui"], 100, [])

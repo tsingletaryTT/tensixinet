@@ -27,9 +27,12 @@ class RunLog:
         dedupe_why: bool = False,
         palette: Optional[Palette] = None,
         plain_stream: Optional[TextIO] = None,
+        on_event: Optional[Callable[[dict], None]] = None,
     ):
         """`stream` is the screen. With an enabled `palette` it gets colour (see color.py) and `plain_stream`, when given, gets
-        the same lines without it, for a text log. Without a palette `stream` gets plain text, as it always did."""
+        the same lines without it, for a text log. Without a palette `stream` gets plain text, as it always did.
+        `on_event`, when given, is called with each record (the dict that went to the JSONL) once it is written; an error in it is
+        swallowed so the log and the run go on."""
         self._jsonl = jsonl
         self._stream = stream
         self._plain_stream = plain_stream
@@ -39,12 +42,18 @@ class RunLog:
         self._dedupe = dedupe_why
         self._seen = set()  # reasons already shown on screen
         self._start = clock()
+        self._on_event = on_event
 
     def event(self, event: str, what: str, why: str, **fields) -> None:
         t = round(self._clock() - self._start, 3)
         record = {"t": t, "event": event, "what": what, "why": why, **fields}
         self._jsonl.write(json.dumps(record) + "\n")
         self._jsonl.flush()
+        if self._on_event is not None:
+            try:
+                self._on_event(record)
+            except Exception:  # a broken listener must not stop the log or the run
+                pass
         mins, secs = divmod(t, 60)
         # The JSONL above always carries the reason. On screen a reason already
         # shown is skipped, so a long run does not scroll its own start away.

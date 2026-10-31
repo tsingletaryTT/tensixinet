@@ -64,6 +64,7 @@ from .narrate.explain import explain_events
 from .narrate.runlog import RunLog
 from .run import describe_readings, log_cables, log_eq, log_only
 from .telemetry import Telemetry
+from .ui.flow import FlowState
 from .ui.instrument import InstrumentConfig, InstrumentSession, signature_changed
 
 DELAY_BUDGET_S = 0.25  # the owner's budget from a chip changing to the change being heard
@@ -168,12 +169,20 @@ def run_fast(
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     session_factory: Callable = InstrumentSession,
+    on_segment: Optional[Callable[[float, Optional[FlowState]], None]] = None,
 ) -> int:
     """Play the chips for `duration` seconds (until Ctrl-C when None), reading them every block. Returns the number of blocks played.
 
     `source` has `start()`, `stop()`, `sample()` (the latest readings, [] when there are none), `fast` and `note` (`FastSource` or
     `SampledSource`). `label` names it in the log. `player_name` and `latency_ms` say which player buffer the delay report counts. Raises
-    `ValueError` when there has never been a reading and `PlayerError` when the player stops. The sink and the source are always closed."""
+    `ValueError` when there has never been a reading and `PlayerError` when the player stops. The sink and the source are always closed.
+
+    `on_segment` (the terminal view's playhead, see tui/playhead.py) is called on this loop's thread just before each block's audio is queued
+    for the sink, with the block's real length in seconds and the session's `handed_state`: the `FlowState` of the phrase that block plays (its
+    `segment` is the phrase number, and `seconds` counts from the session's first block, so it starts again at 0 after the block is lengthened
+    or shortened). A session without that property gives None. The tail after the last block gets no call. The hook must only store what it
+    is given and return. The sound never depends on it: if it raises, one "tui" line names the error, the hook is not called again, and the
+    run goes on, as in `run_live`."""
     buffer_s = player_buffer_s(player_name, sink, latency_ms)
     lead_s = lead_for(sample_rate)
     tracker = Tracker(window_s=RATE_WINDOW_S, hold=True)  # hold: a reading between two measured rates carries the last one
@@ -246,7 +255,7 @@ def run_fast(
         tracker.update(first, started)
 
         block_s = block_for(interval_s)
-        describe_readings(first, LONG_PHRASE_S, log, label, patch, patch_source, turns=False, stereo=stereo)
+        describe_readings(first, LONG_PHRASE_S, log, label, patch, patch_source, turns=False, stereo=stereo, only=only)
         log_only(log, only)
         if only and evict:  # the session ignores eviction when it plays some devices (ui/instrument.py), as the Play tab's scopes do
             log.event("live", "--only turns eviction off in fast mode",
@@ -338,6 +347,12 @@ def run_fast(
                 report["gaps"] += late - late_seen
                 report["gap_s"] += (late - late_seen) * block_s
             late_seen = late
+            if on_segment is not None:  # before the put, so the playhead knows the block before the sink can start playing it
+                try:
+                    on_segment(len(audio) / sample_rate, getattr(session, "handed_state", None))
+                except Exception as e:  # the picture is a by-product: its trouble never reaches the audio
+                    on_segment = None
+                    log.event("tui", f"the terminal view stopped: {e}", "the music goes on without it", block=blocks)
             audio_queue.put(audio)
             delivered += len(audio) / sample_rate
             played_samples += len(audio)

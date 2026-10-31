@@ -14,7 +14,7 @@ This module is plain numpy. The kernels themselves live in `kernels/` at the top
 from __future__ import annotations
 
 import math
-from typing import List, Optional, Sequence, Tuple
+from typing import Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -237,3 +237,42 @@ def avdog_on_host(tiles: Sequence[np.ndarray], n: int) -> np.ndarray:
     red = np.maximum(-u, 0) * (np.minimum(x * iq, ox * ip) * ar2 - ar)
     return unpack(white + red, n)
 
+
+
+CHOIR_GROUP = 8  # harmonics per run of the choir kernel: 16 input buffers plus 2 of its own, the same count as the gong's
+
+
+def choir_inputs(phase: np.ndarray, levels: Sequence[np.ndarray], numbers: Sequence[int], n: int) -> List[np.ndarray]:
+    """One group of the choir's voiced part, sixteen packed tiles: the phase of each harmonic, `numbers[j] * phase` reduced to
+    one turn in float64 (the voice's phase reaches thousands of radians, and times a harmonic number up to 40 a float32 phase
+    would be off by about a radian), then each harmonic's level at every sample. A group with fewer than `CHOIR_GROUP`
+    harmonics is padded with silent slots (level 0). The chip computes `sum_j a_j * sin(p_j)`."""
+    if len(levels) != len(numbers):
+        raise ValueError("one level per harmonic number")
+    if len(levels) > CHOIR_GROUP:
+        raise ValueError(f"the choir kernel takes {CHOIR_GROUP} harmonics at a time, got {len(levels)}")
+    phase = np.asarray(phase, dtype=np.float64)[:n]
+    phases = [pack(np.mod(k * phase, 2 * math.pi)) for k in numbers]
+    amps = [pack(np.asarray(level, dtype=np.float64)[:n]) for level in levels]
+    silent = pack(np.zeros(n))
+    pad = CHOIR_GROUP - len(levels)
+    return phases + [silent] * pad + amps + [silent] * pad
+
+
+def choir_groups(sample_t: np.ndarray, frame_t: np.ndarray, harmonics: np.ndarray, phase: np.ndarray,
+                 ks: Sequence[int]) -> Iterator[List[np.ndarray]]:
+    """The choir's voiced part as kernel runs: harmonic indices `ks` in order, `CHOIR_GROUP` at a time, each harmonic's level
+    interpolated from the frame table to the samples (as `ttchoir.harmonic_sum` does) and harmonic index k sung at `k + 1`
+    times the phase. One group at a time, so a long render never holds every group's tiles at once. Adding the kernel's
+    output for every group gives the voiced part."""
+    ks = [int(k) for k in ks]
+    for start in range(0, len(ks), CHOIR_GROUP):
+        group = ks[start:start + CHOIR_GROUP]
+        levels = [np.interp(sample_t, frame_t, harmonics[:, k]) for k in group]
+        yield choir_inputs(phase, levels, [k + 1 for k in group], len(sample_t))
+
+
+def choir_on_host(tiles: Sequence[np.ndarray], n: int) -> np.ndarray:
+    """The choir kernel's formula for one group, `sum_j a_j * sin(p_j)`, in float32 numpy."""
+    p, a = tiles[:CHOIR_GROUP], tiles[CHOIR_GROUP:2 * CHOIR_GROUP]
+    return unpack(sum(a[j] * np.sin(p[j]) for j in range(CHOIR_GROUP)), n)

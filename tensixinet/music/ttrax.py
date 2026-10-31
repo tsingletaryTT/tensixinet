@@ -119,6 +119,26 @@ def gesture_envelopes(bpm: float, barre: int, duration: float, sample_rate: int)
     return press, release
 
 
+def gesture_times(bpm: float, n_bars: int, duration: float) -> Tuple[np.ndarray, np.ndarray]:
+    """When every barre is pressed and released before `duration`: (times, is_press), sorted by time.
+
+    These are the moments `gesture_envelopes` peaks at 1: a press at the start of each of a barre's periods and a
+    release half a period later."""
+    times, is_press = [], []
+    for barre in range(n_bars):
+        period = GESTURE_STEPS * 60.0 / barre_bpm(bpm, barre)
+        k = 0
+        while k * period < duration:
+            times.append(k * period)
+            is_press.append(True)
+            if k * period + period / 2 < duration:
+                times.append(k * period + period / 2)
+                is_press.append(False)
+            k += 1
+    order = np.argsort(np.array(times, dtype=float), kind="stable")
+    return np.array(times, dtype=float)[order], np.array(is_press, dtype=bool)[order]
+
+
 def ttrax(t: Telemetry, duration: float, sample_rate: int, seed: int, patch: Patch = DEFAULT_PATCH) -> np.ndarray:
     """`patch.rax_bars` barres tuned to the patch's scale. Each plays a tone on its press and a glitch on its release.
 

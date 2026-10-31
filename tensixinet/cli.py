@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from .kernels.backend import KERNEL_DEVICES, KernelBackend
-from .fast import PLAYER_LATENCY_MS, SampledSource, run_fast
+from .fast import PLAYER_LATENCY_MS, SampledSource, player_buffer_s, run_fast
 from .live import run_live
 from .media.chip import ChipError, ChipWorker, chip_command, host_command, simulator_command
 from .music.chorus import chip_devices, device_names
@@ -29,6 +29,8 @@ from .narrate.color import Palette, banner, detect, legend
 from .narrate.runlog import RunLog
 from .telemetry import fetch_snapshot, host_fingerprint, mock_telemetry, parse_snapshot
 from .telemetry.fast import FastSource
+from .tui.app import Terminal, TtyTerminal, TuiApp
+from .tui.playhead import Playhead
 
 
 
@@ -125,10 +127,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--with-tt-toplike", action="store_true",
                    help="with --live: start a tmux session with two panes, this synth on the left and tt-toplike on the right, both "
                         "reading the chips at the same --interval (100 ms when --interval is not given). Inside tmux it splits the "
-                        "current window instead. Ctrl-C in the synth pane ends both; so does quitting tt-toplike. Refused with "
+                        "current window instead (with --tui it opens a new window, so the full-screen view has half the width). Ctrl-C in the synth pane ends both; so does quitting tt-toplike. Refused with "
                         "--mock-chips and --kernels")
     p.add_argument("--toplike-args", metavar="ARGS",
                    help='with --with-tt-toplike: extra arguments for tt-toplike, as one quoted string (for example "--mode arcade")')
+    p.add_argument("--tui", action="store_true",
+                   help="with --live: draw the chips, the devices, who has the floor, the strongest cables, the stereo field and the run log "
+                        "full screen, following what is heard; q or Ctrl-C ends the run. The plain log still goes to the .txt file and the JSONL")
     p.add_argument("--no-banner", action="store_true", help="start with the first log line instead of the art and the colour legend")
     p.add_argument("--endpoint", default="http://127.0.0.1:8011", help="OpenAI-compatible LLM endpoint")
     p.add_argument("--model", help="model name (default: whatever the endpoint serves)")
@@ -155,15 +160,24 @@ def _with_toplike(parser, a, raw_argv, which, run) -> int:
     if missing:
         parser.error(missing)
     inside_tmux = bool(os.environ.get("TMUX"))
-    if not inside_tmux and toplike.session_exists(toplike.SESSION, run):
-        parser.error(f"a tmux session named {toplike.SESSION} is already running; end it with `tmux kill-session -t {toplike.SESSION}`, "
-                     f"or attach to it with `tmux attach -t {toplike.SESSION}`")
+    tmux = toplike.TMUX if inside_tmux else toplike.own_tmux()  # inside the owner's tmux its server and config stay as they are
+    if not inside_tmux and toplike.session_exists(toplike.SESSION, run, tmux=tmux):
+        parser.error(f"a tmux session named {toplike.SESSION} is already running; end it with `tmux -L {toplike.SOCKET} kill-session -t {toplike.SESSION}`, "
+                     f"or attach to it with `tmux -L {toplike.SOCKET} attach -t {toplike.SESSION}`")
     interval = a.interval if a.interval is not None else toplike.DEFAULT_INTERVAL_MS
     # A detached session starts at tmux's 80x24 and the synth sizes its log to that; give it the terminal it will be attached to.
     size = None if inside_tmux else tuple(shutil.get_terminal_size())
     commands = toplike.build_session(raw_argv, interval, toplike.split_toplike_args(a.toplike_args), inside_tmux=inside_tmux,
-                                     cwd=os.getcwd(), environ=os.environ, toplike_path=which("tt-toplike"), size=size)
+                                     cwd=os.getcwd(), environ=os.environ, toplike_path=which("tt-toplike"), tmux=tmux, size=size,
+                                     tui=a.tui)
     return toplike.run_session(commands, run)
+
+
+def _is_terminal(stream) -> bool:
+    try:
+        return stream.isatty()
+    except (AttributeError, ValueError, OSError):
+        return False
 
 
 def _check_arguments(parser, a) -> tuple:
@@ -201,6 +215,8 @@ def _check_arguments(parser, a) -> tuple:
             parser.error(f"--midi-map: cannot read {a.midi_map}: {e}")
     if a.player and not a.live:
         parser.error("--player needs --live: an offline run writes a file and plays nothing")
+    if a.tui and not a.live:
+        parser.error("--tui needs --live: it draws what is playing as it plays, and an offline run plays nothing")
     if a.mock_faults and not a.mock_chips:
         parser.error("--mock-faults needs --mock-chips: real chips report their own errors")
     if a.midi_port and not a.live:
@@ -221,6 +237,7 @@ def main(
     which: Callable = shutil.which,
     tmux_run: Callable = subprocess.call,
     open_midi: Optional[Callable] = None,
+    terminal: Optional[Terminal] = None,
 ) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)  # --with-tt-toplike rebuilds the synth pane's command line from this
     parser = build_parser()
@@ -228,6 +245,9 @@ def main(
     if a.toplike_args is not None and not a.with_tt_toplike:
         parser.error("--toplike-args needs --with-tt-toplike: it gives arguments to the tt-toplike that option starts")
     only, routes = _check_arguments(parser, a)  # before --with-tt-toplike, so its errors show here and not inside the synth pane
+    if a.tui and not a.with_tt_toplike and terminal is None and not _is_terminal(sys.stdout):
+        # The launcher of --with-tt-toplike draws nothing itself: its synth pane is a terminal.
+        parser.error("--tui needs a terminal: standard output here is a pipe or a file, and the full-screen drawing would be written into it")
     if a.with_tt_toplike:
         return _with_toplike(parser, a, raw_argv, which, tmux_run)
     rate_given = a.sample_rate is not None
@@ -242,17 +262,36 @@ def main(
     # Fit the pane we are in; one column short so a full line never wraps the terminal itself.
     width = shutil.get_terminal_size().columns - 1
     palette = detect(sys.stdout, a.color)
-    log = RunLog(
-        jsonl=open(log_dir / f"tensixinet_{stamp}.jsonl", "w"),
-        stream=sys.stdout,
-        plain_stream=open(log_dir / f"tensixinet_{stamp}.txt", "w"),
-        palette=palette,
-        width=width,
-        dedupe_why=True,  # each reason once on screen; the JSONL keeps every one
-    )
+    playhead = None  # with --tui: what the screen shows, fed by the log (on_event) and the live loop (on_segment)
+    tui = None
+    if a.tui:
+        # The TUI owns the screen, so the plain log goes only to the .txt file (and the JSONL); every record also goes to the
+        # playhead, which shows it when the listener reaches the audio it was logged with. The palette decides the TUI's colours.
+        # Plain live mode starts the player with no latency request, so its buffer is not known and stays 0. Fast mode sets it below,
+        # once the sink exists, to the buffer its delay report counts.
+        playhead = Playhead(buffer_s=0.0)
+        log = RunLog(
+            jsonl=open(log_dir / f"tensixinet_{stamp}.jsonl", "w"),
+            stream=open(log_dir / f"tensixinet_{stamp}.txt", "w"),
+            width=width,
+            dedupe_why=True,
+            on_event=playhead.note,
+        )
+        tui = TuiApp(terminal if terminal is not None else TtyTerminal(), playhead, colour=palette.enabled,
+                     truecolor=palette.truecolor, unit="phrase" if a.interval is not None else "segment", log_dir=str(log_dir))
+    else:
+        log = RunLog(
+            jsonl=open(log_dir / f"tensixinet_{stamp}.jsonl", "w"),
+            stream=sys.stdout,
+            plain_stream=open(log_dir / f"tensixinet_{stamp}.txt", "w"),
+            palette=palette,
+            width=width,
+            dedupe_why=True,  # each reason once on screen; the JSONL keeps every one
+        )
     if not a.no_banner:
-        art = banner(width, palette) + [""] + legend(width, palette) + [""]
         plain_art = banner(width, Palette(False)) + [""] + legend(width, Palette(False)) + [""]
+        # With --tui the log's stream is the .txt file, so the plain art goes there and nothing reaches the screen.
+        art = plain_art if tui is not None else banner(width, palette) + [""] + legend(width, palette) + [""]
         log.raw("\n".join(art) + "\n", "\n".join(plain_art) + "\n")
 
     ask = ask or (lambda prompt, endpoint: llm.ask(prompt, endpoint, model=a.model))
@@ -290,6 +329,8 @@ def main(
         try:
             port_sink = MidiPortSink(a.midi_port, routes=routes, offset_ms=a.midi_offset_ms, **({"open_output": open_midi} if open_midi else {}))
         except MidiPortError as e:
+            if tui is not None:
+                tui.close(2)  # not started, so this only prints the exit lines; parser.error then prints the message under them
             log.close()
             parser.error(str(e))
     sinks = [x for x in (file_sink, port_sink) if x is not None]
@@ -297,6 +338,7 @@ def main(
     worker = None
     score_closed = False
     held_chips = False  # true once the worker is ready, so a failed start does not claim to release anything
+    code = 1  # the run's exit code, as the TUI is told at the end; every return below sets it first
     try:
         replay = None
         if a.patch:
@@ -304,7 +346,7 @@ def main(
                 replay = load_patch(a.patch)
             except ValueError as e:
                 log.event("patch", f"cannot read patch {a.patch}", f"{e}; nothing was played")
-                return 2
+                return (code := 2)
         if a.prompt:
             try:
                 reply = ask(a.prompt, a.endpoint)
@@ -346,7 +388,7 @@ def main(
                 except ChipError as e:
                     log.event("backend", f"the kernels could not start: {e}",
                               "a run with --kernels ends when the kernels cannot run, so nothing was played")
-                    return 3
+                    return (code := 3)
                 backend = KernelBackend(worker, log=lambda note: log.event(
                     "backend", note, "the kernels' formulas run on the CPU from here on, so the sound does not stop"))
                 log.event("backend", f"TT-Lang kernels on {where} ({a.kernels} mode)",
@@ -370,32 +412,49 @@ def main(
                                                                    latency_ms=PLAYER_LATENCY_MS)
                 except PlayerError as e:
                     log.event("player", f"the audio output could not be used: {e}", "a live run ends when it has nowhere to play")
-                    return 3
+                    return (code := 3)
                 rate_why = (f"the sound is made at {a.sample_rate} Hz, as --sample-rate asked" if rate_given else
                             f"the sound is made at {a.sample_rate} Hz, fast mode's default: it renders in half the time of {DEFAULT_SAMPLE_RATE} Hz, "
                             f"and --sample-rate {DEFAULT_SAMPLE_RATE} gives the fuller rate")
                 log.event("live", f"live mode: {where}", f"each block is played as soon as it is made; {rate_why}")
+                hooks = {}
+                if tui is not None:
+                    # The player buffer the delay report counts: the listener hears a block that much after it is written. Set before
+                    # the TUI's thread starts and before any audio, so nothing reads it while it changes.
+                    playhead.set_buffer(player_buffer_s(a.player or "auto", sink, PLAYER_LATENCY_MS))
+                    sink = playhead.wrap(sink)  # its first write starts the listener's clock
+                    hooks["on_segment"] = playhead.hand_over
+                    tui.start()  # here, on the main thread: the resize signal can only be installed there
                 try:
                     run_fast(fast_source, sink, log, a.sample_rate, a.interval / 1000.0, a.duration or None, patch, patch_source,
                              normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables, stereo=not a.mono,
-                             evict=not a.no_evict, player_name=a.player or "auto", latency_ms=PLAYER_LATENCY_MS, label=source,
+                             evict=not a.no_evict, player_name=a.player or "auto", latency_ms=PLAYER_LATENCY_MS, label=source, **hooks,
                              **({"clock": clock} if clock else {}))
                 except PlayerError:
-                    return 3  # run_fast has logged what stopped
+                    return (code := 3)  # run_fast has logged what stopped
             elif a.live:
+                # With --tui the player gets a session of its own, as fast mode's does: a terminal Ctrl-C then reaches only Python,
+                # and Ctrl-C and q both play out the segments already made.
+                session = {"own_session": True} if tui is not None else {}
                 try:
-                    sink, where = (make_sink or default_make_sink)(a.player or "auto", a.sample_rate, out, channels=1 if a.mono else 2)
+                    sink, where = (make_sink or default_make_sink)(a.player or "auto", a.sample_rate, out, channels=1 if a.mono else 2, **session)
                 except PlayerError as e:
                     log.event("player", f"the audio output could not be used: {e}", "a live run ends when it has nowhere to play")
-                    return 3
+                    return (code := 3)
                 log.event("live", f"live mode: {where}",
                           "the chips are read again every turn and each turn is played as soon as it is made")
+                hooks = {}
+                if tui is not None:
+                    sink = playhead.wrap(sink)  # its first write starts the listener's clock
+                    hooks["on_segment"] = playhead.hand_over
+                    tui.start()  # here, on the main thread: the resize signal can only be installed there
                 try:
                     run_live(sample, sink, log, a.sample_rate, duration=a.duration or None, source=source, patch=patch,
                              patch_source=patch_source, normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables,
-                             backend=backend, stereo=not a.mono, evict=not a.no_evict, score_sink=score_sink, **({"clock": clock} if clock else {}))
+                             backend=backend, stereo=not a.mono, evict=not a.no_evict, score_sink=score_sink, **hooks,
+                             **({"clock": clock} if clock else {}))
                 except PlayerError:
-                    return 3  # run_live has logged what stopped
+                    return (code := 3)  # run_live has logged what stopped
                 finally:
                     if score_sink is not None:
                         score_closed = True
@@ -407,21 +466,33 @@ def main(
                 run(chips, a.duration, out, log, a.sample_rate, source=source, patch=patch, patch_source=patch_source,
                     normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables, backend=backend, stereo=not a.mono, score_sink=score_sink)
         except ValueError:
-            return 2
-        return 0
+            return (code := 2)
+        return (code := 0)
     except KeyboardInterrupt:
-        return 130  # Ctrl-C before the run started; once a live run is playing it stops itself
+        return (code := 130)  # Ctrl-C before the run started; once a live run is playing it stops itself
     finally:
-        if port_sink is not None and not score_closed:  # the run ended before the live loop did: do not leave notes hanging
-            try:
-                port_sink.close()
-            except Exception:
-                pass
-        if fast_source is not None:
-            fast_source.stop()  # also stopped by run_fast; this covers a run that ended before it started
-        if worker is not None:
-            if held_chips and a.kernels in ("chip", "chips"):
-                log.event("backend", "releasing the chips",
-                          "gozer resets the chips before it ends the lease, which takes about 40 s; the run is finished")
-            worker.close()  # ends the worker, which releases the chip's lease
-        log.close()
+        leaving = sys.exc_info()  # an exception on its way out of the run (it is raised again after this block)
+        if tui is not None:
+            tui.disarm()  # the run loop has returned: a q from here on must not interrupt the chips' release
+        try:
+            if port_sink is not None and not score_closed:  # the run ended before the live loop did: do not leave notes hanging
+                try:
+                    port_sink.close()
+                except Exception:
+                    pass
+            if fast_source is not None:
+                fast_source.stop()  # also stopped by run_fast; this covers a run that ended before it started
+            if worker is not None:
+                if held_chips and a.kernels in ("chip", "chips"):
+                    log.event("backend", "releasing the chips",
+                              "gozer resets the chips before it ends the lease, which takes about 40 s; the run is finished")
+                worker.close()  # ends the worker, which releases the chip's lease
+        finally:
+            # The TUI puts the terminal back and prints its exit lines before the log files close, whatever happened above.
+            # A run that ended before the TUI started (a bad patch, no player) only gets the exit lines.
+            if tui is not None:
+                if leaving[0] is not None:
+                    tui.__exit__(*leaving)  # names the exception in the exit lines and closes with 1 (130 for Ctrl-C)
+                else:
+                    tui.close(code)
+            log.close()

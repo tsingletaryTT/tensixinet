@@ -27,7 +27,7 @@ from tensixinet.music.patch import save_patch
 from tensixinet.ui.chart import flow_svg
 from tensixinet.ui.forms import (DRAW, SOURCES, kernel_choices, new_instrument, new_session, patch_choices, read_chip_knobs, source_choices,
                                  style_choices)
-from tensixinet.ui.knobs import EVENTS, KNOB_RANGES, MAX_CHIPS, Knobs
+from tensixinet.ui.knobs import CHOIR_ONSETS, CHOIR_VOWELS, EVENTS, KNOB_RANGES, MAX_CHIPS, Knobs
 from tensixinet.ui.logview import log_html
 from tensixinet.ui.player import Busy, Visitors
 from tensixinet.ui.progress import ACTIVE, progress_html
@@ -327,6 +327,21 @@ def event_trigger(chip: int, event: str):
     return trigger_event
 
 
+# The choir's pickers: what each value is called on the page ("" is any, the readings' own choice). The vowels are spelt as they are sung.
+CHOIR_ONSET_CHOICES = [("any" if v == "" else v, v) for v in CHOIR_ONSETS]
+CHOIR_VOWEL_LABELS = {"": "any", "u": "oo", "o": "oh", "a": "ah", "e": "eh", "i": "ee"}
+CHOIR_VOWEL_CHOICES = [(CHOIR_VOWEL_LABELS[v], v) for v in CHOIR_VOWELS]
+
+
+CHOIR_PICK_INFO = "Sung only when the choir has a trigger source."
+
+
+def syllable_setter(onset: str, vowel: str, request: gr.Request = None) -> None:
+    """The handler for the choir's two pickers: it writes the pair to this visitor's knobs, and a running session uses it from its next block.
+    It never restarts the session. Every named setting comes first, because Gradio fills `request` only after the named ones."""
+    _knobs(_key(request)).set_syllable(onset or "", vowel or "")
+
+
 def load_chips(request: gr.Request = None):
     """Copy one real `tt-smi` reading into this visitor's knobs. Returns the status line and then every slider's new value (chip by chip, in KNOB_ORDER)."""
     knobs = _knobs(_key(request))
@@ -394,6 +409,9 @@ def _build_play_tab() -> None:
         play_btn = gr.Button("Play", variant="primary")
         stop_btn = gr.Button("Stop")
         load_btn = gr.Button("Load from the chips") if len(source_choices()) > 1 else None  # it reads tt-smi, so it needs tt-smi
+    with gr.Row():
+        pick_onset = gr.Dropdown(CHOIR_ONSET_CHOICES, value="", label="choir consonant", info=CHOIR_PICK_INFO)
+        pick_vowel = gr.Dropdown(CHOIR_VOWEL_CHOICES, value="", label="choir vowel", info=CHOIR_PICK_INFO)
     status = gr.Markdown("")
     with gr.Row():
         with gr.Column(scale=3, elem_classes="play-view"):  # the chart and the readout stay in view while the sliders are scrolled
@@ -419,6 +437,9 @@ def _build_play_tab() -> None:
                                          concurrency_limit=None)
     inputs = [scope, style, seed, chips, stereo, cables, evict]
     outputs = [audio, readout, status]
+    for name, picker in (("consonant", pick_onset), ("vowel", pick_vowel)):
+        picker.input(syllable_setter, [pick_onset, pick_vowel], None, api_name=f"syllable_{name}", show_progress="hidden",
+                     concurrency_limit=None, trigger_mode="always_last")
     play_btn.click(instrument_play, inputs, outputs, concurrency_limit=None, trigger_mode="multiple", js=JS_PLAY_INSTRUMENT)
     for control, event in ((scope, "input"), (style, "input"), (stereo, "input"), (cables, "input"), (evict, "input"),
                            (chips, "release"), (seed, "blur"), (seed, "submit")):

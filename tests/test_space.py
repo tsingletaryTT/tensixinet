@@ -53,7 +53,7 @@ def test_the_assembled_folder_has_what_the_space_runs_and_nothing_else(tmp_path)
                  "tensixinet/ui/knobs.py", "tensixinet/ui/scopes.py", "tensixinet/ui/instrument.py", "tensixinet/ui/readout.py",   # the Play tab
                  "kernels/pool.py", "kernels/worker.py", "kernels/_common.py", "app/gradio_app.py", "demo/chorus.patch.json"):
         assert (dest / name).is_file(), name
-    for kernel in ("ttshock", "ttshimmer", "ttgong", "ttavdog", "ttmix", "ttcoco"):
+    for kernel in ("ttshock", "ttshimmer", "ttgong", "ttavdog", "ttmix", "ttcoco", "ttchoir"):
         assert (dest / "kernels" / f"{kernel}.py").is_file(), kernel
     for name in ("tests", "docs", "site", "demo/assets", ".venv-app", ".git", ".disco"):
         assert not (dest / name).exists(), name

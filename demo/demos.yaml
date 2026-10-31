@@ -39,3 +39,12 @@ scenes:
     split_ratio: 45
     duration: 130s
     caption: "tensixinet --live on the real chips while Qwen3-Coder-Next, on two of them, is prompted in bursts. Each voice sits at its own place in a stereo field, some fixed and some travelling, and the log says where. When a chip falls back from a load it evicts, as in tt-toplike's defrag view: its voices dissolve right to left, it goes quiet, and they fill back left to right when the load returns. Chip 1 evicts at 1:08 after a burst that peaked at 113 W and fills again at 1:41 when the next burst arrives; chip 2, with no model, evicts at 1:28 on a 27 W blip; chip 0 never crosses the rule, because the model's draw is spiky and the live loop reads the chips about once a turn. tt-toplike's arcade view shows the same four chips."
+
+  - id: enya
+    title: "Enya mode on the real chips, beside tt-toplike cycling through its views"
+    layout: split
+    left:  { run: "demo/left_pane_enya.sh", wait_for: "played .*s in" }
+    right: { run: "tt-toplike {backend} --rotate" }
+    split_ratio: 45
+    duration: 268s
+    caption: "tensixinet --live --style enya on the real chips: slow, modal turns, the choir and the lead in front, the drone and a modest room of delay behind them. tt-toplike on the right rotates through every one of its views unattended. The video is cut to 4:20."

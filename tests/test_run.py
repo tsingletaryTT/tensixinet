@@ -432,3 +432,72 @@ def test_close_score_sink_reports_a_sink_error_once_and_not_again_when_it_was_al
     log.close()
     stopped = [e for e in _events(tmp_path) if "port stopped" in e["what"]]
     assert len(stopped) == 2  # one for each sink, never two for the same sink
+
+
+def test_an_offline_run_logs_its_howls(tmp_path):
+    import dataclasses
+    from tensixinet.music.chorus import slot_chip
+    from tensixinet.music.patch import DEFAULT_PATCH
+    from tensixinet.music.ttchoir import howl_times
+    patch = dataclasses.replace(DEFAULT_PATCH, choir_onset="rolls", choir_howl="rolls", choir_howl_odds=1.0)
+    chips = mock_telemetry(4)
+    log = _log(tmp_path)
+    run(chips, duration=12.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000, patch=patch)
+    log.close()
+    ev = [json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines()]
+    howls = [e for e in ev if e["event"] == "choir"]
+    expected = howl_times(chips[slot_chip(9, 4)], 12.0, 9, patch, 8000)
+    assert len(expected) > 0 and len(howls) == len(expected)
+    assert all(e["chip"] == slot_chip(9, 4) and e["what"] and e["why"] for e in howls)
+
+
+def test_an_offline_run_without_a_howl_source_logs_no_howl(tmp_path):
+    log = _log(tmp_path)
+    run(mock_telemetry(4), duration=2.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000)
+    log.close()
+    assert not [e for e in (json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines()) if e["event"] == "choir"]
+
+
+def test_the_run_asks_for_its_howls_and_chip_lines_with_its_own_length_and_sample_rate(tmp_path, monkeypatch):
+    from tensixinet import run as run_module
+    seen = {}
+    real_howls, real_chip = run_module.explain_howls, run_module.explain_chip
+    monkeypatch.setattr(run_module, "explain_howls", lambda *a, **k: seen.setdefault("howls", (a, k)) and real_howls(*a, **k))
+    monkeypatch.setattr(run_module, "explain_chip", lambda *a, **k: seen.setdefault("chip", (a, k)) and real_chip(*a, **k))
+    log = _log(tmp_path)
+    run(mock_telemetry(2), duration=3.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000)
+    log.close()
+    (h_args, h_kwargs), (c_args, c_kwargs) = seen["howls"], seen["chip"]
+    assert h_args[1] == 3.0 and h_kwargs["sample_rate"] == 8000
+    assert c_kwargs["duration"] == 3.0
+
+
+def test_a_run_that_does_not_play_the_choir_logs_no_howl_and_no_waiting_line(tmp_path):
+    import dataclasses
+    from tensixinet.music.patch import DEFAULT_PATCH
+    from tensixinet.telemetry import FALLBACK
+    patch = dataclasses.replace(DEFAULT_PATCH, choir_onset="register", choir_howl="register", choir_howl_odds=1.0)
+    for only, heard in ((["gong"], False), (["ttchoir"], True)):
+        log = _log(tmp_path)
+        run([FALLBACK] * 4, duration=12.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000, patch=patch, only=only)
+        log.close()
+        ev = [json.loads(l) for l in (tmp_path / "run.jsonl").read_text().splitlines()]
+        waiting = [e for e in ev if e["event"] == "chip" and "waiting" in e["what"]]
+        # FALLBACK has every Tensix column on, so the register never fires: with the choir heard the waiting line is there
+        assert bool(waiting) == heard
+        assert not [e for e in ev if e["event"] == "choir"] or heard
+
+
+def test_a_run_that_plays_other_devices_only_logs_no_howl_even_when_the_choir_would_fire(tmp_path):
+    import dataclasses
+    from tensixinet.music.patch import DEFAULT_PATCH
+    from tensixinet.telemetry import FALLBACK
+    patch = dataclasses.replace(DEFAULT_PATCH, choir_onset="gong", choir_howl="register", choir_howl_odds=1.0)
+    chips = [dataclasses.replace(FALLBACK, tensix_mask=0x37F7, ddr_status=(1, 1, 1, 1))] * 4  # its register fires
+    counts = {}
+    for only in (None, ["gong"], ["ttchoir"]):
+        log = _log(tmp_path)
+        run(chips, duration=20.0, out_path=tmp_path / "o.wav", log=log, sample_rate=8000, patch=patch, only=only)
+        log.close()
+        counts[str(only)] = sum(json.loads(l)["event"] == "choir" for l in (tmp_path / "run.jsonl").read_text().splitlines())
+    assert counts["None"] > 0 and counts["['ttchoir']"] > 0 and counts["['gong']"] == 0

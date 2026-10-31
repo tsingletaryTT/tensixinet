@@ -86,7 +86,8 @@ class PlayerSink:
     With `own_session` the player runs in a session of its own (`start_new_session=True`), so a Ctrl-C in the terminal (or tmux's
     `send-keys C-c`) reaches only Python. A player in Python's own process group would get the SIGINT too, exit at once, and the run's last
     writes (the fading tail) would fail with a broken pipe. Fast mode asks for this. Plain live mode leaves the player in the group, so a
-    Ctrl-C stops it with Python and does not let queued segments play out. `close()` still lets the player finish what it was given."""
+    Ctrl-C stops it with Python and does not let queued segments play out, unless `--tui` is on: the TUI's `q` and a terminal Ctrl-C must end
+    the run the same way, so it asks for this too. `close()` still lets the player finish what it was given."""
 
     def __init__(self, command: Sequence[str], own_session: bool = False):
         self.command = list(command)
@@ -168,13 +169,14 @@ def make_sink(
     start: Callable[[Sequence[str]], object] = PlayerSink,
     channels: int = 1,
     latency_ms: Optional[int] = None,
+    own_session: bool = False,
 ):
     """(the sink for a `--player` choice, a sentence saying where the sound goes).
 
     `player` is `auto` (the first installed of `PLAYERS`, or silence at the speed of the music when none is
     installed), `none` (silence), or the name of one player, which must be installed. Every sink also records
-    what is played to `wav_path`. `latency_ms` asks the player for a small buffer (None keeps its own). `channels` is 1 for mono audio and 2 for stereo. Raises `PlayerError` for a named player that is
-    missing or will not start."""
+    what is played to `wav_path`. `latency_ms` asks the player for a small buffer (None keeps its own). `channels` is 1 for mono audio and 2 for stereo. The player runs in a session of its own (see `PlayerSink`) when `latency_ms` is given
+    or `own_session` is true. Raises `PlayerError` for a named player that is missing or will not start."""
     record = f"recording to {wav_path}"
     if player == "none":
         return TeeSink(WavSink(wav_path, sample_rate, channels), NullSink(sample_rate)), f"no sound, at the speed of the music; {record}"
@@ -191,7 +193,7 @@ def make_sink(
         command = player_command(player, sample_rate, channels, latency_ms)
     wav = WavSink(wav_path, sample_rate, channels)
     try:
-        process = start(command, own_session=True) if latency_ms is not None else start(command)
+        process = start(command, own_session=True) if latency_ms is not None or own_session else start(command)
     except PlayerError:
         wav.close()
         raise

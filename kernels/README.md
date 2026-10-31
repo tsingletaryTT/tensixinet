@@ -11,6 +11,7 @@ The synth devices as TT-Lang kernels, so the chips can play the sound as well as
 | `ttavdog.py` | `ttavdog` (the AVDog's white and red voices) | `relu(u) * white_wave + relu(-u) * red_wave`, with `u = sin(pu) * exp(e)` and `min`-skewed triangles with swapped slopes | the dogtone's phase, the slopes, the undulation's phase and decay, and four constants for the level and red gain (the chip takes tensors, not numbers) |
 | `ttmix.py` | `current_mix` (the chips' mixer) | `tanh(a + b + c + d)` | each chip's weight and `1 / sqrt(chips)`, folded into its signal; up to four chips |
 | `ttcoco.py` | `ttcoco` (the Cocoquantus's delay chips, as eight parallel echo taps) | `tanh(a0 + a1 + ... + a7)`, built in stages (four working registers) | each tap's delay, decay and bit-crunch (`echo_tap`, a truncated sum of repeats, like the gong's ring-down) and the device's own headroom term |
+| `ttchoir.py` | `ttchoir` (the choir's voiced part, both the vowel choir and the syllable choir) | `sum_j a_j * sin(p_j)` over eight harmonics, built in four stages of two (four working registers); run once per eight harmonics, so up to five runs for forty | each harmonic's phase, `(k + 1)` times the voice's phase reduced to one turn in float64, and its level interpolated from the 200 Hz frame table (`choir_groups`); adds the runs; the syllable plan, consonants, howl and crush through the device's own code (`choir_voice` with a `sines` callable) |
 
 ## How a kernel is written here
 
@@ -77,9 +78,43 @@ numpy reference. Raw results are in `docs/hardware/`.
 | `ttmix` | 2.8e-4 | 6e-8 | 0.2 ms | 1e-3 |
 | `ttcoco` | 8.8e-4 | 1.2e-7 | 0.2 to 0.4 ms | 1e-3 |
 
+## The choir on the chips (2026-10-31)
+
+`ttchoir.py` ran on chips 0 and 1 (board 0, one `gozer` lease; board 1 was reserved for another agent and was not used). `cycle.py` checks it
+twice, the vowel choir and the syllable choir (`--voice syllable`, saved as `ttchoir_syllable`). Raw results:
+`docs/hardware/board0_ttchoir_results.jsonl` and `docs/hardware/board0_ttchoir_timing.jsonl`.
+
+| Check | Chip 0 | Chip 1 | Simulator |
+|---|---|---|---|
+| Vowel choir, 3 s at 16 kHz, worst difference | 1.5e-7 | 1.5e-7 | 1.5e-7 |
+| Syllable choir, 3 s at 16 kHz, worst difference | 1.2e-7 | 1.2e-7 | 1.2e-7 |
+| Kernel time for those 3 s (four or five runs) | 2.1 to 2.5 ms | 2.1 to 2.6 ms | |
+| 30 s at 44.1 kHz through the worker's chunked path, vowel | 0.87 s (CPU 0.65 s) | 0.88 s (CPU 0.62 s) | |
+| 30 s at 44.1 kHz, syllable choir | 0.70 s (CPU 0.55 s) | 0.68 s (CPU 0.53 s) | |
+
+The 30 s renders matched the CPU choir to 1.5e-7 at the worst, correlation 1.0000000, also with a howl and with the crush at full depth.
+**The chip path is slower than the CPU**, about 1.3 times: five runs of sixteen input tiles move about 420 MB to the chip for 30 s of
+voice, against well under a second of numpy. The 30 s timings drive `worker.py`'s own code (`Board`, `chip_compute`, `run_chunked` with its
+448-tile chunks) in one process, so they leave out the pipe between `tensixinet` and the worker.
+
+Two things were found on the way:
+
+* **The chip's multiplies were exact here.** `ttavdog` and `ttcoco` showed differences of 1e-3; the choir's `a * sin(p)` sum showed
+  1.5e-7 on the chip, the same as the simulator. `--atol` is 2e-3 anyway, as wide as the loosest kernel, in case another toolchain rounds
+  the multiplies as before.
+* **The toolchain on this box had moved.** On 2026-10-31 `ttchoir` and `ttcoco` (which ran here on 2026-10-18) both failed to compile with
+  `fatal error: tools/profiler/kernel_profiler.hpp: No such file or directory`. tt-metal commit `27cad27903e` dropped `<root>/tt_metal`
+  from the JIT's include path, and TT-Lang (1.1.6 in the shared venv, and tt-orchard's pinned 1.1.10 pair) still generates that include.
+  The choir ran with tt-orchard's pair venv (`~/.cache/tt-orchard/ttlang-pair/venv` and its `orchard-pair-exports.sh`) and a private
+  runtime root: a folder of symlinks to `~/tt-metal` with one added file, `tools/profiler/kernel_profiler.hpp`, that includes
+  `api/debug/kernel_profiler.hpp`, passed as `TT_METAL_RUNTIME_ROOT` to that process only. Nothing shared was changed. With that, `ttchoir`
+  compiles and runs, but `ttcoco` fails on `add_tiles_init` and `binary_op_init_common`, which this tt-metal no longer declares. The other
+  four old kernels were not tried. `worker.py` compiles every kernel at start, so `--kernels chips` cannot start on this box until TT-Lang and
+  tt-metal agree again. None of the old kernels changed.
+
 ## The soundtrack on the chips (`tensixinet --live --kernels chips`)
 
-`--kernels` runs the six kernels' devices (the gong, shimmer, drone ripple, AVDog, the ttcoco mix and the mixer) on chips for the whole
+`--kernels` runs the seven kernels' devices (the gong, shimmer, drone ripple, AVDog, the ttcoco mix, the choir's harmonics and the mixer) on chips for the whole
 of a live or offline run, with the rest of the band on the CPU. Each chip's devices run on that chip, so on four chips all four work.
 On the four chips of this box the audio matched the CPU render to 0.0034 at the worst (correlation 1.00000, 12 s, `--patch-seed 4`).
 
