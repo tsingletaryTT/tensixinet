@@ -107,3 +107,39 @@ def test_dedupe_is_off_by_default():
     log.event("a", what="w1", why="same")
     log.event("b", what="w2", why="same")
     assert stream.getvalue().count("same") == 2
+
+
+# --- on_event ------------------------------------------------------------------
+
+def test_on_event_gets_each_record_as_the_jsonl_has_it(tmp_path):
+    seen = []
+    with open(tmp_path / "r.jsonl", "w") as f:
+        log = RunLog(jsonl=f, stream=io.StringIO(), on_event=seen.append)
+        log.event("live", "segment 0", "why", segment=0)
+    assert seen == [json.loads((tmp_path / "r.jsonl").read_text())]
+    assert seen[0]["t"] == 0.0 and seen[0]["segment"] == 0
+
+
+def test_a_failing_on_event_does_not_stop_the_log(tmp_path):
+    def boom(rec):
+        raise RuntimeError("x")
+
+    stream = io.StringIO()
+    with open(tmp_path / "r.jsonl", "w") as f:
+        log = RunLog(jsonl=f, stream=stream, on_event=boom)
+        log.event("live", "a", "b")
+        log.event("live", "c", "d")
+    assert len((tmp_path / "r.jsonl").read_text().splitlines()) == 2
+    assert "a" in stream.getvalue() and "c" in stream.getvalue()
+
+
+def test_on_event_runs_after_the_jsonl_is_written():
+    order = []
+
+    class J(io.StringIO):
+        def flush(self):
+            order.append("flush")
+
+    log = RunLog(jsonl=J(), stream=io.StringIO(), on_event=lambda r: order.append("hook"))
+    log.event("live", "a", "b")
+    assert order == ["flush", "hook"]

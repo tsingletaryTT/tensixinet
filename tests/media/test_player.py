@@ -369,3 +369,17 @@ def test_make_sink_gives_the_player_its_own_session_only_when_a_small_buffer_is_
     make_sink("paplay", SR, tmp_path / "a.wav", which=_installed("paplay"), start=start)
     make_sink("paplay", SR, tmp_path / "b.wav", which=_installed("paplay"), start=start, latency_ms=20)
     assert seen == [{}, {"own_session": True}]
+
+
+def test_make_sink_gives_the_player_its_own_session_when_asked_even_without_a_small_buffer(tmp_path):
+    # --tui asks for it in plain live mode, so a terminal Ctrl-C reaches only Python and q and Ctrl-C drain the same way.
+    seen = []
+
+    def start(command, **kwargs):
+        seen.append(kwargs)
+        return FakePlayer(command)
+
+    make_sink("paplay", SR, tmp_path / "a.wav", which=_installed("paplay"), start=start, own_session=True)
+    make_sink("auto", SR, tmp_path / "b.wav", which=_installed("aplay"), start=start, own_session=True)
+    make_sink("paplay", SR, tmp_path / "c.wav", which=_installed("paplay"), start=start, own_session=False)
+    assert seen == [{"own_session": True}, {"own_session": True}, {}]

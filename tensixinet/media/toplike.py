@@ -21,11 +21,21 @@ import shlex
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from typing import Callable, List, Mapping, Optional, Sequence, Tuple
 
 DEFAULT_INTERVAL_MS = 100  # tt-toplike's own default, used for both panes when --interval is not given
 SESSION = "tensixinet"
+SOCKET = "tensixinet"  # the tmux socket the session lives on when it is not inside the owner's own tmux
+CONF = Path(__file__).with_name("tmux-toplike.conf")
 TMUX = ("tmux",)
+
+
+def own_tmux() -> Tuple[str, ...]:
+    """The tmux command for a session of our own: its own socket and the config next to this file (status bar off, truecolor).
+    A dedicated socket is needed because tmux honours `-f` only when it starts a new server; on the default socket a running server of the
+    owner's would ignore it."""
+    return ("tmux", "-L", SOCKET, "-f", str(CONF))
 
 
 def split_toplike_args(text: Optional[str]) -> List[str]:
@@ -115,6 +125,7 @@ def build_session(
     tmux: Sequence[str] = TMUX,
     size: Optional[Tuple[int, int]] = None,
     attach: bool = True,
+    tui: bool = False,
 ) -> List[List[str]]:
     """The tmux commands, in order, that make the two panes.
 
@@ -129,6 +140,10 @@ def build_session(
     Outside tmux: a detached session whose first pane runs the synth, a split to its right for tt-toplike, `remain-on-exit off`, then
     an attach (its exit code is the run's). Inside tmux ($TMUX set): the current window is split twice, so the user's own pane, the
     synth and tt-toplike sit side by side (both splits divide the pane this command runs in; the panes find each other by their tag).
+    Inside tmux with `tui` (the synth pane runs `--tui`): a third of the window is too narrow for the full-screen view, so a new window
+    named `tensixinet` is opened for the synth and split in two for tt-toplike, and the user's own pane is left as it was. The split
+    and the option target `:`, the session's current window, which is the new one; the pane tags work as before, since `close` lists
+    the panes of the window it runs in.
     """
     tmux = list(tmux)
     synth = _pane_command([sys.executable, "-m", "tensixinet", *synth_flags(synth_argv, interval_ms)],
@@ -139,6 +154,12 @@ def build_session(
     caller = [f"{name}={environ[name]}" for name in PASS_ENV if environ and name in environ]
     env = [x for pair in caller for x in ("-e", pair)]
     synth_env = env + ["-e", f"{IN_SESSION}=1"]
+    if inside_tmux and tui:
+        return [
+            tmux + ["new-window", "-n", session, *where, *synth_env, synth],
+            tmux + ["split-window", "-h", "-t", ":", *where, *env, top],
+            tmux + ["set-option", "-w", "-t", ":", "remain-on-exit", "off"],
+        ]
     if inside_tmux:
         return [
             tmux + ["split-window", "-h", *where, *synth_env, synth],

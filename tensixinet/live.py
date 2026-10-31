@@ -31,13 +31,14 @@ from .music.loudness import LiveGain
 from .music.mapping import chip_chaos, chip_pressure, rate_activity
 from .music.patch import DEFAULT_PATCH, Patch
 from .music.turns import pick_soloist
-from .narrate.explain import explain_events
+from .narrate.explain import explain_events, explain_howls
 from .narrate.runlog import RunLog
 from .media.player import PlayerError
 from .score.collect import chorus_score
 from .score.events import Note, Score
 from .run import describe_readings, report_score_error, log_cables, log_eq, log_only
 from .telemetry import Telemetry
+from .ui.flow import FlowState, build_flow
 
 MIN_SEGMENT_S = 2.0  # a segment is at least this long: the crossfade is a fifth of it
 MAX_SEGMENT_S = 10.0  # and at most this long: the chips are read once per segment
@@ -76,18 +77,29 @@ def run_live(
     stereo: bool = False,
     evict: bool = False,
     score_sink=None,
+    on_segment: Optional[Callable[[float, FlowState], None]] = None,
 ) -> int:
     """Play the chips live for `duration` seconds (until Ctrl-C when `None`). Returns the number of segments.
 
     `sample` returns the current readings, an empty list when they could not be read. `sink` takes the
     audio (see media/player.py). The last segment rings out for `XFADE_S` more seconds, so the sound
     lasts the duration plus that. Raises `ValueError` when the very first reading is empty and
-    `PlayerError` when the player stops early.
+    `PlayerError` when the player stops early. A player that stops after a Ctrl-C (it shared the terminal's process group and got the
+    same signal) raises `KeyboardInterrupt` instead, so the caller ends the run as Ctrl-C ends it.
 
     `score_sink` (see score/sinks.py) is handed each segment's events as data, after the segment is rendered:
     the Score of the same render, cut at the segment's length (the crossfade tail belongs to the next
     segment), with the segment's start in seconds from the start of the run. The audio never depends on it,
-    and a sink or score that fails is logged once and left alone. The caller closes the sink."""
+    and a sink or score that fails is logged once and left alone. The caller closes the sink.
+
+    `on_segment` (the TUI's playhead, see tui/playhead.py) is called on this loop's thread just before each segment's audio is
+    queued for the sink, with the chunk's length in seconds and the segment's `FlowState`: the readings it was rendered from, who
+    had the floor (nobody when `only` is given), the chips' eviction phases and the devices heard. It must only store what it is
+    given and return. The tail after the last segment gets no call. Without it no `FlowState` is built. The sound never depends
+    on it: if the hook or `build_flow` raises, one "tui" line names the error, the hook is not called again, and the run goes on.
+    The hook marks when a segment is handed over. The playhead times what is heard from the first write into the player's pipe.
+    With an unknown player buffer (plain --live) the picture can lead the sound by the player's start-up time and its
+    buffering. With `--player none` the timing is exact, because that sink takes the audio at the speed of the music."""
     audio_queue: "queue.Queue[Optional[np.ndarray]]" = queue.Queue()
     room = threading.Semaphore(LEAD_IN_SEGMENTS)
     failures: List[BaseException] = []
@@ -119,6 +131,7 @@ def run_live(
     segment = 0
     score_start = 0.0  # where the segment being made begins in the sound: the sum of the earlier segments' lengths
     score_failed = False
+    stopped = False  # Ctrl-C (or the TUI's q) ended the loop
     try:
         while duration is None or played < duration - 1e-9:
             room.acquire()
@@ -149,7 +162,7 @@ def run_live(
             remaining = None if duration is None else duration - played
             seconds = segment_seconds(turn_s, remaining)
             if segment == 0:
-                describe_readings(chips, seconds, log, source, patch, patch_source, turns=False, stereo=stereo)
+                describe_readings(chips, seconds, log, source, patch, patch_source, turns=False, stereo=stereo, only=only)
                 log_only(log, only)
                 log_eq(log, eq)
                 log_cables(log, chips, patch, cables)
@@ -166,6 +179,9 @@ def run_live(
                     log.event(event.kind, event.what, event.why, chip=event.chip, segment=segment)
             audio = render_chorus(chips, seconds + XFADE_S, sample_rate, patch, segment, [soloist], only=only,
                                   cables=None if cables else [], **extra)
+            idle = [i for i, d in enumerate(extra.get("defrag") or ()) if d.phase == "idle"]  # an evicted chip is silent until it fills again
+            for howl_chip, d in explain_howls(chips, seconds + XFADE_S, patch, segment, sample_rate, only=only, silent=idle, before=seconds):  # this segment's own howls, after it is rendered
+                log.event("choir", d.what, d.why, chip=howl_chip, segment=segment)
             if score_sink is not None and not score_failed:
                 try:
                     score = chorus_score(chips, seconds + XFADE_S, patch, segment, [soloist], only=only,
@@ -194,6 +210,15 @@ def run_live(
                 "this segment is rendered from one fresh reading and crossfaded onto the last",
                 segment=segment, chip=chip, device=name, seconds=round(seconds, 3),
             )
+            if on_segment is not None:  # before the put, so the playhead knows the segment before the sink can start playing it
+                try:
+                    phases = ({k: d.phase for k, d in enumerate(extra["defrag"]) if d.phase != "running"}
+                              if evictor is not None else {})
+                    state = build_flow(chips, patch, segment, None if only else soloist, seconds, phases, cables=cables, heard=only)
+                    on_segment(len(ready) / sample_rate, state)
+                except Exception as e:  # the picture is a by-product: its trouble never reaches the audio
+                    on_segment = None
+                    log.event("tui", f"the terminal view stopped: {e}", "the music goes on without it", segment=segment)
             audio_queue.put(ready)
             segment += 1
         if not failures:
@@ -201,6 +226,7 @@ def run_live(
             room.acquire()
             audio_queue.put(tail)
     except KeyboardInterrupt:
+        stopped = True
         log.event("live", "stopped by Ctrl-C", "the segments already made are played to the end")
         audio_queue.put(_finish_tail(stitcher.flush(), equaliser, gain))
     finally:
@@ -212,6 +238,11 @@ def run_live(
             failures.append(e)
     if failures:
         error = failures[0]
+        if stopped and isinstance(error, PlayerError):
+            # A player in the terminal's process group gets the same Ctrl-C and dies of it; the run was ending anyway, so it ends as Ctrl-C ends it.
+            log.event("player", f"the audio output stopped after Ctrl-C: {error}",
+                      "the player got the same Ctrl-C and ended, so the run ends as Ctrl-C ends it")
+            raise KeyboardInterrupt from error
         log.event("player", f"the audio output stopped: {error}", "a live run ends when it has nowhere to play")
         raise error
     log.event("done", f"played {played:.1f} s in {_plural(segment, 'segment')}",

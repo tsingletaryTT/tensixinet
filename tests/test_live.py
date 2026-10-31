@@ -15,6 +15,7 @@ from tensixinet.media.player import PlayerError
 from tensixinet.music.chorus import DEVICES, slot_chip, slot_weights
 from tensixinet.music.live import XFADE_S
 from tensixinet.music.loudness import TARGET_RMS
+from tensixinet.music.mapping import chip_chaos
 from tensixinet.music.patch import DEFAULT_PATCH
 from tensixinet.narrate.runlog import RunLog
 from tensixinet.telemetry import FALLBACK
@@ -728,3 +729,286 @@ def test_a_real_port_sink_with_a_dead_port_gives_one_line_between_the_loop_and_t
     log.close()
     stopped = [e for e in _events(tmp_path) if e["event"] == "midi" and "port stopped" in e["what"]]
     assert box["n"] == 3 and len(stopped) == 1
+
+
+# --- the choir's howls -------------------------------------------------------------------------------------------------
+
+def test_a_live_run_logs_a_howl_in_the_segment_it_fires(tmp_path):
+    from tensixinet.music.chorus import SEGMENT_SEED_STRIDE, slot_chip
+    from tensixinet.music.ttchoir import howl_times
+    patch = dataclasses.replace(ONE_BAR, choir_onset="rolls", choir_howl="rolls", choir_howl_odds=1.0)
+    chips = mock_telemetry(4)
+    _go(tmp_path, steady(chips), duration=6.0, patch=patch)
+    ev = _events(tmp_path)
+    segments = [e for e in ev if e["event"] == "live"]
+    howls = [e for e in ev if e["event"] == "choir"]
+    assert howls and all("segment" in e and "chip" in e and e["what"] and e["why"] for e in howls)
+    # each segment's howls are the ones the choir's own seed fires in that segment's render (its length plus the crossfade)
+    for seg in segments:
+        k = seg["segment"]
+        chip = slot_chip(9, len(chips))
+        expected = howl_times(chips[chip], seg["seconds"] + XFADE_S, k * SEGMENT_SEED_STRIDE + 9, patch, SR)
+        got = [e for e in howls if e["segment"] == k]
+        assert len(got) == len(expected)
+        assert all(e["chip"] == chip for e in got)
+
+
+def test_a_live_run_without_a_howl_source_logs_no_howl(tmp_path):
+    _go(tmp_path, steady(mock_telemetry(4)), duration=6.0)
+    assert not [e for e in _events(tmp_path) if e["event"] == "choir"]
+
+
+def test_a_howl_is_logged_after_its_segment_has_rendered(tmp_path, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("the render failed")
+
+    monkeypatch.setattr(live_module, "render_chorus", broken)
+    patch = dataclasses.replace(ONE_BAR, choir_onset="rolls", choir_howl="rolls", choir_howl_odds=1.0)
+    with pytest.raises(RuntimeError):
+        _go(tmp_path, steady(mock_telemetry(4)), duration=6.0, patch=patch)
+    assert not [e for e in _events(tmp_path) if e["event"] == "choir"]
+
+
+def test_each_segments_howls_are_asked_for_with_its_number_its_rendered_length_and_the_sample_rate(tmp_path, monkeypatch):
+    calls = []
+    real = live_module.explain_howls
+
+    def spy(chips, duration, patch, segment=0, sample_rate=44100, **kwargs):
+        calls.append((duration, segment, sample_rate))
+        return real(chips, duration, patch, segment, sample_rate, **kwargs)
+
+    monkeypatch.setattr(live_module, "explain_howls", spy)
+    patch = dataclasses.replace(ONE_BAR, choir_onset="rolls", choir_howl="rolls", choir_howl_odds=1.0)
+    _go(tmp_path, steady(mock_telemetry(4)), duration=6.0, patch=patch)
+    segments = [e for e in _events(tmp_path) if e["event"] == "live"]
+    assert [c[1] for c in calls] == [e["segment"] for e in segments]
+    assert [c[0] for c in calls] == pytest.approx([e["seconds"] + XFADE_S for e in segments])
+    assert {c[2] for c in calls} == {SR}
+
+
+def test_a_live_run_that_plays_other_devices_only_logs_no_howl(tmp_path):
+    patch = dataclasses.replace(ONE_BAR, choir_onset="rolls", choir_howl="rolls", choir_howl_odds=1.0)
+    _go(tmp_path, steady(mock_telemetry(4)), duration=6.0, patch=patch, only=["gong"])
+    assert not [e for e in _events(tmp_path) if e["event"] == "choir"]
+    _go(tmp_path, steady(mock_telemetry(4)), duration=6.0, patch=patch, only=["ttchoir"])
+    assert [e for e in _events(tmp_path) if e["event"] == "choir"]
+
+
+def test_a_live_howl_is_logged_only_if_it_starts_inside_the_segment_not_in_its_crossfade_tail(tmp_path, monkeypatch):
+    calls = []
+    real = live_module.explain_howls
+
+    def spy(*a, **k):
+        calls.append(k.get("before"))
+        return real(*a, **k)
+
+    monkeypatch.setattr(live_module, "explain_howls", spy)
+    patch = dataclasses.replace(ONE_BAR, choir_onset="rolls", choir_howl="rolls", choir_howl_odds=1.0)
+    _go(tmp_path, steady(mock_telemetry(4)), duration=6.0, patch=patch)
+    segments = [e for e in _events(tmp_path) if e["event"] == "live"]
+    assert calls == pytest.approx([e["seconds"] for e in segments])
+
+
+def test_an_evicted_chips_howls_are_not_logged_while_it_is_idle(tmp_path, monkeypatch):
+    seen = []
+    real_render, real_howls = live_module.render_chorus, live_module.explain_howls
+    monkeypatch.setattr(live_module, "render_chorus", lambda *a, **k: (seen.append(k.get("defrag")), real_render(*a, **k))[1])
+    silent = []
+    monkeypatch.setattr(live_module, "explain_howls", lambda *a, **k: (silent.append(k.get("silent")), real_howls(*a, **k))[1])
+    powers = iter(_power_profile() + [62.0] * 8)
+    _run_with_powers(tmp_path, lambda: [dataclasses.replace(FALLBACK, power=next(powers), tdp_limit=125.0)], duration=2.0 * 30, evict=True,
+                     patch=dataclasses.replace(ONE_BAR, choir_onset="rolls", choir_howl="rolls", choir_howl_odds=1.0))
+    phases = [d[0].phase for d in seen if d is not None]
+    assert len(phases) == len(silent) and "idle" in phases
+    assert [set(x) for x in silent] == [{0} if ph == "idle" else set() for ph in phases]
+
+
+# --- the per-segment hook the TUI follows (on_segment) -----------------------------------------------------------------------------------
+
+def _hooked(tmp_path, sample, duration=6.0, **kw):
+    """A run with `on_segment`: the sink and every (seconds, state) the hook was handed, in order."""
+    got = []
+    sink, n = _go(tmp_path, sample, duration=duration, on_segment=lambda sec, st: got.append((sec, st)), **kw)
+    return sink, n, got
+
+
+def test_run_live_hands_each_segment_its_own_state_at_its_offset(tmp_path):
+    sink, n, got = _hooked(tmp_path, steady(), duration=6.0)
+    assert len(got) == n >= 2
+    assert [st.segment for _, st in got] == list(range(len(got)))
+    assert [round(sec * SR) for sec, _ in got] == [len(c) for c in sink.chunks[:len(got)]]
+    assert len(sink.chunks) == n + 1  # the tail after the loop gets no call
+
+
+def test_the_seconds_handed_over_are_the_chunks_own_length_in_samples(tmp_path):
+    rate = 7919  # a prime, so a segment of 2.3 s is not a whole number of samples
+    sink, n, got = _hooked(tmp_path, steady(), duration=2.0 * MIN_SEGMENT_S + 0.3, sample_rate=rate)
+    assert [sec for sec, _ in got] == [len(c) / rate for c in sink.chunks[:n]]
+
+
+def test_the_state_names_the_soloist_the_log_names(tmp_path):
+    _, _, got = _hooked(tmp_path, steady(mock_telemetry(3)), duration=10.0)
+    lines = [e for e in _events(tmp_path) if e["event"] == "live" and "device" in e]
+    assert len(lines) == len(got) >= 4
+    for e in lines:
+        state = got[e["segment"]][1]
+        assert state.soloist_device == e["device"] and state.soloist_chip == e["chip"]
+    assert len({e["device"] for e in lines}) > 1  # the floor moves, so a state from the wrong segment would name the wrong device
+
+
+def test_the_state_is_built_from_the_readings_that_segment_was_rendered_from(tmp_path, renders):
+    count = [0]
+
+    def sample():
+        count[0] += 1
+        return [dataclasses.replace(FALLBACK, asic_temperature=30.0 + 10.0 * count[0])]
+
+    _, _, got = _hooked(tmp_path, sample, duration=8.0)
+    assert len(got) == len(renders) >= 3
+    assert [st.chips[0].temp_c for _, st in got] == [c["telemetry"][0].asic_temperature for c in renders]
+    assert [st.chips[0].temp_c for _, st in got] == [40.0 + 10.0 * k for k in range(len(got))]
+    # the whole chip view, rates included: chaos follows how fast the chip heats, which only the tracked readings carry
+    assert [st.chips[0].chaos for _, st in got] == [chip_chaos(c["telemetry"][0]) for c in renders]
+    assert len({st.chips[0].chaos for _, st in got[1:]} | {got[0][1].chips[0].chaos}) > 1
+
+
+def test_an_evicting_chip_is_in_the_state_with_its_phase(tmp_path, monkeypatch):
+    phases_given = []
+    real = live_module.build_flow
+    monkeypatch.setattr(live_module, "build_flow", lambda *a, **k: (phases_given.append(a[5]), real(*a, **k))[1])
+    powers = iter(_power_profile() + [62.0] * 8)
+
+    def sample():  # chip 0 loads and unloads; chip 1 rests the whole time and never leaves "running"
+        return [dataclasses.replace(FALLBACK, power=next(powers), tdp_limit=125.0), dataclasses.replace(FALLBACK, power=14.0, tdp_limit=125.0)]
+
+    got = []
+    _go(tmp_path, sample, duration=2.0 * 30, clock=Clock(3.0), evict=True, on_segment=lambda sec, st: got.append(st))
+    shown = [st.chips[0].phase for st in got]
+    assert "evicting" in shown and "idle" in shown and all(st.chips[1].phase == "running" for st in got)
+    assert phases_given and all("running" not in p.values() for p in phases_given)  # only chips that are not running are named
+    assert {0: "evicting"} in phases_given
+
+
+def test_without_evict_every_chip_is_running_in_the_state(tmp_path):
+    powers = iter(_power_profile() + [62.0] * 8)
+    got = []
+    _go(tmp_path, lambda: [dataclasses.replace(FALLBACK, power=next(powers), tdp_limit=125.0)], duration=2.0 * 30, clock=Clock(3.0),
+        on_segment=lambda sec, st: got.append(st))
+    assert got and all(c.phase == "running" for st in got for c in st.chips)
+
+
+def test_with_only_nobody_has_the_floor_and_only_those_devices_are_heard(tmp_path):
+    _, _, got = _hooked(tmp_path, steady(), duration=6.0, only=["gong"])
+    assert got
+    for _, st in got:
+        assert st.soloist_device == "" and st.soloist_chip == -1 and not any(d.soloist for d in st.devices)
+        assert [d.name for d in st.devices if d.heard] == ["gong"]
+
+
+def test_the_state_carries_the_cables_only_when_they_are_on(tmp_path):
+    _, _, on = _hooked(tmp_path, steady(), duration=4.0)
+    _, _, off = _hooked(tmp_path, steady(), duration=4.0, cables=False)
+    assert all(st.cables for _, st in on) and not any(st.cables for _, st in off)
+
+
+def test_the_hook_is_called_on_the_loop_before_its_segment_reaches_the_sink(tmp_path):
+    """The hook runs before the chunk is queued, so the playhead knows a segment before the sink can start playing it."""
+    order = []
+
+    class Recording(MemorySink):
+        def write(self, audio):
+            order.append(("write", len(self.chunks)))
+            super().write(audio)
+
+    sink = Recording()
+    calls = [0]
+
+    def hook(sec, st):
+        order.append(("hook", st.segment))
+        calls[0] += 1
+
+    _go(tmp_path, steady(), duration=6.0, sink=sink, on_segment=hook)
+    for k in range(calls[0]):
+        assert order.index(("hook", k)) < order.index(("write", k))
+
+
+def test_the_hook_is_called_before_its_segment_is_queued(tmp_path, monkeypatch):
+    """The same order, checked where it is decided: both calls are on the loop's thread, so the order cannot depend on the player's."""
+    order = []
+
+    class Watched(live_module.queue.Queue):
+        def put(self, item, *a, **k):
+            if item is not None:
+                order.append("put")
+            super().put(item, *a, **k)
+
+    monkeypatch.setattr(live_module.queue, "Queue", Watched)
+    _go(tmp_path, steady(), duration=6.0, on_segment=lambda sec, st: order.append(("hook", st.segment)))
+    hooks = [x for x in order if x != "put"]
+    assert hooks and order[:2 * len(hooks)] == [y for k in range(len(hooks)) for y in (("hook", k), "put")]
+
+
+def test_without_the_hook_build_flow_is_never_called(tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("build_flow called without on_segment")
+
+    monkeypatch.setattr(live_module, "build_flow", boom)
+    _, n = _go(tmp_path, steady(), duration=6.0, evict=True, only=["gong"])
+    assert n >= 2
+
+
+def test_the_hook_does_not_change_the_audio_or_the_log(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    plain, _ = _go(tmp_path / "a", steady(), duration=6.0)
+    hooked, _, _ = _hooked(tmp_path / "b", steady(), duration=6.0)
+    assert np.array_equal(plain.audio, hooked.audio)
+    strip = lambda evs: [{k: v for k, v in e.items() if k != "t"} for e in evs]
+    assert strip(_events(tmp_path / "a")) == strip(_events(tmp_path / "b"))
+
+
+def test_a_playhead_fed_by_the_hook_and_its_sink_shows_the_first_segment_when_the_first_write_lands(tmp_path):
+    from tensixinet.tui.playhead import Playhead
+    p = Playhead()
+    seen = []
+
+    class Watching(MemorySink):
+        def write(self, audio):
+            super().write(audio)
+            if len(self.chunks) == 1:
+                seen.append(p.shown().state)
+
+    sink, _ = _go(tmp_path, steady(), duration=6.0, sink=p.wrap(Watching()), on_segment=p.hand_over)
+    assert seen and seen[0] is not None and seen[0].segment == 0
+
+
+def test_a_hook_that_fails_leaves_the_audio_and_the_log_as_a_run_without_it(tmp_path):
+    """The sound must not depend on the TUI: a hook that raises is logged once and left alone, and the run carries on."""
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    plain, n_plain = _go(tmp_path / "a", steady(), duration=8.0)
+    calls = []
+
+    def hook(sec, st):
+        calls.append(st.segment)
+        if st.segment == 1:
+            raise RuntimeError("the terminal went away")
+
+    hooked, n_hooked = _go(tmp_path / "b", steady(), duration=8.0, on_segment=hook)
+    assert n_hooked == n_plain >= 3 and np.array_equal(plain.audio, hooked.audio)
+    assert calls == [0, 1]  # turned off after it failed
+    strip = lambda evs: [{k: v for k, v in e.items() if k != "t"} for e in evs]
+    hooked_events = _events(tmp_path / "b")
+    tui = [e for e in hooked_events if e["event"] == "tui"]
+    assert len(tui) == 1 and "the terminal went away" in tui[0]["what"]
+    assert strip([e for e in hooked_events if e["event"] != "tui"]) == strip(_events(tmp_path / "a"))
+
+
+def test_a_build_flow_that_fails_does_not_stop_the_run(tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise ValueError("no picture")
+
+    monkeypatch.setattr(live_module, "build_flow", boom)
+    _, n = _go(tmp_path, steady(), duration=8.0, on_segment=lambda sec, st: None)
+    tui = [e for e in _events(tmp_path) if e["event"] == "tui"]
+    assert n >= 3 and len(tui) == 1 and "no picture" in tui[0]["what"]
