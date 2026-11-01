@@ -475,3 +475,11 @@ def test_the_tui_section_has_the_recording_its_poster_and_the_command_that_makes
     assert "tensixinet --live --tui" in section and "demo/build_tui.sh" in section
     from tensixinet.cli import build_parser
     assert "--tui" in {o for a in build_parser()._actions for o in a.option_strings}
+
+
+def test_the_kernels_section_says_what_the_newer_toolchain_changed_and_how_a_worker_copes():
+    section = HTML[HTML.index('id="kernels"'): HTML.index('id="hardware"')]
+    assert "<code>kernels/compat</code>" in section and "16 of 16" in section
+    for name in ("binary_op_init_common", "add_tiles_init", "sub_tiles_init", "mul_tiles_init"):
+        assert f"<code>{name}</code>" in section
+    assert "stay on the CPU" in section and "five bursts" in section

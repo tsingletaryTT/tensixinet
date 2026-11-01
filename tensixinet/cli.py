@@ -391,13 +391,18 @@ def main(
                     return (code := 3)
                 backend = KernelBackend(worker, log=lambda note: log.event(
                     "backend", note, "the kernels' formulas run on the CPU from here on, so the sound does not stop"))
+                on_chip = backend.available_devices()
                 log.event("backend", f"TT-Lang kernels on {where} ({a.kernels} mode)",
-                          f"the {', '.join(KERNEL_DEVICES)} devices and the mixer do their per-sample arithmetic in the kernels, "
-                          "and the rest stay on the CPU: ttrollz, ttrax, ttquantus, the lead, ttsteam and the choir")
+                          f"the {', '.join(on_chip)} devices{' and the mixer' if backend.mixer_on_chip else ''} do their per-sample arithmetic in the kernels, "
+                          "and the rest stay on the CPU: ttrollz, ttrax, ttquantus, the lead and ttsteam"
+                          + ("" if "ttchoir" in on_chip else " and the choir") + (" (the choir's voiced part is on the chip)" if "ttchoir" in on_chip else ""))
+                if getattr(worker, "unavailable", None):
+                    log.event("backend", f"{', '.join(sorted(worker.unavailable))} did not compile on this toolchain",
+                              "the devices that need those kernels stay on the CPU, and the other kernels keep their chips")
                 if held > 1:
                     for index in range(len(chips)):  # which of this chip's devices run on its own kernels
-                        mine = [d.__name__ for d in chip_devices(index, len(chips)) if d.__name__ in KERNEL_DEVICES]
-                        mixer = ", and the mixer" if index == 0 else ""
+                        mine = [d.__name__ for d in chip_devices(index, len(chips)) if d.__name__ in on_chip]
+                        mixer = ", and the mixer" if index == 0 and backend.mixer_on_chip else ""
                         log.event("backend", f"chip {index} runs {', '.join(mine) or 'nothing'}{mixer} on its own kernels",
                                   f"the devices dealt to chip {index} do their arithmetic on {'simulated' if a.kernels == 'sim' else 'leased'} chip {index % held}, so all "
                                   f"{held} chips are working at once")

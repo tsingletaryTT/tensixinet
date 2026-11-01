@@ -41,6 +41,10 @@ from ..music.ttrolzer import SEGMENT_SEED_STRIDE
 from ..telemetry import Telemetry
 
 KERNEL_DEVICES = ("gong", "ultrasonic_shimmer", "ttdrone", "ttavdog", "ttcoco", "ttchoir")  # by device name; the mixer is `KernelBackend.mix`
+# The kernel each device runs on. A worker that could not compile a kernel says so when it is ready (`worker.unavailable`), and the
+# devices that need it stay on the CPU while the others keep their chip.
+DEVICE_KERNEL = {"gong": "ttgong", "ultrasonic_shimmer": "ttshimmer", "ttdrone": "ttshock", "ttavdog": "ttavdog", "ttcoco": "ttcoco", "ttchoir": "ttchoir"}
+MIXER_KERNEL = "ttmix"
 
 
 class KernelBackend:
@@ -64,10 +68,22 @@ class KernelBackend:
             }
         return self._by_device[device]
 
+    def _missing(self) -> frozenset:
+        return frozenset(getattr(self.worker, "unavailable", ()))
+
+    def available_devices(self) -> tuple:
+        """The devices with a kernel that compiled on this worker."""
+        missing = self._missing()
+        return tuple(d for d in KERNEL_DEVICES if DEVICE_KERNEL[d] not in missing)
+
+    @property
+    def mixer_on_chip(self) -> bool:
+        return MIXER_KERNEL not in self._missing()
+
     def device_for(self, name: str, chip: int = 0) -> Optional[Callable]:
-        """The chip version of device `name` for telemetry chip number `chip`, or None when the device has no kernel. The
-        telemetry chip's own kernels run it: chip `c` runs on the worker's chip `c`, or `c` modulo the chips it holds."""
-        if name not in KERNEL_DEVICES:
+        """The chip version of device `name` for telemetry chip number `chip`, or None when the device has no kernel (or its kernel did
+        not compile). The telemetry chip's own kernels run it: chip `c` runs on the worker's chip `c`, or `c` modulo the chips it holds."""
+        if name not in self.available_devices():
             return None
         return self._for_device(chip % max(1, getattr(self.worker, "devices", 1)))[name]
 
@@ -138,7 +154,7 @@ class KernelBackend:
 
     def mix(self, signals: Sequence[np.ndarray], currents: Sequence[float]) -> np.ndarray:
         """`devices.current_mix` on the chip for up to four chips (the mixer kernel's inputs), on the CPU for more."""
-        if self.failed or len(signals) > pk.MIX_INPUTS:
+        if self.failed or len(signals) > pk.MIX_INPUTS or not self.mixer_on_chip:
             return current_mix(signals, currents)
         n = len(signals[0])
         try:

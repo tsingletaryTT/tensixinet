@@ -294,3 +294,56 @@ def test_each_chips_choir_runs_on_that_chips_own_kernels():
             assert s.where[before:] and set(s.where[before:]) == {("ttchoir_voice", chip)}
     finally:
         s.close()
+
+
+# --- kernels that did not compile: those devices stay on the CPU, the others keep their chip ---------------------------
+
+class Lacking:
+    """A worker that says which kernels it does not have."""
+    devices = 1
+
+    def __init__(self, unavailable):
+        self.unavailable = frozenset(unavailable)
+        self.calls = []
+
+    def run(self, op, inputs, n, device=0):
+        self.calls.append(op)
+        raise AssertionError(f"{op} should not have been asked for")
+
+
+@pytest.mark.parametrize("kernel,device", [("ttgong", "gong"), ("ttshimmer", "ultrasonic_shimmer"), ("ttshock", "ttdrone"),
+                                           ("ttavdog", "ttavdog"), ("ttcoco", "ttcoco"), ("ttchoir", "ttchoir")])
+def test_a_device_whose_kernel_is_missing_has_no_chip_version_and_the_rest_do(kernel, device):
+    backend = KernelBackend(Lacking({kernel}))
+    assert backend.device_for(device) is None
+    assert [d for d in KERNEL_DEVICES if backend.device_for(d) is not None] == [d for d in KERNEL_DEVICES if d != device]
+    assert backend.available_devices() == tuple(d for d in KERNEL_DEVICES if d != device)
+
+
+def test_a_worker_with_no_list_of_missing_kernels_has_every_device():
+    class Plain:
+        devices = 1
+    backend = KernelBackend(Plain())
+    assert backend.available_devices() == KERNEL_DEVICES and backend.mixer_on_chip is True
+
+
+def test_a_missing_mixer_kernel_leaves_the_mix_on_the_cpu_without_asking_the_worker():
+    worker = Lacking({"ttmix"})
+    backend = KernelBackend(worker)
+    signals = [np.linspace(-1, 1, 64), np.linspace(1, -1, 64)]
+    assert backend.mixer_on_chip is False
+    assert np.array_equal(backend.mix(signals, [0.5, 0.25]), current_mix(signals, [0.5, 0.25]))
+    assert worker.calls == [] and backend.failed is False
+
+
+def test_a_missing_kernel_is_not_a_failure_so_the_chip_devices_keep_running(spy):
+    spy.calls.clear()
+    spy.unavailable = frozenset({"ttavdog"})
+    try:
+        backend = KernelBackend(spy)
+        t = _chip()
+        assert backend.device_for("ttavdog") is None
+        backend.device_for("gong")(t, 0.5, SR, 3)
+        assert backend.failed is False and "ttgong" in spy.calls
+    finally:
+        del spy.unavailable

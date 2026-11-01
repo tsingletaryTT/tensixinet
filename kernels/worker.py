@@ -28,7 +28,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np  # noqa: E402
 
 from tensixinet.kernels import packing as pk  # noqa: E402
-from tensixinet.media.chip import CHIP_OPS, COMPACT_OPS, DEFAULT_CHUNK_TILES, read_frame, write_frame  # noqa: E402
+from tensixinet.media.chip import (  # noqa: E402
+    CHIP_OPS, COMPACT_OPS, DEFAULT_CHUNK_TILES, kernel_of, read_frame, warm_up_kernels, write_frame,
+)
 
 ROWS_PER_TILE = pk.TILE  # a packed array has 32 columns, so a 1024-sample tile is 32 rows
 
@@ -117,6 +119,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run the TT-Lang kernels for the live soundtrack.")
     parser.add_argument("--host", action="store_true", help="compute each kernel's formula in numpy instead of on a chip")
     parser.add_argument("--chunk-tiles", type=int, default=DEFAULT_CHUNK_TILES, help="1024-sample tiles per chunk")
+    parser.add_argument("--unavailable", default="", help="host mode only: kernels (comma separated) to pretend did not compile")
     args = parser.parse_args()
     chunk_rows = args.chunk_tiles * ROWS_PER_TILE
 
@@ -126,6 +129,7 @@ def main() -> int:
     sys.stdout = sys.stderr
 
     board = None
+    unavailable = set(filter(None, args.unavailable.split(",")))
     if args.host:
         def compute(op, chunk, samples, index):
             return HOST_OPS[op](chunk, samples)
@@ -138,13 +142,11 @@ def main() -> int:
         import ttnn
         board = Board()
         compute = chip_compute(board)
-        for index in range(2):  # compile every kernel on both chips now, so the first segment is not the one that waits
-            for op, arity in CHIP_OPS.items():
-                warm = [np.zeros((chunk_rows, pk.TILE), dtype=np.float32) for _ in range(arity)]
-                compute(op, warm, chunk_rows * pk.TILE, index)
-                print(f"compiled {op} on chip {index}", file=sys.stderr, flush=True)
+        # compile every kernel on both chips now, so no segment waits for a compile; one that will not compile is
+        # reported in the ready message and its devices stay on the CPU
+        unavailable = warm_up_kernels(compute, CHIP_OPS, chunk_rows, 2, log=lambda note: print(note, file=sys.stderr, flush=True))
     try:
-        write_frame(proto_out, {"ready": np.array(1)})
+        write_frame(proto_out, {"ready": np.array(1), "unavailable": np.array(sorted(unavailable), dtype=str)})
         while True:
             request = read_frame(proto_in)
             if request is None:
@@ -154,6 +156,8 @@ def main() -> int:
                 index = int(request["device"]) if "device" in request else 0
                 if op not in CHIP_OPS and op not in COMPACT_OPS:
                     raise ValueError(f"unknown kernel {op}")
+                if kernel_of(op) in unavailable:
+                    raise ValueError(f"{kernel_of(op)} is not available on this worker")
                 if index not in (0, 1):
                     raise ValueError(f"a board has chips 0 and 1, not {index}")
                 arrays = [request[f"a{i}"] for i in range(COMPACT_OPS.get(op) or CHIP_OPS[op])]

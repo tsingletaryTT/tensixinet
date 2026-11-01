@@ -107,22 +107,33 @@ through the pipe (the worker in host mode, so no chip) the same choir took 1.55 
   the groups. The pipe carries 10 MB where it carried 450 MB. Through the pipe in host mode the choir went from 1.55 s to 0.42 s.
 The chip's own time for a 10 s chunk of one group is small: upload 4 ms, kernel 5 ms, download 1 ms, against 25 ms of packing.
 The timings in the last two rows drive `run_op` and the kernel on a chip in one process, so they still leave out the pipe; the pipe
-figure above is from the host-mode worker. A live `--kernels chips` run was not made (the worker cannot start on today's toolchain).
+figure above is from the host-mode worker. The live runs on the chips are in the next section's recording notes.
 
 Two things were found on the way:
 
 * **The chip's multiplies were exact here.** `ttavdog` and `ttcoco` showed differences of 1e-3; the choir's `a * sin(p)` sum showed
   1.5e-7 on the chip, the same as the simulator. `--atol` is 2e-3 anyway, as wide as the loosest kernel, in case another toolchain rounds
   the multiplies as before.
-* **The toolchain on this box had moved.** On 2026-10-31 `ttchoir` and `ttcoco` (which ran here on 2026-10-18) both failed to compile with
-  `fatal error: tools/profiler/kernel_profiler.hpp: No such file or directory`. tt-metal commit `27cad27903e` dropped `<root>/tt_metal`
-  from the JIT's include path, and TT-Lang (1.1.6 in the shared venv, and tt-orchard's pinned 1.1.10 pair) still generates that include.
-  The choir ran with tt-orchard's pair venv (`~/.cache/tt-orchard/ttlang-pair/venv` and its `orchard-pair-exports.sh`) and a private
-  runtime root: a folder of symlinks to `~/tt-metal` with one added file, `tools/profiler/kernel_profiler.hpp`, that includes
-  `api/debug/kernel_profiler.hpp`, passed as `TT_METAL_RUNTIME_ROOT` to that process only. Nothing shared was changed. With that, `ttchoir`
-  compiles and runs, but `ttcoco` fails on `add_tiles_init` and `binary_op_init_common`, which this tt-metal no longer declares. The other
-  four old kernels were not tried. `worker.py` compiles every kernel at start, so `--kernels chips` cannot start on this box until TT-Lang and
-  tt-metal agree again. None of the old kernels changed.
+* **The toolchain on this box had moved, and `kernels/compat/` brings the kernels back.** On 2026-10-31 `ttchoir` and `ttcoco` (which ran here on
+  2026-10-18) both failed to compile. There were two causes, both in names that TT-Lang's generated C++ still uses:
+  * `tools/profiler/kernel_profiler.hpp` moved to `api/debug/kernel_profiler.hpp` (tt-metal `27cad27903e` dropped `<root>/tt_metal` from the JIT's
+    include path), so every kernel failed with `fatal error: tools/profiler/kernel_profiler.hpp: No such file or directory` on the shared venv's TT-Lang
+    1.1.6 and on tt-orchard's pinned 1.1.10 pair.
+  * tt-metal `65e51a17e96` ("Remove deprecated Compute API shims") removed `binary_op_init_common`, `add_tiles_init`, `sub_tiles_init` and
+    `mul_tiles_init`. A kernel that multiplies two circular-buffer tiles (`ttavdog`, `ttmix`, `ttcoco`) calls them and failed with
+    `'binary_op_init_common' was not declared in this scope`; the four kernels that do their multiplies in the vector unit (`ttshock`, `ttshimmer`,
+    `ttgong`, `ttchoir`) compiled.
+  `kernels/compat/make_runtime_root.sh OUT` builds a private runtime root: a tree of symlinks to `~/tt-metal` with the old profiler header path restored and
+  `eltwise_binary.h` replaced by a wrapper that includes the real one and defines the four removed names over their replacements
+  (`compute_kernel_hw_startup`, and `binary_tiles_init` with the same circular buffers). `source kernels/compat/env.sh` builds it once into
+  `~/.cache/tensixinet/metalroot`, puts tt-orchard's pair venv first on `PATH` (`TTLANG_PAIR_VENV` names another), adds soundfile from
+  `~/.cache/tensixinet/pairsite`, and sets `TT_METAL_RUNTIME_ROOT`. Only the shell that sources it is changed; nothing shared is. With it, on chips 0 and 1 of
+  board 0, `kernels/cycle.py` passed 16 of 16 runs (all seven kernels, the choir with both voices, on both chips) inside every tolerance.
+  `tests/kernels/test_compat.py` checks the script against a small fake tt-metal. A TT-Lang that emits the new names makes the whole folder unnecessary.
+* **One kernel that will not compile no longer stops the others.** The worker compiles every kernel at start. A kernel that fails is named in the log, left
+  out, and reported in the worker's ready message (`ChipWorker.unavailable`, the union over a pool's boards); the devices that need it stay on the CPU and the rest keep
+  their chips, and the run logs "X did not compile on this toolchain". Before this, one failure meant `--kernels` could not start at all.
+  `host_command(unavailable=...)` and `worker.py --unavailable=a,b` pretend kernels did not compile, for tests.
 
 ## The soundtrack on the chips (`tensixinet --live --kernels chips`)
 
@@ -163,6 +174,19 @@ What the chip taught us that the simulator did not:
   multiplies in `ttavdog` by 2e-3 (about 10 bits of mantissa). That is far below hearing and is the reason for the two looser tolerances.
 * One timed run (the first call compiles) takes 0.2 to 0.7 ms for one to ten seconds of audio, so a single core is hundreds of
   times faster than real time for any of these devices.
+
+## A ten minute run with a model on the other board (2026-10-31)
+
+`demo/build_enya3d.sh` records `tensixinet --live --style enya --kernels chip` for 10:00 beside tt-toplike's Die 3D view (opened by sending it the `3` key,
+`demo/right_pane_3d.sh`). Qwen3-Coder-Next was served on board 1 (`tt-model serve ... --device-id 2,3`, under a lease held by a `sleep` through `--owner-pid`) and
+the kernels took board 0, so the two never shared a board. From 2:30 to 8:20 `demo/load_prompts.py` sent five bursts of 12 long prompts and 4 long-answer streams
+(`--decode-streams`), each burst 50 s with 20 s between. Measured from the run and the recording:
+
+* The kernels started 3.5 s in and never fell back: 602 s played in 76 segments, no "backend stopped" line, nothing reported as not compiled.
+* The model board's power, read from tt-toplike's status bar every 10 s, was 35 to 41 W at rest and reached 124 W (chip 3) and 69 W (chip 2) in the bursts. The
+  live loop read the chips about once a turn, and chip 2 evicted three times (at 5:42 after a peak of 159 W, 7:26 after 165 W and 9:03 after 81 W).
+* The file is 10:00.0, 2640 x 1490, H.264 at CRF 16 with the run's own audio as 320 kbit/s AAC (integrated loudness -15.5 LUFS, loudness range 7.3 LU).
+* The model was loaded before the recording started, so the video does not show it loading; that took about nine minutes. Not listened to end to end.
 
 ## In the simulator, for a machine with no chip (`--kernels sim`)
 

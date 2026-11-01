@@ -395,3 +395,72 @@ def test_a_compact_choir_keeps_a_phase_of_thousands_of_radians_exact(worker):
     got = worker.run("ttchoir_voice", pk.choir_compact(sr, frame_t, table, phase, ks), N)
     want = sum((pk.choir_on_host(g, N) for g in pk.choir_groups(t, frame_t, table, phase, ks)), np.zeros(N))
     assert np.abs(want).max() > 0.01 and np.allclose(got, want, atol=1e-6)
+
+
+# --- a kernel that does not compile on this toolchain: the others still run -----------------------------------------
+
+def test_warm_up_skips_a_kernel_that_does_not_compile_and_says_so_once_a_chip():
+    from tensixinet.media.chip import warm_up_kernels
+    calls, notes = [], []
+
+    def compute(op, chunk, samples, index):
+        calls.append((op, index))
+        if op == "ttavdog":
+            raise RuntimeError("TT_THROW @ program.cpp:420\nsecond line")
+        return chunk[0]
+
+    ops = {"ttshock": 3, "ttavdog": 10, "ttmix": 4}
+    failed = warm_up_kernels(compute, ops, chunk_rows=4, chips=2, log=notes.append)
+    assert failed == {"ttavdog"}
+    assert [c for c in calls if c[1] == 1] == [("ttshock", 1), ("ttavdog", 1), ("ttmix", 1)]  # the next kernels still ran on the second chip
+    assert len([n for n in notes if "ttavdog" in n and "TT_THROW" in n]) == 2 and not any("second line" in n for n in notes)
+    assert len([n for n in notes if n.startswith("compiled ")]) == 4  # ttshock and ttmix on both chips
+
+
+def test_warm_up_with_every_kernel_working_reports_none_failed():
+    from tensixinet.media.chip import warm_up_kernels
+    assert warm_up_kernels(lambda op, chunk, samples, index: chunk[0], {"ttshock": 3}, 4, 2, log=lambda note: None) == set()
+
+
+def test_a_worker_says_which_kernels_it_does_not_have():
+    with ChipWorker(host_command(chunk_tiles=16, unavailable=("ttavdog", "ttmix"))) as w:
+        assert w.unavailable == frozenset({"ttavdog", "ttmix"})
+    with ChipWorker(host_command(chunk_tiles=16)) as w:
+        assert w.unavailable == frozenset()
+
+
+def test_every_worker_of_a_pool_of_four_chips_reports_the_missing_kernels():
+    with ChipWorker(host_command(chunk_tiles=16, devices=4, unavailable=("ttcoco",)), devices=4) as w:
+        assert w.unavailable == frozenset({"ttcoco"})
+
+
+def test_a_kernel_the_worker_does_not_have_is_refused_by_name_and_the_others_still_run():
+    with ChipWorker(host_command(chunk_tiles=16, unavailable=("ttshock",))) as w:
+        with pytest.raises(ChipError, match="ttshock is not available"):
+            w.run("ttshock", _inputs("ttshock"), N)
+        assert len(w.run("ttshimmer", _inputs("ttshimmer"), N)) == N
+
+
+def test_an_unavailable_choir_voice_takes_the_choir_kernel_with_it():
+    with ChipWorker(host_command(chunk_tiles=16, unavailable=("ttchoir",))) as w:
+        packed = pk.choir_compact(SR, np.arange(4) / 100.0, np.ones((4, 8)), np.zeros(N), [0, 1])
+        with pytest.raises(ChipError, match="ttchoir is not available"):
+            w.run("ttchoir_voice", packed, N)
+
+
+def test_the_client_refuses_a_missing_kernel_without_asking_the_worker():
+    """A pool reports a kernel missing when any board lacks it, so a worker that has it can still be told not to use it."""
+    with ChipWorker(host_command(chunk_tiles=16)) as w:
+        w.unavailable = frozenset({"ttshock"})
+        with pytest.raises(ChipError, match="ttshock is not available"):
+            w.run("ttshock", _inputs("ttshock"), N)
+
+
+def test_the_worker_itself_refuses_a_missing_kernel_when_asked_directly():
+    from tensixinet.media.chip import read_frame, write_frame
+    with ChipWorker(host_command(chunk_tiles=16, unavailable=("ttshock",))) as w:
+        request = {"op": np.array("ttshock"), "n": np.array(N), "device": np.array(0)}
+        request.update({f"a{i}": a for i, a in enumerate(_inputs("ttshock"))})
+        write_frame(w.process.stdin, request)
+        reply = read_frame(w.process.stdout, 30)
+        assert "error" in reply and "ttshock is not available" in str(reply["error"]) and "out" not in reply

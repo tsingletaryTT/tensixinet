@@ -57,3 +57,12 @@ scenes:
     split_ratio: 50
     duration: 118s
     caption: "tensixinet --live --tui on the real chips: a readings line for each chip, the modules grouped by role with their share of the turn, the strongest cables, the stereo field and the colour-coded log. Whoever has the floor is bold and the rest dim. tt-toplike's arcade view shows the same four chips."
+
+  - id: enya3d
+    title: "Enya mode, a served model under traffic, and tt-toplike's Die 3D view"
+    layout: split
+    left:  { run: "demo/left_pane_enya3d.sh", wait_for: "played .*s in" }
+    right: { run: "demo/right_pane_3d.sh" }
+    split_ratio: 45
+    duration: 610s
+    caption: "tensixinet --live --style enya with its TT-Lang kernels (the gong, shimmer, drone ripple, AVDog, ttcoco mix, choir and mixer) running on one leased board, while Qwen3-Coder-Next, served on the other board, is sent bursts of long prompts and long answers from 2:30 to 8:20. tt-toplike's Die 3D view draws each board's dies and shows the model board lighting up. The soundtrack is the run's own audio."

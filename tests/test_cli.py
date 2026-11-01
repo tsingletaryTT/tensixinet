@@ -577,6 +577,25 @@ def test_kernels_chips_holds_one_chip_for_every_chip_the_run_plays_and_says_wher
     assert all("kernels" in e["what"] for e in per_chip)
 
 
+class _LackingWorker(_Worker):
+    """A host-mode worker that has no kernel for the AVDog or the mixer, as a chip whose toolchain cannot compile them."""
+
+    def __init__(self, devices=1):
+        super().__init__(devices)
+        self.unavailable = frozenset({"ttavdog", "ttmix"})
+
+
+def test_kernels_that_did_not_compile_are_named_and_their_devices_are_left_off_the_chip_lines(tmp_path):
+    worker = _LackingWorker(devices=4)
+    assert main(args(tmp_path, "--mock-chips", "4", "--duration", "4", "--kernels", "chips"), make_worker=lambda mode, chips: worker) == 0
+    ev = [e for e in read_events(tmp_path / "logs") if e["event"] == "backend"]
+    said = [e for e in ev if "did not compile" in e["what"]]
+    assert len(said) == 1 and "ttavdog" in said[0]["what"] and "ttmix" in said[0]["what"] and "CPU" in said[0]["why"]
+    per_chip = [e for e in ev if e["what"].startswith("chip ")]
+    assert not any("ttavdog" in e["what"] or "the mixer" in e["what"] for e in per_chip)
+    assert "ttavdog" not in worker.calls and "ttmix" not in worker.calls and worker.calls
+
+
 def test_a_chip_run_says_it_is_releasing_the_chips_because_that_takes_about_forty_seconds(tmp_path):
     assert main(args(tmp_path, "--mock-chips", "2", "--kernels", "chip"), make_worker=lambda mode, chips: _Worker()) == 0
     ev = read_events(tmp_path / "logs")

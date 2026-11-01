@@ -95,7 +95,9 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
       phase, the consonants' noise, the howl and the crush (`ttchoir.choir_voice` with a `sines` callable; the CPU choir is unchanged to the
       bit). It matched the numpy choir to 1.5e-7 in the simulator and on chips 0 and 1, for the vowel and the syllable choir. A 30 s choir at
       44.1 kHz takes 0.41 to 0.61 s through the chip against 0.53 to 0.69 s on the CPU (`docs/hardware/board0_ttchoir_timing_compact.jsonl`; the first version took 0.68 to 0.88 s, `board0_ttchoir_timing.jsonl`, see `kernels/README.md`).
-      Still open: chips 2 and 3 (not tried: board 1 was reserved for another agent), the on-chip clips and the kernels video, and a live run with
-      `--kernels chips` (the worker cannot start on today's toolchain; see `kernels/README.md`).
+      Done after that: all seven kernels compile and match numpy on chips 0 and 1 with the compatibility runtime root (`kernels/compat/`), and a 10 minute
+      live run with `--kernels chip` on board 0 played with no fallback (`kernels/README.md`, `demo/build_enya3d.sh`). Still open: chips 2 and 3 (the
+      model was served there during the recording, so they were not cycled), the on-chip clips, the kernels video on the new toolchain, and
+      `--kernels chips` on four chips (the 10 minute run used one board).
     * **The stage: not started.** The stage, when it is built, is a mixer over the voices, so its kernel would be the per-strip filters and sends. That is for after the stage design is approved.
 

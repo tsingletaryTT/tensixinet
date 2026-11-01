@@ -44,7 +44,7 @@ def die_with_parent() -> None:
         pass
 
 
-def start_workers(chips: int, host: bool, chunk_tiles: int, sim: str = ""):
+def start_workers(chips: int, host: bool, chunk_tiles: int, sim: str = "", unavailable: str = ""):
     """One worker per board of the `chips` chips. On a chip, each is shown only its own board of the lease. With `sim` (the path of a
     `tt-lang-sim`) each runs under the TT-Lang simulator instead: the same kernels, no chip, no lease and no TT_VISIBLE_DEVICES."""
     workers = []
@@ -52,7 +52,7 @@ def start_workers(chips: int, host: bool, chunk_tiles: int, sim: str = ""):
         env = dict(os.environ)
         if not host and not sim:
             env["TT_VISIBLE_DEVICES"] = board_visible_devices(os.environ.get("TT_VISIBLE_DEVICES"), board, chips)
-        cmd = ([sim] if sim else [sys.executable]) + [str(WORKER), f"--chunk-tiles={chunk_tiles}"] + (["--host"] if host else [])
+        cmd = ([sim] if sim else [sys.executable]) + [str(WORKER), f"--chunk-tiles={chunk_tiles}"] + (["--host"] if host else []) + ([f"--unavailable={unavailable}"] if unavailable else [])
         workers.append(subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, preexec_fn=die_with_parent))
     return workers
 
@@ -65,6 +65,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="One chip worker per leased chip, behind one pipe.")
     parser.add_argument("--host", action="store_true", help="numpy workers instead of chips")
     parser.add_argument("--sim", metavar="TT_LANG_SIM", default="", help="run each worker under this tt-lang-sim: the kernels in the TT-Lang simulator, no chip")
+    parser.add_argument("--unavailable", default="", help="host mode only: kernels (comma separated) to pretend did not compile")
     parser.add_argument("--devices", type=int, default=1, help="how many chips, device 0 up")
     parser.add_argument("--chunk-tiles", type=int, default=DEFAULT_CHUNK_TILES)
     args = parser.parse_args()
@@ -75,17 +76,19 @@ def main() -> int:
     sys.stdout = sys.stderr
 
     try:
-        workers = start_workers(args.devices, args.host, args.chunk_tiles, args.sim)
+        workers = start_workers(args.devices, args.host, args.chunk_tiles, args.sim, args.unavailable)
     except ChipError as e:
         print(f"pool: {e}", file=sys.stderr, flush=True)
         return 2
     try:
+        unavailable = set()  # a kernel that did not compile on any board is missing for the whole pool
         for index, worker in enumerate(workers):
             ready = read_frame(worker.stdout)
             if ready is None or "ready" not in ready:
                 print(f"pool: the worker for board {index} exited before it was ready (exit {worker.poll()})", file=sys.stderr, flush=True)
                 return 2
-        write_frame(proto_out, {"ready": np.array(1)})
+            unavailable |= {str(op) for op in ready.get("unavailable", ())}
+        write_frame(proto_out, {"ready": np.array(1), "unavailable": np.array(sorted(unavailable), dtype=str)})
         while True:
             request = read_frame(proto_in)
             if request is None:

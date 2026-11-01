@@ -84,10 +84,38 @@ def read_frame(stream: BinaryIO, timeout: Optional[float] = None) -> Optional[Di
         return {key: data[key] for key in data.files}
 
 
-def host_command(chunk_tiles: Optional[int] = None, devices: int = 1) -> List[str]:
-    """Start the worker in host mode: each kernel's formula in numpy, no chip, with `devices` pretend devices."""
+def host_command(chunk_tiles: Optional[int] = None, devices: int = 1, unavailable: Sequence[str] = ()) -> List[str]:
+    """Start the worker in host mode: each kernel's formula in numpy, no chip, with `devices` pretend devices. `unavailable` names kernels
+    the worker pretends it could not compile, to test and to hear the CPU taking those devices over."""
     cmd = [sys.executable, str(WORKER), "--host", f"--devices={devices}"]
+    cmd += [f"--unavailable={','.join(unavailable)}"] if unavailable else []
     return cmd + (["--chunk-tiles", str(chunk_tiles)] if chunk_tiles else [])
+
+
+def kernel_of(op: str) -> str:
+    """The kernel an op runs on: `ttchoir_voice` is the choir kernel, every other op is its own."""
+    return "ttchoir" if op == "ttchoir_voice" else op
+
+
+def warm_up_kernels(compute, ops: Dict[str, int], chunk_rows: int, chips: int, log) -> set:
+    """Run every kernel once on each of `chips` chips so no segment waits for a compile. A kernel that
+    will not compile is named in the log (its first error line) and left out, and the rest still run: the toolchain can lack one
+    operation that only some kernels use (on 2026-10-31 `ttavdog`, `ttmix` and `ttcoco` did not compile and the other four did).
+    Returns the kernels that failed on any chip."""
+    from ..kernels import packing as pk
+    failed = set()
+    for index in range(chips):
+        for op, arity in ops.items():
+            warm = [np.zeros((chunk_rows, pk.TILE), dtype=np.float32) for _ in range(arity)]
+            try:
+                compute(op, warm, chunk_rows * pk.TILE, index)
+            except Exception as e:
+                failed.add(op)
+                lines = str(e).splitlines()
+                log(f"could not compile {op} on chip {index}: {type(e).__name__}: {lines[0] if lines else ''}")
+                continue
+            log(f"compiled {op} on chip {index}")
+    return failed
 
 
 def find_simulator(env=None, which=shutil.which, python: str = sys.executable) -> Optional[str]:
@@ -165,6 +193,7 @@ class ChipWorker:
         self.run_timeout = run_timeout
         self.process: Optional[subprocess.Popen] = None
         self._stderr = None
+        self.unavailable: frozenset = frozenset()  # kernels the worker could not compile; known once it is ready
 
     def __enter__(self) -> "ChipWorker":
         self.start()
@@ -200,6 +229,7 @@ class ChipWorker:
                     self.cancel(ticket.group(1))
                     hint += f"; cancelled ticket {ticket.group(1)}"
             raise ChipError(f"the chip worker exited before it was ready (exit {code}){hint}: {detail}")
+        self.unavailable = frozenset(str(op) for op in ready.get("unavailable", ()))
 
     @staticmethod
     def _end_tree(process: subprocess.Popen) -> None:
@@ -241,6 +271,8 @@ class ChipWorker:
         arity = {**CHIP_OPS, **COMPACT_OPS}
         if op not in arity:
             raise ChipError(f"unknown kernel {op}; the kernels are {', '.join(arity)}")
+        if kernel_of(op) in self.unavailable:
+            raise ChipError(f"{kernel_of(op)} is not available: it did not compile on this worker")
         if len(inputs) != arity[op]:
             raise ChipError(f"{op} takes {arity[op]} inputs, got {len(inputs)}")
         if self.process is None:
