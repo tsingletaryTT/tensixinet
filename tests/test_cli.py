@@ -672,6 +672,36 @@ def test_a_style_draws_a_patch_in_that_style_saves_it_and_says_so(tmp_path, caps
     assert any("blues style" in e["why"] for e in ev if e["what"].startswith("patch seed"))
 
 
+def _saved_patch(tmp_path):
+    from tensixinet.music.patch import load_patch
+    (saved,) = (tmp_path / "logs").glob("patch_*.json")
+    return load_patch(saved)
+
+
+def test_with_no_style_given_the_patch_is_drawn_in_chiptune(tmp_path):
+    assert main(args(tmp_path, "--mock-chips", "4", "--patch-seed", "5")) == 0
+    assert _saved_patch(tmp_path).style == "chiptune"
+    assert any("chiptune" in e["why"] for e in read_events(tmp_path / "logs") if e["what"].startswith("patch seed"))
+
+
+def test_style_plain_asks_for_the_unstyled_draw(tmp_path):
+    from tensixinet.music.patch import draw_patch, save_patch
+    assert main(args(tmp_path, "--mock-chips", "4", "--style", "plain", "--patch-seed", "5")) == 0
+    assert _saved_patch(tmp_path).style == ""
+
+
+def test_a_saved_patch_replays_without_naming_a_style(tmp_path):
+    """The chiptune default must not trip the rule that --style and --patch exclude each other."""
+    assert main(args(tmp_path, "--mock-chips", "4", "--style", "blues", "--patch-seed", "5")) == 0
+    (saved,) = (tmp_path / "logs").glob("patch_*.json")
+    kept = tmp_path / "kept.json"
+    kept.write_text(saved.read_text())
+    second = tmp_path / "second"
+    second.mkdir()
+    assert main(args(second, "--mock-chips", "4", "--patch", str(kept))) == 0
+    assert _saved_patch(second).style == "blues"
+
+
 def test_every_style_plays_a_run_through(tmp_path):
     from tensixinet.music.styles import STYLES
     for name in STYLES:

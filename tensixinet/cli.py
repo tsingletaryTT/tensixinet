@@ -21,7 +21,7 @@ from .media import llm
 from .media import toplike
 from .media.player import PLAYERS, PlayerError, make_sink as default_make_sink
 from .music.patch import DEFAULT_PATCH, draw_patch, load_patch, save_patch, seed_from_telemetry
-from .music.styles import STYLES, draw_styled_patch
+from .music.styles import DEFAULT_STYLE, STYLES, draw_styled_patch
 from .run import close_score_sink, run
 from .score.routing import DEFAULT_ROUTES, load_routes
 from .score.sinks import MidiFileSink, MidiPortError, MidiPortSink, TeeScoreSink
@@ -69,9 +69,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mock-faults", action="store_true",
                    help="with --mock-chips, give some chips memory errors and thermal trips so the event sounds play")
     p.add_argument("--patch", metavar="FILE", help="replay a saved patch (patch_*.json from an earlier run's log dir)")
-    p.add_argument("--style", choices=tuple(STYLES), metavar="NAME",
+    p.add_argument("--style", choices=("plain", *STYLES), metavar="NAME",
                    help=f"draw the patch in a style, a sketch of a sound that narrows the draw and sets the band's balance "
-                        f"({', '.join(STYLES)}); the system and the seed still decide the rest, so no two runs match")
+                        f"({', '.join(STYLES)}); the default is {DEFAULT_STYLE}, and plain is the unstyled draw; "
+                        f"the system and the seed still decide the rest, so no two runs match")
     p.add_argument("--patch-seed", type=int, metavar="N", help="draw the patch from this seed instead of from the chips and entropy")
     p.add_argument("--no-normalise", action="store_true",
                    help="write the render at the level the chips' power gives it, with no loudness gain")
@@ -357,8 +358,10 @@ def main(
                           "continuing with telemetry only; the chorus does not need the LLM to play")
         try:
             chips = sample()
-            draw = (lambda seed, c: draw_styled_patch(seed, c, a.style)) if a.style else draw_patch
-            in_style = f", drawn in the {a.style} style" if a.style else ""
+            style = a.style or (None if a.patch else DEFAULT_STYLE)   # a saved patch keeps its own style
+            style = None if style == "plain" else style
+            draw = (lambda seed, c: draw_styled_patch(seed, c, style)) if style else draw_patch
+            in_style = f", drawn in the {style} style" if style else ""
             if not chips:  # run() and run_live() log that there is nothing to play and raise
                 patch, patch_source = DEFAULT_PATCH, "no chips, so no patch was drawn"
             elif replay is not None:

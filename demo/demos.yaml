@@ -2,7 +2,7 @@ project: tensixinet
 theme: tt-brand
 # hybrid = sysfs + tt-smi JSON: read-only, never opens a device (so no gozer lease is
 # needed). Do not switch this to luwen; that opens the chips directly.
-defaults: { cols: 200, rows: 50, backend: "--backend hybrid", outputs: [cast, mp4] }
+defaults: { cols: 280, rows: 50, backend: "--backend hybrid", outputs: [cast, mp4] }
 scenes:
   - id: chorus
     title: "Prompting on the left, the chips on the right, the chorus underneath"
@@ -66,3 +66,21 @@ scenes:
     split_ratio: 45
     duration: 610s
     caption: "tensixinet --live --style enya with its TT-Lang kernels (the gong, shimmer, drone ripple, AVDog, ttcoco mix, choir and mixer) running on one leased board, while Qwen3-Coder-Next, served on the other board, is sent bursts of long prompts and long answers from 2:30 to 8:20. tt-toplike's Die 3D view draws each board's dies and shows the model board lighting up. The soundtrack is the run's own audio."
+
+  - id: tui10
+    title: "The terminal view (--tui), a served model under traffic, and tt-toplike's Die 3D view"
+    layout: split
+    left:  { run: "demo/left_pane_tui10.sh", wait_for: "played .*s in" }
+    right: { run: "demo/right_pane_3d.sh" }
+    split_ratio: 50
+    duration: 610s
+    caption: "tensixinet --live --tui in its default style, with its TT-Lang kernels running on one leased board, while Qwen3-Coder-Next, served on the other board, is sent bursts of long prompts and long answers from 2:30 to 8:20. The terminal view shows each chip's readings, the modules by role with their share of the turn, the strongest cables, the stereo field and the colour-coded log. tt-toplike's Die 3D view shows the model board lighting up. The soundtrack is the run's own audio."
+
+  - id: tui20
+    title: "The terminal view (--tui) in its default style, beside tt-toplike-busted cycling through its views, 20 minutes"
+    layout: split
+    left:  { run: "demo/left_pane_tui20.sh", wait_for: "played .*s in" }
+    right: { run: "TT_TOPLIKE_COLOR=truecolor tt-toplike-busted {backend} --rotate --interval 50" }   # inside tmux it otherwise falls back to the 256-colour palette
+    split_ratio: 25
+    duration: 1230s
+    caption: "tensixinet --live --tui in its default style (chiptune) on the real chips, in a quarter-width pane, while tt-toplike-busted takes the other three quarters and rotates through its views unattended. The band is on the CPU and the telemetry is read-only; no sound device was used, so the picture and the soundtrack line up exactly. tt-toplike-busted polls every 50 ms instead of its default 100 ms."

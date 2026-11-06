@@ -20,6 +20,11 @@ def test_the_style_choices_are_a_plain_draw_then_every_style():
     assert style_choices() == ["plain draw"] + list(STYLES)
 
 
+def test_the_app_starts_on_chiptune():
+    from tensixinet.ui.forms import default_style
+    assert default_style() == "chiptune" and default_style() in style_choices()
+
+
 def test_the_patch_choices_are_the_seeded_draw_then_each_saved_patch_by_name(tmp_path):
     (tmp_path / "b.patch.json").write_text("{}")
     (tmp_path / "a.patch.json").write_text("{}")

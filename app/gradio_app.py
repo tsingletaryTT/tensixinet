@@ -26,7 +26,7 @@ import numpy as np
 from tensixinet.music.patch import save_patch
 from tensixinet.ui.chart import flow_svg
 from tensixinet.ui.forms import (DRAW, SOURCES, kernel_choices, new_instrument, new_session, patch_choices, read_chip_knobs, source_choices,
-                                 style_choices)
+                                 style_choices, default_style)
 from tensixinet.ui.knobs import CHOIR_ONSETS, CHOIR_VOWELS, EVENTS, KNOB_RANGES, MAX_CHIPS, Knobs
 from tensixinet.ui.logview import log_html
 from tensixinet.ui.player import Busy, Visitors
@@ -360,7 +360,7 @@ def _build_watch_tab() -> None:
     with gr.Row():
         sources, kernel_options = source_choices(), kernel_choices()  # the real chips need tt-smi, the simulator needs tt-lang-sim
         source = gr.Radio(sources, value=sources[0], label="Source")
-        style = gr.Dropdown(style_choices(), value=style_choices()[0], label="Style")
+        style = gr.Dropdown(style_choices(), value=default_style(), label="Style")
         patch_name = gr.Dropdown(patch_choices(PATCH_DIRS), value=DRAW, label="Patch (a saved one ignores the style and the seed)")
     with gr.Row():
         seed = gr.Number(value=4, precision=0, label="Seed")
@@ -399,7 +399,7 @@ def _build_play_tab() -> None:
     gr.Markdown(PLAY_INTRO)
     with gr.Row():
         scope = gr.Dropdown(scope_choices(), value="system", label="Play")
-        style = gr.Dropdown(style_choices(), value=style_choices()[0], label="Style")
+        style = gr.Dropdown(style_choices(), value=default_style(), label="Style")
         seed = gr.Number(value=4, precision=0, label="Seed")
         chips = gr.Slider(1, MAX_CHIPS, value=MAX_CHIPS, step=1, label="Chips")
     with gr.Row():

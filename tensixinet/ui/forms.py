@@ -11,7 +11,7 @@ from typing import Callable, List, Optional, Sequence, Tuple
 from ..media.chip import ChipWorker, find_simulator, simulator_command
 from ..music.live import Tracker
 from ..music.patch import Patch, load_patch
-from ..music.styles import STYLES
+from ..music.styles import DEFAULT_STYLE, STYLES
 from .instrument import InstrumentConfig, InstrumentSession
 from .knobs import MAX_CHIPS, Knobs, to_telemetry
 from .scopes import resolve_scope
@@ -40,6 +40,11 @@ def default_worker(chips: int) -> ChipWorker:
 
 def style_choices() -> List[str]:
     return [PLAIN] + list(STYLES)
+
+
+def default_style() -> str:
+    """The style the app's dropdowns start on."""
+    return DEFAULT_STYLE
 
 
 def patch_choices(dirs: Sequence[Path]) -> List[str]:

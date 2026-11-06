@@ -53,6 +53,9 @@ class Style:
     choir_crush: float = 0.0  # the choir's speech-chip crush at full pressure (patch.choir_crush)
 
 
+DEFAULT_STYLE = "chiptune"   # the style a run and the app use when none is named; "plain" (the CLI) or "plain draw" (the app) opts out
+
+
 def _odds(*weights: float) -> Tuple[float, ...]:
     total = sum(weights)
     return tuple(w / total for w in weights)
