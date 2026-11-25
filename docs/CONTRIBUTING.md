@@ -47,6 +47,22 @@ nothing on your machine hides a missing dependency.
 Edit `music/mapping.py` and its tests together, then `docs/SOUND.md`. The README and SOUND tables must
 match the code.
 
+## Change the patch / style library
+
+The TUI's `p` and `s` keys save the playing patch and a style snapshot into `music/library.py`'s folder
+(`library/patches/`, `library/styles/`, or `--library DIR`). `--patch NAME` and `--style NAME` resolve bare
+names there; explicit paths still work. Keep both sides in step:
+
+1. Write a test in `tests/music/test_library.py` for the save or lookup rule, and one in `tests/tui/test_app.py`
+   or `tests/test_cli.py` for the wiring that reaches it.
+2. Names are file stems. Sanitise them, and give a repeat save a `-2`, `-3` suffix rather than overwriting.
+   Test that too.
+3. A style snapshot pins the motif and mode from the playing patch. Adding a style field means updating
+   `music/styles.py`'s serialise / load round trip and testing it in `tests/music/test_styles.py`.
+4. If you add a new `log.event(...)` kind, add its jack colour to `narrate/color.py`.
+   `tests/narrate/test_color.py` checks every kind in the code has one.
+5. Update the README's options table, the TUI keys section and `docs/SOUND.md` in the same change.
+
 ## Hardware rules
 
 * Reading telemetry (`tt-smi -s`, `tt-toplike --backend hybrid`) and HTTP to the model endpoint do

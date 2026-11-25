@@ -724,6 +724,33 @@ def test_an_unknown_style_is_refused_by_the_parser(tmp_path, capsys):
     assert "chiptune" in capsys.readouterr().err
 
 
+def test_a_style_written_to_the_library_can_be_named_on_the_command_line(tmp_path):
+    from tensixinet.music.library import save_named_style
+    from tensixinet.music.patch import draw_patch
+    from tensixinet.music.styles import style_from_patch
+    from tensixinet.telemetry.mock import mock_telemetry
+
+    lib = tmp_path / "library"
+    patch = draw_patch(5, mock_telemetry(4, 5))
+    save_named_style(style_from_patch(patch, "my style"), "my style", root=lib)
+    assert main(args(tmp_path, "--mock-chips", "4", "--seed", "5", "--patch-seed", "5",
+                     "--style", "my-style", "--library", str(lib))) == 0
+    saved = _saved_patch(tmp_path)
+    assert saved.style == "my-style" and saved.motif == patch.motif
+
+
+def test_a_patch_in_the_library_can_be_replayed_by_name(tmp_path):
+    from tensixinet.music.library import save_named_patch
+    from tensixinet.music.patch import draw_patch
+    from tensixinet.telemetry.mock import mock_telemetry
+
+    lib = tmp_path / "library"
+    patch = draw_patch(5, mock_telemetry(4, 5))
+    save_named_patch(patch, "favourite", root=lib)
+    assert main(args(tmp_path, "--mock-chips", "4", "--patch", "favourite", "--library", str(lib))) == 0
+    assert _saved_patch(tmp_path) == patch
+
+
 # --- stereo is the default; --mono is the old sound -----------------------------------------------------------------------------------
 
 def test_a_run_is_stereo_by_default_and_mono_on_request(tmp_path):
@@ -1726,6 +1753,23 @@ def test_tui_keeps_the_midi_rules_of_the_loop(tmp_path, capsys):
     # plain live mode keeps its MIDI file with the TUI
     code, _, _ = live(tmp_path / "m", "--tui", "--midi-file", str(tmp_path / "y.mid"), terminal=FakeTerminal())
     assert code == 0 and (tmp_path / "y.mid").exists()
+
+
+def test_p_and_s_in_the_tui_save_to_the_library(tmp_path):
+    from tensixinet.music.patch import load_patch
+    from tensixinet.music.styles import load_style
+
+    term = FakeTerminal()
+    term.keys.put("p")
+    term.keys.put("s")
+    lib = tmp_path / "library"
+    code, _, _ = live(tmp_path, "--tui", "--library", str(lib), "--mock-chips", "4",
+                      sink=SlowSink(pause=0.05), terminal=term)
+    assert code == 0
+    (patch_file,) = (lib / "patches").glob("*.json")
+    (style_file,) = (lib / "styles").glob("*.json")
+    assert load_patch(patch_file).seed >= 0
+    assert load_style(style_file).name.endswith("-snapshot")
 
 
 def test_q_in_the_tui_ends_a_live_run_like_ctrl_c(tmp_path):

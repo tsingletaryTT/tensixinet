@@ -20,8 +20,15 @@ from .music.chorus import chip_devices, device_names
 from .media import llm
 from .media import toplike
 from .media.player import PLAYERS, PlayerError, make_sink as default_make_sink
+from .music.library import (
+    DEFAULT_LIBRARY,
+    library_styles,
+    resolve_patch,
+    save_named_patch,
+    save_named_style,
+)
 from .music.patch import DEFAULT_PATCH, draw_patch, load_patch, save_patch, seed_from_telemetry
-from .music.styles import DEFAULT_STYLE, STYLES, draw_styled_patch
+from .music.styles import DEFAULT_STYLE, STYLES, draw_styled_patch, style_from_patch
 from .run import close_score_sink, run
 from .score.routing import DEFAULT_ROUTES, load_routes
 from .score.sinks import MidiFileSink, MidiPortError, MidiPortSink, TeeScoreSink
@@ -68,11 +75,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=0, help="seed for --mock-chips")
     p.add_argument("--mock-faults", action="store_true",
                    help="with --mock-chips, give some chips memory errors and thermal trips so the event sounds play")
-    p.add_argument("--patch", metavar="FILE", help="replay a saved patch (patch_*.json from an earlier run's log dir)")
-    p.add_argument("--style", choices=("plain", *STYLES), metavar="NAME",
+    p.add_argument("--library", default=DEFAULT_LIBRARY, metavar="DIR",
+                   help=f"folder of saved patches and styles (default {DEFAULT_LIBRARY}/); a bare --patch NAME or --style NAME looks here, "
+                        "and the TUI's p and s keys save here")
+    p.add_argument("--patch", metavar="FILE",
+                   help="replay a saved patch (a path, or a NAME in --library/patches/)")
+    p.add_argument("--style", metavar="NAME",
                    help=f"draw the patch in a style, a sketch of a sound that narrows the draw and sets the band's balance "
-                        f"({', '.join(STYLES)}); the default is {DEFAULT_STYLE}, and plain is the unstyled draw; "
-                        f"the system and the seed still decide the rest, so no two runs match")
+                        f"(built-in: {', '.join(STYLES)}, or a NAME in --library/styles/); the default is {DEFAULT_STYLE}, "
+                        "and plain is the unstyled draw; the system and the seed still decide the rest, so no two runs match")
     p.add_argument("--patch-seed", type=int, metavar="N", help="draw the patch from this seed instead of from the chips and entropy")
     p.add_argument("--no-normalise", action="store_true",
                    help="write the render at the level the chips' power gives it, with no loudness gain")
@@ -191,6 +202,11 @@ def _check_arguments(parser, a) -> tuple:
             parser.error(f"--only: unknown device {', '.join(unknown) or '(none given)'}; the devices are {', '.join(device_names())}")
     if a.style and a.patch:
         parser.error("--style draws a new patch and --patch replays a saved one; use one of them (a saved patch keeps its own style)")
+    if a.style:
+        saved = library_styles(a.library)
+        if a.style not in ("plain", *STYLES, *saved):
+            parser.error(f"Unknown style '{a.style}'. Choose from plain, {', '.join(STYLES)}"
+                         + (f", or a saved style in {a.library}/styles: {', '.join(saved)}" if saved else "") + ".")
     if a.mock_load is not None:
         if not a.mock_chips:
             parser.error("--mock-load needs --mock-chips: real chips load and unload when the work does")
@@ -225,6 +241,23 @@ def _check_arguments(parser, a) -> tuple:
     if a.midi_offset_ms and not a.midi_port:
         parser.error("--midi-offset-ms needs --midi-port: it only shifts what goes to a live port")
     return only, routes
+
+
+def _tui_save(kind: str, library: str, current: dict) -> str:
+    """Save what the TUI is playing into the library and return the heading notice. `current` is filled in as soon as the
+    patch is drawn, before the TUI's thread starts; if a key is pressed before that, the notice says why nothing was saved."""
+    patch = current.get("patch")
+    if patch is None:
+        raise ValueError("nothing is playing yet")
+    name = current["name"]
+    if kind == "patch":
+        path = save_named_patch(patch, name, root=library)
+    elif kind == "style":
+        snapshot = f"{name}-snapshot"
+        path = save_named_style(style_from_patch(patch, snapshot), snapshot, root=library)
+    else:
+        raise ValueError(f"unknown save kind {kind!r}")
+    return f"saved {kind} to {path}"
 
 
 def main(
@@ -264,6 +297,7 @@ def main(
     width = shutil.get_terminal_size().columns - 1
     palette = detect(sys.stdout, a.color)
     playhead = None  # with --tui: what the screen shows, fed by the log (on_event) and the live loop (on_segment)
+    current: dict = {}  # with --tui: the patch and save name the p/s keys write; filled once the patch is drawn
     tui = None
     if a.tui:
         # The TUI owns the screen, so the plain log goes only to the .txt file (and the JSONL); every record also goes to the
@@ -279,7 +313,8 @@ def main(
             on_event=playhead.note,
         )
         tui = TuiApp(terminal if terminal is not None else TtyTerminal(), playhead, colour=palette.enabled,
-                     truecolor=palette.truecolor, unit="phrase" if a.interval is not None else "segment", log_dir=str(log_dir))
+                     truecolor=palette.truecolor, unit="phrase" if a.interval is not None else "segment", log_dir=str(log_dir),
+                     save=(lambda kind: _tui_save(kind, a.library, current)))
     else:
         log = RunLog(
             jsonl=open(log_dir / f"tensixinet_{stamp}.jsonl", "w"),
@@ -344,7 +379,7 @@ def main(
         replay = None
         if a.patch:
             try:
-                replay = load_patch(a.patch)
+                replay = load_patch(resolve_patch(a.patch, a.library))
             except ValueError as e:
                 log.event("patch", f"cannot read patch {a.patch}", f"{e}; nothing was played")
                 return (code := 2)
@@ -360,7 +395,14 @@ def main(
             chips = sample()
             style = a.style or (None if a.patch else DEFAULT_STYLE)   # a saved patch keeps its own style
             style = None if style == "plain" else style
-            draw = (lambda seed, c: draw_styled_patch(seed, c, style)) if style else draw_patch
+            styles = None  # built-in styles are draw_styled_patch's default; a saved style is added to that table
+            if style and style not in STYLES:
+                try:
+                    styles = {**STYLES, **library_styles(a.library)}
+                except ValueError as e:
+                    log.event("style", f"cannot read saved styles: {e}", "nothing was played")
+                    return (code := 2)
+            draw = (lambda seed, c: draw_styled_patch(seed, c, style, styles=styles)) if style else draw_patch
             in_style = f", drawn in the {style} style" if style else ""
             if not chips:  # run() and run_live() log that there is nothing to play and raise
                 patch, patch_source = DEFAULT_PATCH, "no chips, so no patch was drawn"
@@ -376,6 +418,9 @@ def main(
                 host_text = " and the host description" if host[0] else ""
                 patch_source = (f"seed {seed} comes from every chip reading{host_text} plus entropy {noise}, "
                                 f"so no two runs match{in_style}")
+            if tui is not None:
+                current["patch"] = patch
+                current["name"] = f"patch-{time.strftime('%Y%m%d-%H%M%S')}"
             if chips:
                 save_patch(patch, log_dir / f"patch_{stamp}.json")
             backend = None

@@ -58,6 +58,8 @@ On a machine with Tenstorrent chips:
 tensixinet --duration 60                                  # reads your chips with `tt-smi -s`
 tensixinet "describe a hardware synth" --duration 60      # prompt a local model first
 tensixinet --patch logs/patch_20261017_120000.json        # replay an earlier run's choices exactly
+tensixinet --patch favourite --library my-library         # replay a patch saved from the TUI, by name
+tensixinet --style "my style" --library my-library        # draw with a style saved from the TUI
 tensixinet --live --duration 120                          # play as it goes, reading the chips every turn
 tensixinet --live --interval 100                          # read the chips every 100 ms; how soon a change is heard is under "Fast sampling"
 tensixinet --live --with-tt-toplike                       # tmux: the synth and tt-toplike side by side, reading at the same rate
@@ -160,6 +162,10 @@ solos last and how quiet everyone else gets. The scale also sets what the ttrax 
   reading gives a new patch.
 - **A patch is a small JSON file** saved next to the log. `--patch FILE` replays it and gives a byte-identical
   WAV. `--patch-seed N` fixes the seed instead.
+- **You can save takes you like** with the TUI's `p` and `s` keys (below). They write into a library at
+  `library/patches/` and `library/styles/` by default, or wherever `--library DIR` points. `--patch NAME` and
+  `--style NAME` look in that library, so a bare name works alongside a full path. Saving the same name twice
+  adds `-2`, `-3` and so on instead of overwriting a take.
 
 The demo replays [`demo/chorus.patch.json`](demo/chorus.patch.json), so rebuilding it plays the same music.
 
@@ -256,6 +262,11 @@ A frame with nothing new is not drawn again, and the whole screen is redrawn eve
 `q` and Ctrl-C both end the run the same way. The heading says at once that the run is stopping, the segments already made play out, and a second `q` or
 Ctrl-C stops at once. With `--tui` the player runs in its own session, so a Ctrl-C reaches only the run and not the player. On the way out the screen returns to normal and the last lines are printed, and the plain log still goes
 to the `.txt` file and the JSONL as before. `NO_COLOR` and `--color` are respected. `--tui` needs a terminal: with its output going to a pipe or a file it is refused.
+
+`p` saves the patch that is playing and `s` saves it as a style (a snapshot of the sound, named `<take>-snapshot`);
+`P` and `S` do the same. Neither key ends the run. Both write to the library (`library/` by default, or `--library DIR`)
+and the heading shows for a few seconds where the file went, or why the save failed. Replay a saved patch with
+`--patch NAME`, or draw in a saved style with `--style NAME`; both accept a bare name from the library or a full path.
 
 Limits, as measured so far:
 
@@ -364,16 +375,17 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--sample-rate HZ` | Default 44100 (22050 with `--interval`). Use 96000 for more ultrasonic headroom |
 | `--mock-chips N` | Play N synthetic chips and read no hardware. `--seed` varies them |
 | `--mock-faults` | With `--mock-chips`, give some chips memory errors and thermal trips so the event sounds play |
-| `--patch FILE` / `--patch-seed N` | Replay a saved patch, or draw from a fixed seed |
+| `--patch NAME` / `--patch-seed N` | Replay a saved patch, or draw from a fixed seed. `NAME` is a path or a bare name looked up in the library (`library/patches/` by default). Library names saved from the TUI work here |
 | `--live` | Read the chips every turn and play as it goes (see [Live mode](#live-mode)) |
 | `--interval MS` | With `--live`: read the chips every MS ms, 10 to 1000 (blocks are at least 100 ms). See [Fast sampling](#fast-sampling---interval) |
 | `--with-tt-toplike` | With `--live`: start a tmux session with the synth and tt-toplike at the same `--interval` (100 ms by default) |
 | `--toplike-args ARGS` | With `--with-tt-toplike`: extra arguments for tt-toplike, as one quoted string |
-| `--tui` | With `--live`: draw the chips, the devices by role, who has the floor, the strongest cables, the stereo field and the log full screen; `q` or Ctrl-C ends the run. See [Full screen](#full-screen---tui) |
+| `--tui` | With `--live`: draw the chips, the devices by role, who has the floor, the strongest cables, the stereo field and the log full screen; `q` or Ctrl-C ends the run. `p`/`s` save the playing patch / style to the library. See [Full screen](#full-screen---tui) |
 | `--player NAME` | With `--live`: `auto` (the default), `none`, `paplay`, `aplay` or `ffplay` |
 | `--only DEVICES` | Audition: play only these devices (comma separated, for example `--only ttchoir,ttavdog`). The others are silent and there is no turn-taking, so you hear each device as it is |
 | `--kernels [MODE]` | Run the devices that have TT-Lang kernels (the gong, shimmer, drone ripple, AVDog, ttcoco mix, the choir's harmonics and the mixer) on chips. `chip` (the default when no mode is given) takes a gozer lease on one board, `chips` on as many chips as the run plays with each chip's devices on that chip, `host` runs the same kernels' formulas in numpy with no chip, `sim` runs the kernels themselves in the TT-Lang simulator (needs `tt-lang-sim`; set `TT_LANG_SIM` if it is not on the path). The rest of the band stays on the CPU. See [kernels/README.md](kernels/README.md) |
-| `--style NAME` | Draw the patch in a style: `chiptune` (the default), `enya`, `blues` or `aphex`, or `plain` for the unstyled draw. The app's Style dropdown starts on chiptune too; "plain draw" there is the unstyled draw. A saved `--patch` keeps its own style. A style narrows the scales, gong tunings, motif and turn length and sets the band's balance. The system and the seed still decide the rest, so no two runs match |
+| `--style NAME` | Draw the patch in a style: `chiptune` (the default), `enya`, `blues` or `aphex`, or `plain` for the unstyled draw. A name saved from the TUI's `s` key also works, looked up in the library (`library/styles/` by default); use `--library` to point somewhere else. The app's Style dropdown starts on chiptune too; "plain draw" there is the unstyled draw. A saved `--patch` keeps its own style. A style narrows the scales, gong tunings, motif and turn length and sets the band's balance. The system and the seed still decide the rest, so no two runs match |
+| `--library DIR` | Where `--patch NAME` and `--style NAME` look for bare names, and where the TUI's `p` and `s` keys save (`library/` by default). A patch goes to `DIR/patches/`, a style to `DIR/styles/`; saving an existing name adds `-2`, `-3` and so on |
 | `--color MODE` | `auto` (the default) colours a terminal with the Ciat-Lonbarde jack colours unless `NO_COLOR` is set, `always` colours a recording that is not a terminal, `never` turns it off. The text log and the JSONL are never coloured |
 | `--mono` | One channel, the sound as it was before stereo. By default every voice is placed in a stereo field: a home for each chip, an offset for each device, an orbit that follows the chip's chaos and clock, depth, and movements from inside the devices (see [docs/SOUND.md](docs/SOUND.md#stereo-a-field-and-not-a-pair)) |
 | `--mock-load SECONDS` | With `--mock-chips` and `--live`: take each synthetic chip round a load cycle of this many seconds (rest, a load, rest, the chips staggered) so a chip unloads and the eviction can be heard without a model |

@@ -16,7 +16,7 @@ import pytest
 
 from tensixinet.music.patch import DEFAULT_PATCH
 from tensixinet.telemetry import mock_telemetry
-from tensixinet.tui.app import ERROR_RECORDS, FRAME_S, REDRAW_S, TtyTerminal, TuiApp
+from tensixinet.tui.app import ERROR_RECORDS, FRAME_S, NOTICE_S, REDRAW_S, SAVE_KEYS, TtyTerminal, TuiApp
 from tensixinet.tui.playhead import Playhead
 from tensixinet.ui.flow import build_flow
 
@@ -156,7 +156,7 @@ def rec(what, why=""):
 class Rig:
     """A fake terminal, a playhead on a hand-moved clock, and a TuiApp drawing between them."""
 
-    def __init__(self, colour=True, size=(80, 24), playhead=None, log_dir="logs"):
+    def __init__(self, colour=True, size=(80, 24), playhead=None, log_dir="logs", save=None):
         self.term = FakeTerminal(size)
         self.clock = Clock()
         self.ph = playhead if playhead is not None else Playhead(clock=self.clock)
@@ -165,7 +165,7 @@ class Rig:
         self.log_dir = log_dir
         self.app = TuiApp(
             self.term, self.ph, colour=colour, truecolor=True, unit="segment", log_dir=log_dir, frame_s=TEST_FRAME_S,
-            interrupt=lambda: self.interrupts.append(1), install_signal=self._install, clock=self.clock,
+            interrupt=lambda: self.interrupts.append(1), install_signal=self._install, clock=self.clock, save=save,
         )
 
     def _install(self, signum, handler):
@@ -389,6 +389,70 @@ def test_capital_q_also_ends_the_run(rig):
     rig.app.start()
     rig.term.keys.put("Q")
     wait_until(lambda: rig.interrupts == [1], "the interrupt")
+
+
+def test_p_and_s_save_what_is_playing_and_show_where_it_went():
+    saved = []
+
+    def save(kind):
+        saved.append(kind)
+        folder = "patches" if kind == "patch" else "styles"
+        return f"saved {kind} to library/{folder}/what-is-playing.json"
+
+    r = Rig(save=save)
+    r.app.start()
+    wait_frames(r.app, 2)
+    r.term.keys.put("p")
+    wait_until(lambda: saved == ["patch"], "the patch to be saved")
+    wait_frames(r.app, 2)
+    assert "saved patch to library/patches/what-is-playing.json" in screen(r.term)
+    r.term.keys.put("s")
+    wait_until(lambda: saved == ["patch", "style"], "the style to be saved")
+    wait_frames(r.app, 2)
+    assert "saved style to library/styles/what-is-playing.json" in screen(r.term)
+    assert r.interrupts == []  # neither key ends the run
+    r.app.close(0)
+
+
+def test_capital_p_and_s_save_too():
+    saved = []
+    r = Rig(save=lambda kind: saved.append(kind) or "saved")
+    r.app.start()
+    for key in ("P", "S"):
+        r.term.keys.put(key)
+        wait_until(lambda: len(saved) == ("P", "S").index(key) + 1, f"{key} to save")
+    assert saved == ["patch", "style"]
+    r.app.close(0)
+
+
+def test_a_failed_save_shows_the_error_and_the_screen_keeps_drawing():
+    def save(kind):
+        raise OSError("the disk is full")
+
+    r = Rig(save=save)
+    r.app.start()
+    wait_frames(r.app, 2)
+    r.term.keys.put("p")
+    wait_until(lambda: "could not save patch: the disk is full" in screen(r.term), "the save error")
+    before = r.app.frames
+    wait_frames(r.app, 2)
+    assert r.app.frames >= before + 2 and r.app._error is None
+    r.app.close(0)
+
+
+def test_the_save_notice_gives_the_heading_back_after_a_few_seconds():
+    r = Rig(save=lambda kind: "saved it")
+    r.app.start()
+    wait_frames(r.app, 2)
+    r.term.keys.put("p")
+    wait_until(lambda: "saved it" in screen(r.term), "the notice")
+    r.clock.t += NOTICE_S + 0.1
+    wait_until(lambda: "waiting for the first segment" in screen(r.term), "the heading to come back")
+    r.app.close(0)
+
+
+def test_save_keys_are_pinned():
+    assert SAVE_KEYS == {"p": "patch", "P": "patch", "s": "style", "S": "style"} and NOTICE_S == 3.0
 
 
 def test_other_keys_do_nothing(rig):

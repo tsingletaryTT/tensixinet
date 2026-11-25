@@ -53,6 +53,7 @@ LOG_MEANING = {  # what each colour stands for in this log
 
 EVENT_JACKS = {
     "discover": "orange", "chip": "blue", "lead": "blue", "space": "blue", "motion": "grey", "patch": "purple", "cable": "purple",
+    "style": "purple",  # a saved style could not be read: about the patch's draw, so the patch's jack
     "events": "red", "evict": "red", "fill": "green", "mix": "white", "render": "white", "eq": "white", "loudness": "white", "only": "white",
     "weight": "green", "turn": "green", "live": "green", "backend": "teal", "llm": "brown", "player": "yellow", "done": "yellow",
     "midi": "yellow", "midi file": "yellow",

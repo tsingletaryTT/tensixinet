@@ -15,6 +15,8 @@ stopping at once (`STOPPING`), while the segments already made play out; a secon
 play-out as a second Ctrl-C does. Ctrl-C itself still works because cbreak mode keeps the terminal's `ISIG`. Ctrl-L redraws the
 whole screen. After `disarm` (the run loop has returned) and once `close` has begun, `q` sends nothing: a flag set under a lock,
 and checked under the same lock just before the signal is sent, closes the window between the loop's check and its signal.
+`p`/`P` and `s`/`S` call the optional `save` callback with `"patch"` or `"style"` and show its return value (or an error) on the
+heading for `NOTICE_S` seconds; they never end the run, and a failed save does not stop the screen from drawing.
 
 A frame costs little when nothing changed: the log rows are kept for the same records and width, and when the state, the records,
 the size, the colour flag and the heading's notice are all as they were, the frame is neither laid out nor diffed. The whole screen
@@ -54,6 +56,8 @@ STOPPING = "stopping: playing out what is already made, Ctrl-C to stop now"  # t
 ERROR_RECORDS = 5  # records printed after the run ends with an error code
 NORMAL_CODES = (0, 130)  # a clean end and Ctrl-C (or q): only the last line and the log directory are printed
 QUIT_KEYS = ("q", "Q")
+SAVE_KEYS = {"p": "patch", "P": "patch", "s": "style", "S": "style"}  # p/P save a patch, s/S save a style
+NOTICE_S = 3.0  # how long a save notice stays on the heading before it gives the heading back
 
 
 class Terminal(Protocol):
@@ -168,7 +172,10 @@ class TuiApp:
         interrupt: Callable[[], None] = send_sigint,
         install_signal: Callable = signal.signal,
         clock: Callable[[], float] = time.monotonic,
+        save: Optional[Callable[[str], str]] = None,
     ):
+        """`save`, when given, is called with `"patch"` or `"style"` on `p`/`s`. It returns the text to show on the heading;
+        an exception is shown there too, so a failed save never stops the drawing or ends the run."""
         self._terminal = terminal
         self._playhead = playhead
         self._colour = colour
@@ -179,6 +186,7 @@ class TuiApp:
         self._interrupt = interrupt
         self._install_signal = install_signal
         self._clock = clock
+        self._save = save
 
         self._stop = threading.Event()
         self._resized = threading.Event()
@@ -198,6 +206,8 @@ class TuiApp:
         self._last_cells: Optional[Cells] = None  # its cells, for the diff; None forces a full redraw
         self._error: Optional[str] = None  # the first exception the drawing thread caught, as "Type: message"
         self._run_error: Optional[str] = None  # the exception that left a `with` block
+        self._notice: Optional[str] = None  # a transient save message in the heading
+        self._notice_until: Optional[float] = None  # the clock time the notice expires
         self.frames = 0  # passes of the drawing loop so far (the tests wait on it)
 
     @property
@@ -235,6 +245,18 @@ class TuiApp:
             self._stopping = True
             self._interrupt()
 
+    def _save_press(self, kind: str) -> None:
+        """`p`/`s`: save what is playing as a `kind`, and say on the heading where it went, or why it could not be saved. The
+        callback's exception is caught here so a full disk shows a notice and the screen keeps drawing."""
+        if self._save is None:
+            return
+        try:
+            notice = self._save(kind)
+        except Exception as exc:
+            notice = f"could not save {kind}: {exc}"
+        self._notice = notice
+        self._notice_until = self._clock() + NOTICE_S
+
     # -- the drawing thread ------------------------------------------------------------------------------------------------------
 
     def _loop(self) -> None:
@@ -249,6 +271,8 @@ class TuiApp:
                     self._quit()
                 elif key in REDRAW_KEYS:
                     self._redraw.set()
+                elif key in SAVE_KEYS:
+                    self._save_press(SAVE_KEYS[key])
                 self._draw()
             except Exception as exc:  # kept for `close`; the run itself never sees it
                 if self._error is None:
@@ -283,7 +307,13 @@ class TuiApp:
         shown = self._playhead.shown()
         records = shown.records
         newest = records[-1] if records else None
-        notice = STOPPING if self._stopping else None
+        # A save notice takes the heading until it expires; otherwise a stopping notice takes it, then the usual heading.
+        notice = self._notice
+        if notice is not None and self._notice_until is not None and now >= self._notice_until:
+            self._notice = self._notice_until = None
+            notice = None
+        if notice is None and self._stopping:
+            notice = STOPPING
         # The state and the newest record are compared by identity (kept here, so neither id can be reused while compared).
         key = ((width, height), len(records), self._colour, notice)
         if (self._last_cells is not None and self._key is not None and self._key[0] == key

@@ -15,7 +15,9 @@ from tensixinet.music.chorus import device_names, render_chorus, slot_weights
 from tensixinet.music.patch import (
     DEFAULT_PATCH, GONG_TUNINGS, SCALES, STEAM_ROUTES, draw_patch, load_patch, rotate_mode, save_patch,
 )
-from tensixinet.music.styles import STYLES, draw_styled_patch
+from tensixinet.music.styles import (
+    STYLES, draw_styled_patch, load_style, save_style, style_from_dict, style_from_patch,
+)
 from tensixinet.telemetry import FALLBACK
 from tensixinet.telemetry.mock import mock_telemetry
 
@@ -219,6 +221,31 @@ def test_enya_keeps_the_low_voices_and_the_room_down_so_the_stereo_field_keeps_i
         audio = render_chorus(tel, 24.0, 22050, draw_styled_patch(seed, tel, "enya"), stereo=True)
         corr.append(float(np.corrcoef(audio[:, 0], audio[:, 1])[0, 1]))
     assert np.mean(corr) > 0.25 and min(corr) > 0.1, corr  # the old settings gave a mean of 0.03 on these seeds
+
+
+# --- writing and loading styles ----------------------------------------------------------------------------------------------
+
+def test_a_style_round_trips_through_a_json_file(tmp_path):
+    path = tmp_path / "s.json"
+    save_style(STYLES["aphex"], path)
+    assert load_style(path) == STYLES["aphex"]
+    assert json.loads(path.read_text())["motif_steps"] == list(STYLES["aphex"].motif_steps)
+
+
+def test_a_snapshot_style_pins_the_motif_and_the_mode_of_the_patch():
+    p = draw_styled_patch(9, CHIPS, "enya")
+    s = style_from_patch(p, "what is playing")
+    assert s.name == "what is playing" and s.blurb
+    assert s.motifs == (p.motif,) and s.mode == p.mode
+    drawn = draw_styled_patch(9, CHIPS, "what is playing", styles={s.name: s})
+    assert (drawn.motif, drawn.scale, drawn.mode) == (p.motif, p.scale, p.mode)
+
+
+def test_a_hand_written_style_can_be_drawn_without_touching_the_builtin_table():
+    s = dataclasses.replace(STYLES["chiptune"], name="mine", scales=("dorian",), motifs=((0, 2, 1, 3),), mode=0)
+    drawn = draw_styled_patch(3, CHIPS, "mine", styles={"mine": s})
+    assert drawn.style == "mine" and drawn.motif == (0, 2, 1, 3) and drawn.scale_name == "dorian"
+    assert "mine" not in STYLES
 
 
 def test_each_style_sets_the_choirs_consonant_mix_and_crush():

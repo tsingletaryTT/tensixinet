@@ -414,6 +414,19 @@ writes its patch to `patch_<time>.json` beside its log and prints every choice w
 Replay one with `tensixinet --patch FILE`, or fix the seed with `--patch-seed N`. The built-in
 `DEFAULT_PATCH` holds the constants from before patches existed (`tensixinet/music/patch.py`).
 
+### Saving takes: the library
+
+In `--tui` mode `p` saves the patch that is playing and `s` saves it as a style; `P` and `S` do the same.
+Neither ends the run, and the heading shows for a few seconds where the file went or why the save failed.
+Both write into a library: `library/patches/<name>.json` and `library/styles/<name>.json` by default, or
+under `--library DIR` if given. A saved style is a snapshot of the playing patch's motif and mode, named
+`<name>-snapshot`. Saving the same name again adds `-2`, `-3` and so on instead of overwriting a take.
+
+`--patch NAME` and `--style NAME` then accept a bare name from that library as well as a path. So a take
+you saved with `p` can be replayed by name, and one saved with `s` can be used to draw a new patch with
+that motif and mode. The library is a plain folder of JSON files, so takes can be moved around, copied
+between machines or kept under version control like any other text file.
+
 ## Dealing devices to chips
 
 There are always at least ten slots, one per device. Slot `s` goes to chip `s % chips`. One chip
