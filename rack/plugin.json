@@ -1,0 +1,35 @@
+{
+  "slug": "tensixinet",
+  "name": "tensixinet",
+  "version": "2.6.6",
+  "license": "Apache-2.0",
+  "author": "Tenstorrent USA, Inc.",
+  "authorEmail": "",
+  "authorUrl": "https://github.com/tenstorrent/tensixinet",
+  "pluginUrl": "https://github.com/tenstorrent/tensixinet",
+  "manualUrl": "https://github.com/tenstorrent/tensixinet/blob/main/docs/RACK.md",
+  "sourceUrl": "https://github.com/tenstorrent/tensixinet",
+  "changelogUrl": "",
+  "description": "A chorus of Ciat-Lonbarde-inspired instruments played by Tenstorrent chip telemetry, embedded in Rack.",
+  "tags": [
+    "Oscillator",
+    "Noise",
+    "Sampler",
+    "Utility",
+    "Physical modeling"
+  ],
+  "minRackVersion": "2.6.0",
+  "modules": [
+    {
+      "slug": "Tensixinet",
+      "name": "Tensixinet",
+      "description": "The whole tensixinet chip chorus: embedded Python, CV override and CV out.",
+      "tags": [
+        "Oscillator",
+        "Noise",
+        "Physical modeling",
+        "Utility"
+      ]
+    }
+  ]
+}

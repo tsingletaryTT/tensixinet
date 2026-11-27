@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="158.75mm" height="128.5mm" viewBox="0 0 158.75 128.5">
+<rect width="100%" height="100%" rx="2" fill="#151e22" stroke="#3a4c50"/>
+<rect x="2" y="2" width="154.75" height="9" rx="1.5" fill="#213337"/>
+<text x="79.4" y="9" fill="#e8f2f1" font-family="DejaVu Sans, sans-serif" font-size="6" font-weight="bold" text-anchor="middle" letter-spacing="1.6">TENSIXINET   ///   CHIP CHORUS</text>
+<text x="8" y="20" fill="#74d68a" font-family="monospace" font-size="4.4">SOURCE</text>
+<text x="8" y="38" fill="#74d68a" font-family="monospace" font-size="4.4">SEGMENT</text>
+<text x="8" y="56" fill="#74d68a" font-family="monospace" font-size="4.4">LENGTH</text>
+<text x="8" y="74" fill="#e09a3c" font-family="monospace" font-size="4.4">STYLE</text>
+<text x="8" y="92" fill="#ae87dc" font-family="monospace" font-size="4.4">CHAOS</text>
+<text x="8" y="110" fill="#5aa9e6" font-family="monospace" font-size="4.4">FLOOR</text>
+<text x="8" y="124" fill="#9aa3a6" font-family="monospace" font-size="3.6">Ciat-Lonbarde inspired / Tenstorrent telemetry</text>
+<text x="47" y="17.5" fill="#9aa3a6" font-family="monospace" font-size="4">PATCH INPUTS  → override the chip</text>
+<text x="132" y="17.5" fill="#9aa3a6" font-family="monospace" font-size="4">OUT</text>
+<rect x="5" y="23" width="44" height="11" rx="1.5" fill="#1b2c30" stroke="#74d68a" stroke-width=".3"/>
+<rect x="7" y="30" width="4" height="1.7" rx=".5" fill="#74d68a" opacity="0.25"/>
+<rect x="13" y="30" width="4" height="2.0" rx=".5" fill="#74d68a" opacity="0.35"/>
+<rect x="19" y="30" width="4" height="2.3" rx=".5" fill="#74d68a" opacity="0.45"/>
+<rect x="25" y="30" width="4" height="2.6" rx=".5" fill="#74d68a" opacity="0.55"/>
+<rect x="31" y="30" width="4" height="2.9" rx=".5" fill="#74d68a" opacity="0.65"/>
+<rect x="37" y="30" width="4" height="3.2" rx=".5" fill="#74d68a" opacity="0.75"/>
+<rect x="43" y="30" width="4" height="3.5" rx=".5" fill="#74d68a" opacity="0.85"/>
+<rect x="5" y="41" width="44" height="11" rx="1.5" fill="#1b2c30" stroke="#74d68a" stroke-width=".3"/>
+<rect x="7" y="48" width="4" height="1.7" rx=".5" fill="#74d68a" opacity="0.25"/>
+<rect x="13" y="48" width="4" height="2.0" rx=".5" fill="#74d68a" opacity="0.35"/>
+<rect x="19" y="48" width="4" height="2.3" rx=".5" fill="#74d68a" opacity="0.45"/>
+<rect x="25" y="48" width="4" height="2.6" rx=".5" fill="#74d68a" opacity="0.55"/>
+<rect x="31" y="48" width="4" height="2.9" rx=".5" fill="#74d68a" opacity="0.65"/>
+<rect x="37" y="48" width="4" height="3.2" rx=".5" fill="#74d68a" opacity="0.75"/>
+<rect x="43" y="48" width="4" height="3.5" rx=".5" fill="#74d68a" opacity="0.85"/>
+<rect x="5" y="59" width="44" height="11" rx="1.5" fill="#1b2c30" stroke="#74d68a" stroke-width=".3"/>
+<rect x="7" y="66" width="4" height="1.7" rx=".5" fill="#74d68a" opacity="0.25"/>
+<rect x="13" y="66" width="4" height="2.0" rx=".5" fill="#74d68a" opacity="0.35"/>
+<rect x="19" y="66" width="4" height="2.3" rx=".5" fill="#74d68a" opacity="0.45"/>
+<rect x="25" y="66" width="4" height="2.6" rx=".5" fill="#74d68a" opacity="0.55"/>
+<rect x="31" y="66" width="4" height="2.9" rx=".5" fill="#74d68a" opacity="0.65"/>
+<rect x="37" y="66" width="4" height="3.2" rx=".5" fill="#74d68a" opacity="0.75"/>
+<rect x="43" y="66" width="4" height="3.5" rx=".5" fill="#74d68a" opacity="0.85"/>
+<rect x="5" y="77" width="44" height="11" rx="1.5" fill="#1b2c30" stroke="#e09a3c" stroke-width=".3"/>
+<rect x="7" y="84" width="4" height="1.7" rx=".5" fill="#e09a3c" opacity="0.25"/>
+<rect x="13" y="84" width="4" height="2.0" rx=".5" fill="#e09a3c" opacity="0.35"/>
+<rect x="19" y="84" width="4" height="2.3" rx=".5" fill="#e09a3c" opacity="0.45"/>
+<rect x="25" y="84" width="4" height="2.6" rx=".5" fill="#e09a3c" opacity="0.55"/>
+<rect x="31" y="84" width="4" height="2.9" rx=".5" fill="#e09a3c" opacity="0.65"/>
+<rect x="37" y="84" width="4" height="3.2" rx=".5" fill="#e09a3c" opacity="0.75"/>
+<rect x="43" y="84" width="4" height="3.5" rx=".5" fill="#e09a3c" opacity="0.85"/>
+<rect x="5" y="95" width="44" height="11" rx="1.5" fill="#1b2c30" stroke="#ae87dc" stroke-width=".3"/>
+<rect x="7" y="102" width="4" height="1.7" rx=".5" fill="#ae87dc" opacity="0.25"/>
+<rect x="13" y="102" width="4" height="2.0" rx=".5" fill="#ae87dc" opacity="0.35"/>
+<rect x="19" y="102" width="4" height="2.3" rx=".5" fill="#ae87dc" opacity="0.45"/>
+<rect x="25" y="102" width="4" height="2.6" rx=".5" fill="#ae87dc" opacity="0.55"/>
+<rect x="31" y="102" width="4" height="2.9" rx=".5" fill="#ae87dc" opacity="0.65"/>
+<rect x="37" y="102" width="4" height="3.2" rx=".5" fill="#ae87dc" opacity="0.75"/>
+<rect x="43" y="102" width="4" height="3.5" rx=".5" fill="#ae87dc" opacity="0.85"/>
+<rect x="5" y="113" width="44" height="11" rx="1.5" fill="#1b2c30" stroke="#5aa9e6" stroke-width=".3"/>
+<rect x="7" y="120" width="4" height="1.7" rx=".5" fill="#5aa9e6" opacity="0.25"/>
+<rect x="13" y="120" width="4" height="2.0" rx=".5" fill="#5aa9e6" opacity="0.35"/>
+<rect x="19" y="120" width="4" height="2.3" rx=".5" fill="#5aa9e6" opacity="0.45"/>
+<rect x="25" y="120" width="4" height="2.6" rx=".5" fill="#5aa9e6" opacity="0.55"/>
+<rect x="31" y="120" width="4" height="2.9" rx=".5" fill="#5aa9e6" opacity="0.65"/>
+<rect x="37" y="120" width="4" height="3.2" rx=".5" fill="#5aa9e6" opacity="0.75"/>
+<rect x="43" y="120" width="4" height="3.5" rx=".5" fill="#5aa9e6" opacity="0.85"/>
+<circle cx="107" cy="22.0" r="1.7" fill="#0a1012" stroke="#3ad2d2" stroke-width=".7"/>
+<text x="112" y="23.2" fill="#3ad2d2" font-family="monospace" font-size="2.75">TEMP</text>
+<circle cx="107" cy="26.3" r="1.7" fill="#0a1012" stroke="#74d68a" stroke-width=".7"/>
+<text x="112" y="27.5" fill="#74d68a" font-family="monospace" font-size="2.75">POWER</text>
+<circle cx="107" cy="30.6" r="1.7" fill="#0a1012" stroke="#e09a3c" stroke-width=".7"/>
+<text x="112" y="31.8" fill="#e09a3c" font-family="monospace" font-size="2.75">AICLK</text>
+<circle cx="107" cy="34.9" r="1.7" fill="#0a1012" stroke="#ae87dc" stroke-width=".7"/>
+<text x="112" y="36.1" fill="#ae87dc" font-family="monospace" font-size="2.75">VOLT</text>
+<circle cx="107" cy="39.2" r="1.7" fill="#0a1012" stroke="#e4675c" stroke-width=".7"/>
+<text x="112" y="40.4" fill="#e4675c" font-family="monospace" font-size="2.75">GDDR0</text>
+<circle cx="107" cy="43.5" r="1.7" fill="#0a1012" stroke="#5aa9e6" stroke-width=".7"/>
+<text x="112" y="44.7" fill="#5aa9e6" font-family="monospace" font-size="2.75">GDDR1</text>
+<circle cx="107" cy="47.8" r="1.7" fill="#0a1012" stroke="#e6d36b" stroke-width=".7"/>
+<text x="112" y="49.0" fill="#e6d36b" font-family="monospace" font-size="2.75">GDDR2</text>
+<circle cx="107" cy="52.1" r="1.7" fill="#0a1012" stroke="#9e7550" stroke-width=".7"/>
+<text x="112" y="53.3" fill="#9e7550" font-family="monospace" font-size="2.75">GDDR3</text>
+<circle cx="107" cy="56.4" r="1.7" fill="#0a1012" stroke="#9aa3a6" stroke-width=".7"/>
+<text x="112" y="57.6" fill="#9aa3a6" font-family="monospace" font-size="2.75">GDDR4</text>
+<circle cx="107" cy="60.7" r="1.7" fill="#0a1012" stroke="#e8f2f1" stroke-width=".7"/>
+<text x="112" y="61.9" fill="#e8f2f1" font-family="monospace" font-size="2.75">GDDR5</text>
+<circle cx="107" cy="65.0" r="1.7" fill="#0a1012" stroke="#3ad2d2" stroke-width=".7"/>
+<text x="112" y="66.2" fill="#3ad2d2" font-family="monospace" font-size="2.75">GDDR6</text>
+<circle cx="107" cy="69.3" r="1.7" fill="#0a1012" stroke="#74d68a" stroke-width=".7"/>
+<text x="112" y="70.5" fill="#74d68a" font-family="monospace" font-size="2.75">GDDR7</text>
+<circle cx="107" cy="73.6" r="1.7" fill="#0a1012" stroke="#e09a3c" stroke-width=".7"/>
+<text x="112" y="74.8" fill="#e09a3c" font-family="monospace" font-size="2.75">DDR</text>
+<circle cx="107" cy="77.9" r="1.7" fill="#0a1012" stroke="#ae87dc" stroke-width=".7"/>
+<text x="112" y="79.1" fill="#ae87dc" font-family="monospace" font-size="2.75">ETH</text>
+<circle cx="107" cy="82.2" r="1.7" fill="#0a1012" stroke="#e4675c" stroke-width=".7"/>
+<text x="112" y="83.4" fill="#e4675c" font-family="monospace" font-size="2.75">TENSIX</text>
+<circle cx="107" cy="86.5" r="1.7" fill="#0a1012" stroke="#5aa9e6" stroke-width=".7"/>
+<text x="112" y="87.7" fill="#5aa9e6" font-family="monospace" font-size="2.75">PRESS</text>
+<circle cx="107" cy="90.8" r="1.7" fill="#0a1012" stroke="#e6d36b" stroke-width=".7"/>
+<text x="112" y="92.0" fill="#e6d36b" font-family="monospace" font-size="2.75">HEART</text>
+<circle cx="107" cy="95.1" r="1.7" fill="#0a1012" stroke="#9e7550" stroke-width=".7"/>
+<text x="112" y="96.3" fill="#9e7550" font-family="monospace" font-size="2.75">T.RATE</text>
+<circle cx="107" cy="99.4" r="1.7" fill="#0a1012" stroke="#9aa3a6" stroke-width=".7"/>
+<text x="112" y="100.6" fill="#9aa3a6" font-family="monospace" font-size="2.75">P.RATE</text>
+<circle cx="107" cy="103.7" r="1.7" fill="#0a1012" stroke="#e8f2f1" stroke-width=".7"/>
+<text x="112" y="104.9" fill="#e8f2f1" font-family="monospace" font-size="2.75">BUSY</text>
+<circle cx="107" cy="108.0" r="1.7" fill="#0a1012" stroke="#3ad2d2" stroke-width=".7"/>
+<text x="112" y="109.2" fill="#3ad2d2" font-family="monospace" font-size="2.75">C.ERR</text>
+<circle cx="107" cy="112.3" r="1.7" fill="#0a1012" stroke="#74d68a" stroke-width=".7"/>
+<text x="112" y="113.5" fill="#74d68a" font-family="monospace" font-size="2.75">U.ERR</text>
+<circle cx="107" cy="116.6" r="1.7" fill="#0a1012" stroke="#e09a3c" stroke-width=".7"/>
+<text x="112" y="117.8" fill="#e09a3c" font-family="monospace" font-size="2.75">TRIP</text>
+<circle cx="107" cy="120.9" r="1.7" fill="#0a1012" stroke="#ae87dc" stroke-width=".7"/>
+<text x="112" y="122.1" fill="#ae87dc" font-family="monospace" font-size="2.75">STYLE</text>
+<text x="56" y="30" fill="#40595d" font-family="monospace" font-size="3.4">ttrollz</text>
+<text x="86" y="30" fill="#40595d" font-family="monospace" font-size="3.4">ttrax</text>
+<text x="56" y="42" fill="#40595d" font-family="monospace" font-size="3.4">ttquantus</text>
+<text x="86" y="42" fill="#40595d" font-family="monospace" font-size="3.4">lead</text>
+<text x="56" y="54" fill="#40595d" font-family="monospace" font-size="3.4">gong</text>
+<text x="86" y="54" fill="#40595d" font-family="monospace" font-size="3.4">ttsteam</text>
+<text x="56" y="66" fill="#40595d" font-family="monospace" font-size="3.4">ttavdog</text>
+<text x="86" y="66" fill="#40595d" font-family="monospace" font-size="3.4">ttchoir</text>
+<text x="56" y="78" fill="#40595d" font-family="monospace" font-size="3.4">shimmer</text>
+<text x="86" y="78" fill="#40595d" font-family="monospace" font-size="3.4">ttcoco</text>
+<text x="56" y="90" fill="#40595d" font-family="monospace" font-size="3.4">ttdrone</text>
+<circle cx="129.0" cy="26.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="121.0" y="34.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">CPU T</text>
+<circle cx="137.5" cy="26.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="129.5" y="34.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">CPU P</text>
+<circle cx="146.0" cy="26.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="138.0" y="34.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">CPU CLK</text>
+<circle cx="154.5" cy="26.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="146.5" y="34.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">CPU PRS</text>
+<circle cx="129.0" cy="35.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="121.0" y="43.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">CHIP T</text>
+<circle cx="137.5" cy="35.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="129.5" y="43.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">CHIP P</text>
+<circle cx="146.0" cy="35.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="138.0" y="43.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">CHIP CLK</text>
+<circle cx="154.5" cy="35.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="146.5" y="43.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">CHIP PRS</text>
+<circle cx="129.0" cy="44.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="121.0" y="52.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">GONG</text>
+<circle cx="137.5" cy="44.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="129.5" y="52.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">LEAD</text>
+<circle cx="146.0" cy="44.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="138.0" y="52.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">QUANTUS</text>
+<circle cx="154.5" cy="44.0" r="1.9" fill="#0a1012" stroke="#e8f2f1" stroke-width=".55"/>
+<text x="146.5" y="52.1" fill="#9aa3a6" font-family="monospace" font-size="2.6" text-anchor="middle">GATE</text>
+<text x="132" y="120" fill="#e4675c" font-family="monospace" font-size="3.2">SIGNAL OUT → PATCH ANYWHERE</text></svg>
