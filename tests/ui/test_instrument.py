@@ -16,6 +16,7 @@ from tensixinet.ui.instrument import (BLOCK_S, LONG_BLOCKS, SAMPLE_RATE, SHORT_B
                                       phrase_samples, signature_changed)
 from tensixinet.music.live import Tracker
 from tensixinet.ui.knobs import Knobs, to_telemetry
+from tensixinet.ui.instrument import RenderJob  # noqa: E402
 
 SR = SAMPLE_RATE
 BLOCK_SAMPLES = int(BLOCK_S * SR)  # what a block hands over
@@ -66,6 +67,41 @@ def drain(session):
     while (chunk := session.next_audio(timeout=0)) is not None:
         out.append(chunk)
     return out
+
+
+# --- changing patch between phrases without rebuilding the session ----------------------------------------------------
+
+
+def test_use_patch_changes_the_next_phrase_and_not_the_playing_one():
+    clock = Clock()
+    session, render, _, _ = make(clock=clock)
+    other = dataclasses.replace(DEFAULT_PATCH, seed=99)
+    session.render_block()  # the first short phrase is already rendered
+    session.use_patch(other)
+    assert session.patch is other and render.calls[-1]["patch"] is DEFAULT_PATCH
+    for _ in range(SHORT_BLOCKS - 1):
+        session.render_block()
+    assert all(c["patch"] is DEFAULT_PATCH for c in render.calls)
+    session.render_block()  # the next phrase starts here
+    assert render.calls[-1]["patch"] is other
+
+
+def test_use_patch_drops_a_phrase_rendered_ahead_from_the_old_patch():
+    session, _, _, _ = make()
+    job = RenderJob(lambda: np.zeros(1))
+    session._upcoming = (job, None)  # a long phrase queued while the old patch was playing
+    session.use_patch(dataclasses.replace(DEFAULT_PATCH, seed=99))
+    assert job.dropped and session._upcoming is None
+
+
+def test_phrase_ends_within_says_when_the_next_block_starts_a_phrase():
+    session, _, _, _ = make()
+    assert session.phrase_ends_within() is True  # no phrase playing yet
+    session.render_block()
+    assert session.phrase_ends_within() is False
+    for _ in range(SHORT_BLOCKS - 1):
+        session.render_block()
+    assert session.phrase_ends_within() is True
 
 
 def test_the_block_phrase_and_crossfade_sizes_are_the_ones_chosen():

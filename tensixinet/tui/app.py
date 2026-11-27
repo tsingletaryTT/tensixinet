@@ -16,7 +16,8 @@ play-out as a second Ctrl-C does. Ctrl-C itself still works because cbreak mode 
 whole screen. After `disarm` (the run loop has returned) and once `close` has begun, `q` sends nothing: a flag set under a lock,
 and checked under the same lock just before the signal is sent, closes the window between the loop's check and its signal.
 `p`/`P` and `s`/`S` call the optional `save` callback with `"patch"` or `"style"` and show its return value (or an error) on the
-heading for `NOTICE_S` seconds; they never end the run, and a failed save does not stop the screen from drawing.
+heading for `NOTICE_S` seconds; they never end the run, and a failed save does not stop the screen from drawing. `?` toggles a
+help screen in place of the instruments, and pressing it again returns to the music; it touches neither the run nor the keys.
 
 A frame costs little when nothing changed: the log rows are kept for the same records and width, and when the state, the records,
 the size, the colour flag and the heading's notice are all as they were, the frame is neither laid out nor diffed. The whole screen
@@ -56,6 +57,7 @@ STOPPING = "stopping: playing out what is already made, Ctrl-C to stop now"  # t
 ERROR_RECORDS = 5  # records printed after the run ends with an error code
 NORMAL_CODES = (0, 130)  # a clean end and Ctrl-C (or q): only the last line and the log directory are printed
 QUIT_KEYS = ("q", "Q")
+HELP_KEYS = ("?",)  # ? shows the commands and explains the picture; pressing it again goes back
 SAVE_KEYS = {"p": "patch", "P": "patch", "s": "style", "S": "style"}  # p/P save a patch, s/S save a style
 NOTICE_S = 3.0  # how long a save notice stays on the heading before it gives the heading back
 
@@ -196,6 +198,7 @@ class TuiApp:
         self._irq_lock = threading.Lock()  # held while `q` decides to send and sends; `disarm` and `close` take it to stop it
         self._armed = True  # False once the run loop has returned or `close` has begun: `q` then sends nothing
         self._stopping = False  # q was pressed: the heading says the run is stopping
+        self._help = False  # ? was pressed: the help screen takes the place of the instruments
         self._redraw = threading.Event()  # Ctrl-L: draw the whole screen again
         self._drawn_at: Optional[float] = None  # the clock at the last full redraw
         self._key = None  # what the frame on the screen was made from, so a frame with nothing new is skipped
@@ -269,6 +272,8 @@ class TuiApp:
                     break
                 if key in QUIT_KEYS:
                     self._quit()
+                elif key in HELP_KEYS:
+                    self._help = not self._help
                 elif key in REDRAW_KEYS:
                     self._redraw.set()
                 elif key in SAVE_KEYS:
@@ -315,11 +320,12 @@ class TuiApp:
         if notice is None and self._stopping:
             notice = STOPPING
         # The state and the newest record are compared by identity (kept here, so neither id can be reused while compared).
-        key = ((width, height), len(records), self._colour, notice)
+        key = ((width, height), len(records), self._colour, notice, self._help)
         if (self._last_cells is not None and self._key is not None and self._key[0] == key
                 and self._key[1] is shown.state and self._key[2] is newest):
             return
-        frame = render(shown.state, self._log_rows(records, width), width, height, self._colour, self._unit, notice=notice)
+        frame = render(shown.state, self._log_rows(records, width), width, height, self._colour, self._unit, notice=notice,
+                       help=self._help)
         self._key = (key, shown.state, newest)
         if self._last_cells is not None and frame == self._last_frame:
             return

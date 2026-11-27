@@ -16,7 +16,7 @@ import pytest
 
 from tensixinet.music.patch import DEFAULT_PATCH
 from tensixinet.telemetry import mock_telemetry
-from tensixinet.tui.app import ERROR_RECORDS, FRAME_S, NOTICE_S, REDRAW_S, SAVE_KEYS, TtyTerminal, TuiApp
+from tensixinet.tui.app import ERROR_RECORDS, FRAME_S, HELP_KEYS, NOTICE_S, REDRAW_S, SAVE_KEYS, TtyTerminal, TuiApp
 from tensixinet.tui.playhead import Playhead
 from tensixinet.ui.flow import build_flow
 
@@ -453,6 +453,40 @@ def test_the_save_notice_gives_the_heading_back_after_a_few_seconds():
 
 def test_save_keys_are_pinned():
     assert SAVE_KEYS == {"p": "patch", "P": "patch", "s": "style", "S": "style"} and NOTICE_S == 3.0
+
+
+# --- help ----------------------------------------------------------------------------------------------------------------------
+
+def test_question_mark_shows_help_and_returns_to_the_music(rig):
+    rig.ph.hand_over(4.0, state(0))
+    rig.ph.started()
+    rig.app.start()
+    wait_frames(rig.app, 2)
+    assert "segment 0" in screen(rig.term)
+    rig.term.keys.put("?")
+    wait_frames(rig.app, 2)
+    helped = screen(rig.term)
+    assert "show this help" in helped and "segment 0" not in helped
+    rig.term.keys.put("?")
+    wait_frames(rig.app, 2)
+    back = screen(rig.term)
+    assert "segment 0" in back and "show this help" not in back
+    assert rig.interrupts == []  # the help key neither quits nor stops anything
+
+
+def test_help_lists_every_command_and_explains_the_picture(rig):
+    rig.app.start()
+    wait_frames(rig.app, 1)
+    rig.term.keys.put("?")
+    wait_frames(rig.app, 2)
+    shown = screen(rig.term)
+    for text in ("?", "q / Q", "Ctrl-C", "p / P", "s / S", "Ctrl-L",
+                 "READINGS", "RHYTHM", "MELODY", "AIR", "MOD/DELAY", "CABLES", "STEREO", "log"):
+        assert text in shown, f"{text!r} is missing from the help"
+
+
+def test_help_keys_are_pinned():
+    assert HELP_KEYS == ("?",)
 
 
 def test_other_keys_do_nothing(rig):

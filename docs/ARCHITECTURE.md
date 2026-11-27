@@ -49,6 +49,7 @@ them from its own thread at their time. Neither sink touches the audio path.
 | | `mock.py` | Deterministic synthetic readings for N chips |
 | | `hwmon.py` | The chips' Linux hwmon files (`/sys/class/hwmon`): `find_chips` orders them by PCI address, `read_chip` gives temperature, power, voltage and current in C, W, V and A |
 | | `fast.py` | `FastSource`: the fast fields from hwmon at every read, the slow fields (clocks, GDDR, errors, masks) from `tt-smi -s` on a background thread about every 1.5 s, matched by bus address. With no match it hands back the `tt-smi` readings and a note that says so |
+| | `toplike_stream.py` | `ToplikeSource`: a stdlib WebSocket reader for tt-toplike's `/telemetry`. The newest frame's `tensixinet.fast` is overlaid on the base `tt-smi` frame by PCI bus address; a missing or bad payload keeps the last good frame. Reconnects back off from 0.25 s to 5 s |
 | `music/` | `mapping.py` | The signal-to-sound table as functions, including pressure, chip identity and turn weight |
 | | `synth.py` | Drone voices for any chip count |
 | | `devices.py` | ttrollz, ttquantus, ttdrone, gong, ultrasonic shimmer, the strike times they share, and the current mixer. Re-exports ttrax. `choir_triggers` gives the six sources the choir can sing on (gong, rolls, register, quantus, lead, rax). `DEVICE_INPUTS` says which fields each device reads |
@@ -73,7 +74,7 @@ them from its own thread at their time. Neither sink touches the audio path.
 | `media/` | `llm.py` | Prompts any OpenAI-compatible endpoint |
 | | `mux.py` | Puts the WAV under a video with ffmpeg |
 | | `player.py` | Where live audio goes: a `paplay`, `aplay` or `ffplay` process, a growing WAV, or no sound at the speed of the music. `player_command` and `player_buffer_ms` give the small-buffer flags fast mode asks for |
-| | `toplike.py` | `--with-tt-toplike`: builds the tmux commands for a synth pane and a tt-toplike pane at one interval, and runs them (outside tmux on its own socket, `tmux -L tensixinet -f media/tmux-toplike.conf`: status bar off, truecolor). The panes tag themselves so that each ending closes the other |
+| | `toplike.py` | `--with-tt-toplike`: builds the tmux commands for a synth pane and a tt-toplike pane at one interval, and runs them (outside tmux on its own socket, `tmux -L tensixinet -f media/tmux-toplike.conf`: status bar off, truecolor). Reserves a loopback port, gives tt-toplike `--serve 127.0.0.1:PORT` and the synth `--feed ws://127.0.0.1:PORT/telemetry`. The panes tag themselves so that each ending closes the other |
 | | `chip.py` | `ChipWorker`, the client of `kernels/pool.py` and `kernels/worker.py` (a subprocess under `gozer run`), and `CHIP_OPS`, the seven kernels and how many packed inputs each takes |
 | `kernels/` | `packing.py` | Samples to 32 x 32 tiles and back, and each kernel's host side: the arguments it is given (phases reduced to one turn in float64) and its formula in numpy (`*_on_host`). For the choir, `choir_groups` packs eight harmonics a run |
 | | `backend.py` | `KernelBackend`: the six devices with kernels (gong, shimmer, drone ripple, AVDog, ttcoco, choir) and the mixer, run through a chip worker, falling back to the CPU on a `ChipError` |
@@ -91,6 +92,7 @@ them from its own thread at their time. Neither sink touches the audio path.
 | | `playhead.py` | `Playhead`: holds each segment's state until the listener reaches it, keeps the newest 400 log records, and wraps the sink to learn when audio is written |
 | | `app.py` | `TuiApp` and the terminal: the alternate screen, cbreak input (so Ctrl-C still works), `q`, resizes, at most 10 frames a second, and the exit lines |
 | (top) | `fast.py` | `run_fast`, the loop behind `--interval`, and the delay report |
+| (top) | `viewmap.py` | `load_view_map`: reads `--view-map` into view name to saved `Patch`, before any audio starts |
 
 ## The app
 
@@ -137,7 +139,22 @@ made, and the `Playhead` shows it when the listener reaches that block (the play
 the state it built for the segment (`build_flow`, the function the Gradio chart uses).
 
 `--with-tt-toplike` runs no chips itself. `cli.py` builds a tmux session through `media/toplike.py`, and each pane runs its own program. The synth pane runs
-this same command line without `--with-tt-toplike` and with `TENSIXINET_IN_SESSION=1`.
+this same command line without `--with-tt-toplike` and with `TENSIXINET_IN_SESSION=1`. The tt-toplike pane gets `TT_TOPLIKE_COLOR=truecolor` when the caller's
+terminal advertises it: tt-toplike ignores `COLORTERM` inside tmux and uses its 256-colour ramp, which washes Arcade's starfield out to grey. Its own
+`TT_TOPLIKE_COLOR` override beats that guess, and an explicit caller value is passed through unchanged.
+
+With `--feed URL`, the source is `telemetry/toplike_stream.py` instead of `FastSource`: one stdlib WebSocket reader takes the newest `/telemetry` frame,
+and the four fast fields from `tensixinet.fast` are laid over the base `tt-smi` frame by PCI bus address. No second reader or `tt-smi` subprocess runs in
+the synth, and a frame without fast readings falls back to the base frame. Same command line and `run_fast` loop follow; only the source changes. The launcher
+picks the port by binding `127.0.0.1:0` and closing it, then passes it to `--serve` on one pane and `--feed` on the other (a small race on a shared box).
+A remote feed is trusted verbatim, like tt-toplike's `--remote`: use it only on a network you trust.
+tt-toplike refuses `--serve` on its auto (sysfs) backend, and on hybrid before its first `tt-smi` frame exists, so the launcher adds `--backend json` to the tt-toplike pane unless `--toplike-args` already names a backend (`has_backend`). The cost: that pane reads through the json backend instead of hybrid. Making hybrid serve from the start is tt-toplike's change.
+
+`--view-map FILE` loads `viewmap.py`: a JSON object of view name to saved patch name, resolved through `music/library.py` before the run starts. `run_fast`
+drains view changes from the source's `drain_views()` on its loop thread and remembers the newest `seq`; a mapped view queues a patch, and at the next
+phrase boundary `InstrumentSession.use_patch()` swaps it in. The playing phrase and its body keep the old patch, so there is no cut and no second audio
+graph. An unmapped view is ignored. `phrase_ends_within()` also treats a head handing over to its body as part of the same phrase, so the swap cannot
+land inside a head. The shipped `library/patches/defrag.json` is the patch for the `defrag` view.
 
 ## Dependencies run one way
 

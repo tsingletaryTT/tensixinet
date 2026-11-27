@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from tensixinet.media.toplike import (
+    has_backend,
     DEFAULT_INTERVAL_MS,
     IN_SESSION,
     PASS_ENV,
@@ -14,11 +15,14 @@ from tensixinet.media.toplike import (
     SOCKET,
     build_session,
     check_available,
+    free_port,
+    has_serve,
     own_tmux,
     run_session,
     session_exists,
     split_toplike_args,
     synth_flags,
+    toplike_color_env,
 )
 
 SYNTH = ["--live", "--with-tt-toplike", "--player", "none", "--toplike-args", "--mode arcade"]
@@ -78,6 +82,31 @@ def test_a_variable_the_caller_has_not_set_is_not_passed():
     commands = build_session(["--live"], 100, [], environ={"PATH": "/a"})
     for c in (commands[0], commands[1]):
         assert [e for e in env_of(c) if not e.startswith("TENSIXINET")] == ["PATH=/a"]
+
+
+# --- colour in the tt-toplike pane ----------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("environ,want", [
+    ({"COLORTERM": "truecolor"}, "truecolor"),
+    ({"COLORTERM": "24BIT"}, "truecolor"),
+    ({"TT_TOPLIKE_COLOR": "256", "COLORTERM": "truecolor"}, "256"),  # the caller's choice wins
+    ({}, None),  # no evidence of RGB, so leave tt-toplike's 256-colour rule alone
+    ({"COLORTERM": "xterm-256color"}, None),
+])
+def test_the_toplike_pane_gets_an_explicit_colour_depth(environ, want):
+    assert toplike_color_env(environ) == want
+
+
+def test_the_colour_override_goes_to_tt_toplike_not_the_synth():
+    commands = build_session(["--live"], 100, [], environ={"COLORTERM": "truecolor"})
+    assert "TT_TOPLIKE_COLOR=truecolor" in env_of(commands[1])
+    assert not any(e.startswith("TT_TOPLIKE_COLOR") for e in env_of(commands[0]))
+
+
+def test_with_no_rgb_signal_the_owner_tmux_pane_has_no_colour_override():
+    commands = build_session(["--live"], 100, [], environ={"PATH": "/a"}, inside_tmux=True)
+    assert not any(e.startswith("TT_TOPLIKE_COLOR") for e in env_of(commands[1]))
 
 
 def test_the_pass_through_variables_are_the_named_ones():
@@ -207,6 +236,38 @@ def test_inside_tmux_the_synth_pane_is_marked_too():
     assert f"{IN_SESSION}=1" in env_of(commands[0]) and not any(e.startswith(IN_SESSION) for e in env_of(commands[1]))
 
 
+# --- --feed: one loopback port shared by the two panes ---------------------------------------------------------------
+
+
+def test_a_port_gives_the_synth_a_feed_and_tt_toplike_a_bind():
+    commands = build_session(["--live", "--player", "none"], 100, ["--mode", "arcade"], port=43210)
+    synth, top = pane_commands(commands)
+    assert "--feed ws://127.0.0.1:43210/telemetry" in synth
+    assert "--interval 100" in synth and "--interval 100" in top
+    assert "--serve 127.0.0.1:43210" in top
+    assert top.index("--serve") < top.index("--mode")  # the launcher's bind comes before the user's own args
+    assert "--feed" not in top and "--serve" not in synth
+
+
+def test_no_port_means_no_stream_flags():
+    synth, top = pane_commands(build_session(["--live"], 100, []))
+    assert "--feed" not in synth and "--serve" not in top
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("--serve 9000", True),
+    ("--mode arcade --serve=9000", True),
+    ("/serve 9000", True),
+    ("--mode arcade", False),
+])
+def test_serve_tokens_in_toplike_args_are_found(text, expected):
+    assert has_serve(text) is expected
+
+
+def test_a_free_loopback_port_is_a_usable_number():
+    assert 1024 < free_port() < 65536
+
+
 def test_the_synth_script_run_with_a_failing_program_waits_for_enter_then_closes_the_toplike_pane(tmp_path):
     """Runs the built script under `sh` with a stand-in `tmux` (a file that logs its arguments); no real tmux or chip is used."""
     import os
@@ -283,3 +344,33 @@ def test_inside_tmux_without_tui_the_current_window_is_still_split_twice():
 
 def test_outside_tmux_tui_changes_nothing_in_the_session():
     assert build_session(["--live", "--tui"], 100, [], tui=True) == build_session(["--live", "--tui"], 100, [])
+
+
+# --- --serve needs a tt-smi backend: found by running the real launcher, not by the fakes ---------------------------
+
+
+@pytest.mark.parametrize("args,expected", [
+    ([], False),
+    (["--mode", "arcade"], False),
+    (["--backend-json"], False),
+    (["-bjson"], False),
+    (["--backend", "hybrid"], True),
+    (["--backend=json"], True),
+    (["-b", "json"], True),
+    (["--json"], True),
+    (["--mock"], True),
+    (["--host"], True),
+])
+def test_has_backend_finds_only_an_explicit_backend_choice(args, expected):
+    assert has_backend(args) is expected
+
+
+def test_the_stream_asks_tt_toplike_for_the_json_backend_unless_the_user_chose_one():
+    """tt-toplike refuses `--serve` on its auto (sysfs) backend and on hybrid at start-up (no tt-smi frame yet),
+    so the pane died at once and the synth found no chips. The json backend serves from the first frame."""
+    _, top = pane_commands(build_session(["--live"], 100, ["--mode", "arcade"], port=43210))
+    assert "--backend json" in top and top.index("--serve") < top.index("--backend") < top.index("--mode")
+    _, top = pane_commands(build_session(["--live"], 100, ["--backend", "hybrid"], port=43210))
+    assert "--backend hybrid" in top and top.count("--backend") == 1
+    _, top = pane_commands(build_session(["--live"], 100, []))  # no stream, no backend flag
+    assert "--backend" not in top

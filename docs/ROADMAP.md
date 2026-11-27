@@ -57,9 +57,9 @@ Open work in rough order. Each item starts with a failing test (see `CONTRIBUTIN
    and let a slow device sound during a gesture; the kernels in the Play tab (a worker's start is far longer than a phrase); a lead shorter than 3 s, which needs a look at how Gradio's
    streaming audio buffers; saving a knob setting as a patch or a recorded gesture; a recorded demo of the tab. Gradio's `None` for streaming audio (see `DECISIONS.md`) was found by
    this work; the first tab's old comment that it "empties the audio player" no longer holds.
-7d. **Fast sampling, part B: tt-toplike publishes its readings and its view.** Not started. tt-toplike is ours, but changes to it follow a review process, so this ships on its own. tt-toplike
-   would publish its fast readings and its current view on its `--serve` stream (today that stream carries `tt-smi` frames every 1.5 s, with no fast readings and nothing about the view), and the synth would
-   take both from it. The view is the new signal: a change of view in tt-toplike could change the music, and the Defrag view could have a dedicated defrag song. Part A (`--interval`) reads hwmon itself and does not need this.
+7d. **Fast sampling, part B: tt-toplike publishes its readings and its view.** Implemented; see [the plan](superpowers/plans/2026-11-25-tt-toplike-data-stream.md). tt-toplike publishes its fast hwmon readings and its current view in an additive `tensixinet` key on its `/telemetry` frames; the synth reads that stream with `--feed` (supplied automatically by `--with-tt-toplike`) instead of reading the chips a second time.
+   `--view-map FILE` maps a view name to a saved patch; a mapped view switches the patch at the next phrase boundary, and the Defrag view ships `library/patches/defrag.json`. An unmapped view changes nothing. Part A (`--interval`) reads hwmon itself and does not need this.
+   Still to check by hand: attach on a box with chips, backward compatibility against an older tt-toplike with no `tensixinet` key, and a Defrag switch with no audio glitch.
    Open items from part A:
    * **The open design question: the rolls on their own schedule.** Every new phrase restarts every device's clock, so while the readings keep moving the gong and the rolls restart about
      once a second, and in about half of the chip and patch draws the gong has no strike in its first second (50% of 48 cases with the default patch, 53% of 576 with drawn patches;

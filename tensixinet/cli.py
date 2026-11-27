@@ -11,6 +11,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Callable, Optional, Sequence
+from urllib.parse import urlparse
 
 from .kernels.backend import KERNEL_DEVICES, KernelBackend
 from .fast import PLAYER_LATENCY_MS, SampledSource, player_buffer_s, run_fast
@@ -36,8 +37,10 @@ from .narrate.color import Palette, banner, detect, legend
 from .narrate.runlog import RunLog
 from .telemetry import fetch_snapshot, host_fingerprint, mock_telemetry, parse_snapshot
 from .telemetry.fast import FastSource
+from .telemetry.toplike_stream import ToplikeSource
 from .tui.app import Terminal, TtyTerminal, TuiApp
 from .tui.playhead import Playhead
+from .viewmap import load_view_map
 
 
 
@@ -143,6 +146,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "--mock-chips and --kernels")
     p.add_argument("--toplike-args", metavar="ARGS",
                    help='with --with-tt-toplike: extra arguments for tt-toplike, as one quoted string (for example "--mode arcade")')
+    p.add_argument("--feed", metavar="URL",
+                   help="with --live: read telemetry from a tt-toplike /telemetry WebSocket (ws:// or wss://) instead of reading "
+                        "the chips again; --with-tt-toplike supplies this to its synth pane. A remote feed is trusted verbatim, "
+                        "like tt-toplike's --remote")
+    p.add_argument("--view-map", metavar="FILE",
+                   help="with --feed or --with-tt-toplike: a JSON object mapping a tt-toplike view name to a saved patch name, "
+                        'for example \'{"defrag": "defrag"}\'. On a mapped view change the patch switches at the next phrase '
+                        "boundary; unmapped views change nothing. The '?' help in --tui explains what is heard")
     p.add_argument("--tui", action="store_true",
                    help="with --live: draw the chips, the devices, who has the floor, the strongest cables, the stereo field and the run log "
                         "full screen, following what is heard; q or Ctrl-C ends the run. The plain log still goes to the .txt file and the JSONL")
@@ -168,6 +179,8 @@ def _with_toplike(parser, a, raw_argv, which, run) -> int:
         parser.error("--with-tt-toplike cannot be used with --mock-chips: the two would show different chips (tt-toplike the real ones, the synth the synthetic ones)")
     if a.kernels:
         parser.error("--with-tt-toplike cannot be used with --kernels: the kernels hold the chips, and tt-toplike and the fast sampler read them")
+    if toplike.has_serve(a.toplike_args):
+        parser.error("--toplike-args cannot include --serve: the launcher gives tt-toplike the loopback port for the stream; leave it out")
     missing = toplike.check_available(which)
     if missing:
         parser.error(missing)
@@ -179,9 +192,10 @@ def _with_toplike(parser, a, raw_argv, which, run) -> int:
     interval = a.interval if a.interval is not None else toplike.DEFAULT_INTERVAL_MS
     # A detached session starts at tmux's 80x24 and the synth sizes its log to that; give it the terminal it will be attached to.
     size = None if inside_tmux else tuple(shutil.get_terminal_size())
+    port = toplike.free_port()  # bind 0, read, close; tt-toplike cannot report the port it chose for --serve ...:0
     commands = toplike.build_session(raw_argv, interval, toplike.split_toplike_args(a.toplike_args), inside_tmux=inside_tmux,
                                      cwd=os.getcwd(), environ=os.environ, toplike_path=which("tt-toplike"), tmux=tmux, size=size,
-                                     tui=a.tui)
+                                     tui=a.tui, port=port)
     return toplike.run_session(commands, run)
 
 
@@ -195,6 +209,7 @@ def _is_terminal(stream) -> bool:
 def _check_arguments(parser, a) -> tuple:
     """The checks every run makes of its arguments (a parser error for each problem). Returns the `--only` device list (or None) and the MIDI routes."""
     only = None
+    a.view_patches = None  # filled in below when --view-map is given; run_fast takes the loaded patches from here
     if a.only:
         only = [name.strip() for name in a.only.split(",") if name.strip()]
         unknown = [name for name in only if name not in device_names()]
@@ -214,6 +229,25 @@ def _check_arguments(parser, a) -> tuple:
             parser.error("--mock-load needs --live: a load cycle plays out over time, and an offline run reads the chips once")
         if a.mock_load <= 0:
             parser.error("--mock-load needs a positive number of seconds")
+    if a.feed is not None:
+        if not a.live:
+            parser.error("--feed needs --live: the stream is followed while the music plays, which an offline run does not do")
+        if a.mock_chips:
+            parser.error("--feed cannot be used with --mock-chips: there is no tt-toplike stream of synthetic chips to read")
+        if a.kernels:
+            parser.error("--feed cannot be used with --kernels: the kernels hold the chips and the stream is read on the fast sampler's thread")
+        if a.with_tt_toplike:
+            parser.error("--feed is supplied by --with-tt-toplike: leave it off the command line; the launcher gives the synth pane the URL")
+        parsed = urlparse(a.feed)
+        if parsed.scheme not in ("ws", "wss") or not parsed.hostname:
+            parser.error(f"--feed needs a ws:// or wss:// URL with a host, got {a.feed!r}")
+    if a.view_map is not None:
+        if a.feed is None and not a.with_tt_toplike:
+            parser.error("--view-map needs --feed or --with-tt-toplike: it follows the view in tt-toplike's telemetry stream")
+        try:
+            a.view_patches = load_view_map(a.view_map, a.library)
+        except ValueError as e:
+            parser.error(f"--view-map: {e}")
     if a.interval is not None:
         if not a.live:
             parser.error("--interval needs --live: it sets how often a live run reads the chips")
@@ -284,6 +318,8 @@ def main(
         parser.error("--tui needs a terminal: standard output here is a pipe or a file, and the full-screen drawing would be written into it")
     if a.with_tt_toplike:
         return _with_toplike(parser, a, raw_argv, which, tmux_run)
+    if a.feed is not None and a.interval is None:
+        a.interval = toplike.DEFAULT_INTERVAL_MS  # the launcher's synth pane always gets --interval; a direct --feed gets the same default
     rate_given = a.sample_rate is not None
     if not rate_given:  # resolved here, once, so every use below sees the same rate
         a.sample_rate = FAST_SAMPLE_RATE if a.interval is not None else DEFAULT_SAMPLE_RATE
@@ -333,7 +369,13 @@ def main(
     ask = ask or (lambda prompt, endpoint: llm.ask(prompt, endpoint, model=a.model))
     host = [0]  # fingerprint of the machine tt-smi describes; 0 when the readings are not from tt-smi
     fast_source = None  # with --interval: what each block reads
-    if a.interval is not None and sample is None and not a.mock_chips:
+    if a.feed is not None and sample is None:
+        # The synth pane reads tt-toplike's overlay of the base tt-smi frame; nothing here opens a chip or starts tt-smi.
+        fast_source = ToplikeSource(a.feed)
+        fast_source.start()  # its first frame starts before the patch is drawn from it
+        sample = fast_source.sample
+        source = f"tt-toplike's stream at {a.feed}"
+    elif a.interval is not None and sample is None and not a.mock_chips:
         def fetch():
             snapshot = fetch_snapshot()
             host[0] = host_fingerprint(snapshot)
@@ -481,8 +523,8 @@ def main(
                 try:
                     run_fast(fast_source, sink, log, a.sample_rate, a.interval / 1000.0, a.duration or None, patch, patch_source,
                              normalise=not a.no_normalise, eq=not a.no_eq, only=only, cables=not a.no_cables, stereo=not a.mono,
-                             evict=not a.no_evict, player_name=a.player or "auto", latency_ms=PLAYER_LATENCY_MS, label=source, **hooks,
-                             **({"clock": clock} if clock else {}))
+                             evict=not a.no_evict, player_name=a.player or "auto", latency_ms=PLAYER_LATENCY_MS, label=source,
+                             view_patches=a.view_patches, **hooks, **({"clock": clock} if clock else {}))
                 except PlayerError:
                     return (code := 3)  # run_fast has logged what stopped
             elif a.live:

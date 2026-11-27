@@ -558,6 +558,28 @@ class InstrumentSession:
         job = self._body if self._body is not None else self._upcoming[0] if self._upcoming is not None else None
         return job is None or job.done.wait(timeout)
 
+    def phrase_ends_within(self, blocks: int = 1) -> bool:
+        """True when the next `blocks` calls to `render_block` start a new phrase.
+
+        A head handing over to its body is not a phrase boundary: that body belongs to the
+        phrase the listener is already hearing. No phrase playing yet counts as a boundary,
+        since the next block renders one.
+        """
+        if self._phrase is None or self._head_end is not None:
+            return self._phrase is None
+        return self._pos + blocks * self._block_samples > len(self._phrase) - self._xfade_samples
+
+    def use_patch(self, patch: Patch) -> None:
+        """Play the next phrase from `patch`, leaving the playing phrase and its body alone.
+
+        A long phrase rendered ahead from the old patch is dropped, so the next phrase is
+        rendered from this one; the listener hears no cut and no second session is built.
+        """
+        self.patch = patch
+        if self._upcoming is not None:
+            self._upcoming[0].drop()
+            self._upcoming = None
+
     def carry_from(self, other: "InstrumentSession") -> None:
         """Take over what `other` has learned, for a session that replaces it: the eviction tracker (each chip's rest and load), the held soloist
         and its turn, the phrase number, the level gain and the EQ's state. Fast mode does this when it lengthens its block."""

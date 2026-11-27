@@ -1019,3 +1019,128 @@ def test_the_listener_time_through_a_playhead_matches_run_fasts_own(tmp_path):
     assert delivered - p.heard_s() - 0.02 <= 0.1 + 0.1 + 1e-9  # within one block of the seconds handed over, plus the lead
     shown = p.shown().state
     assert shown is not None and shown.seconds == pytest.approx(1.7)  # the block the listener is in: 1.78 s is inside 1.7 to 1.8 s
+
+
+# --- on_view: tt-toplike's view changes, one call for each new sequence ------------------------------------------------------
+
+
+class ViewSource(Source):
+    """A ToplikeSource stand-in: `drain_views` hands out one scripted (name, seq) per block until it runs out."""
+
+    def __init__(self, clock, views=(), **kw):
+        super().__init__(clock, **kw)
+        self.views = list(views)
+        self.drained = []
+
+    def drain_views(self):
+        out = self.views[:1]
+        self.views = self.views[1:]
+        self.drained.append(out)
+        return out
+
+
+def test_each_new_view_is_handed_to_the_hook_once(tmp_path):
+    clock = Clock()
+    views = [("defrag", 1), ("arcade", 2), ("saga", 3)]
+    got = []
+    source = ViewSource(clock, views)
+    sink, n, _, source, _ = go(tmp_path, clock=clock, source=source, duration=1.0,
+                               on_view=lambda name, seq: got.append((name, seq)))
+    assert n == 10 and got == views
+    assert source.drained[0] == [views[0]] and source.drained[-1] == []
+
+
+def test_a_repeated_seq_is_not_handed_over_again(tmp_path):
+    clock = Clock()
+    got = []
+    source = ViewSource(clock, [("defrag", 1), ("defrag", 1), ("arcade", 2), ("arcade", 2)])
+    go(tmp_path, clock=clock, source=source, duration=1.0, on_view=lambda name, seq: got.append((name, seq)))
+    assert got == [("defrag", 1), ("arcade", 2)]
+
+
+def test_a_source_without_drain_views_is_fine(tmp_path):
+    got = []
+    sink, n, ev, _, _ = go(tmp_path, duration=1.0, on_view=lambda name, seq: got.append((name, seq)))
+    assert n == 10 and got == [] and not [e for e in ev if e["event"] == "tui"]
+
+
+def test_a_view_hook_that_raises_is_logged_once_and_the_audio_is_unchanged(tmp_path):
+    (tmp_path / "plain").mkdir()
+    clock_a, clock_b = Clock(), Clock()
+    plain, n, _, _, _ = go(tmp_path / "plain", clock=clock_a, source=ViewSource(clock_a, [("defrag", 1)]), duration=1.0)
+    calls = []
+
+    def hook(name, seq):
+        calls.append((name, seq))
+        raise RuntimeError("the patch map went away")
+
+    hooked, m, ev, _, _ = go(tmp_path, clock=clock_b, source=ViewSource(clock_b, [("defrag", 1)]), duration=1.0, on_view=hook)
+    assert calls == [("defrag", 1)] and m == n
+    assert np.array_equal(plain.audio, hooked.audio)
+    tui = [e for e in ev if e["event"] == "tui"]
+    assert len(tui) == 1 and "the patch map went away" in tui[0]["what"] and "music goes on" in tui[0]["why"]
+
+
+def test_the_view_is_handed_over_before_its_block_can_reach_the_sink(tmp_path):
+    import time as real_time
+    seen, seen_at_write = [], []
+
+    def hook(name, seq):
+        if not seen:
+            real_time.sleep(0.05)  # long enough for a block already queued to reach the sink
+        seen.append(seq)
+
+    class Watching(Sink):
+        def write(self, audio):
+            seen_at_write.append(len(seen))
+            super().write(audio)
+
+    clock = Clock()
+    sink, n, _, _, _ = go(tmp_path, clock=clock, sink=Watching(clock), source=ViewSource(clock, [("defrag", 1)]),
+                          duration=1.0, on_view=hook)
+    assert seen == [1] and seen_at_write[0] >= 1
+
+
+# --- a mapped view changes the patch, not by building a second session ---------------------------------------------------
+
+
+class RecordingRender(Render):
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.patches = []  # (phrase segment, patch seed) for every rendered phrase
+
+    def __call__(self, chips, duration, sample_rate=SR, segment=0, patch=None, **kw):
+        self.patches.append((segment, patch.seed if patch is not None else None))
+        return super().__call__(chips, duration, sample_rate=sample_rate, segment=segment, patch=patch, **kw)
+
+
+def test_a_mapped_view_switches_the_patch_when_the_phrase_ends(tmp_path):
+    clock = Clock()
+    other = dataclasses.replace(DEFAULT_PATCH, seed=99)
+    made, renders = [], []
+
+    def factory(*a, **kw):
+        render = RecordingRender(clock)
+        renders.append(render)
+        session = InstrumentSession(*a, render=render, worker_factory=lambda: InlineWorker(clock), **kw)
+        made.append(session)
+        return session
+
+    sink, n, ev, _, _ = go(tmp_path, clock=clock, source=ViewSource(clock, [("defrag", 1)]), session_factory=factory,
+                           duration=2.0, view_patches={"defrag": other})
+    assert n == 20 and len(made) == 1 and len(renders) == 1
+    seen = renders[0].patches
+    assert seen[0] == (0, DEFAULT_PATCH.seed)  # the phrase already playing finishes with the old patch
+    assert any(seg >= 1 and seed == other.seed for seg, seed in seen)
+    assert any("switched to defrag" in e["what"] for e in ev)
+    assert any("patch is now defrag" in e["what"] for e in ev)
+
+
+def test_an_unmapped_view_changes_neither_the_patch_nor_the_log(tmp_path):
+    clock = Clock()
+    render = RecordingRender(clock)
+    other = dataclasses.replace(DEFAULT_PATCH, seed=99)
+    sink, n, ev, _, _ = go(tmp_path, clock=clock, render=render, source=ViewSource(clock, [("arcade", 1)]), duration=1.0,
+                           view_patches={"defrag": other})
+    assert n == 10 and all(seed == DEFAULT_PATCH.seed for _, seed in render.patches)
+    assert not any("switched" in e["what"] for e in ev)

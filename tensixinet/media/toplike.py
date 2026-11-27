@@ -18,6 +18,7 @@ real session, where the synth's `kill-pane -t '{right-of}'` found nothing).
 from __future__ import annotations
 
 import shlex
+import socket
 import shutil
 import subprocess
 import sys
@@ -41,6 +42,56 @@ def own_tmux() -> Tuple[str, ...]:
 def split_toplike_args(text: Optional[str]) -> List[str]:
     """`--toplike-args "--mode arcade"` as the two words a shell would make of it."""
     return shlex.split(text) if text else []
+
+
+def has_serve(text: Optional[str]) -> bool:
+    """True when `--toplike-args` tries to start tt-toplike's publisher itself.
+
+    The launcher adds its own `--serve 127.0.0.1:<port>`; a second bind would either fail or put
+    tt-toplike on a port the synth is not listening to. Both spellings of the flag are caught,
+    including `/serve`, the same command typed inside tt-toplike's TUI.
+    """
+    return any(
+        word in ("--serve", "/serve") or word.startswith(("--serve=", "/serve="))
+        for word in split_toplike_args(text)
+    )
+
+
+def has_backend(args: Sequence[str]) -> bool:
+    """True when the user's own tt-toplike arguments already choose a backend.
+
+    Recognised: `--backend`, `--backend=...`, `-b` and the shortcuts `--json`, `--mock` and `--host`.
+    """
+    return any(
+        word in ("--backend", "-b", "--json", "--mock", "--host") or word.startswith("--backend=")
+        for word in args
+    )
+
+
+def free_port() -> int:
+    """Reserve a free loopback TCP port by binding port 0, reading it, then closing the socket.
+
+    tt-toplike does not report the port it picks for `--serve ...:0`, so the launcher reserves
+    one here. A few milliseconds pass before tt-toplike binds it; on a single-user box another
+    process taking that exact port in between is unlikely.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def toplike_color_env(environ: Mapping[str, str]) -> Optional[str]:
+    """The `TT_TOPLIKE_COLOR` value for the tt-toplike pane, or None to leave its own rule alone.
+
+    tt-toplike deliberately treats any tmux as a 256-colour terminal and ignores `COLORTERM`
+    there (`ui/colors.rs`); Arcade's starfield hue ramp then falls back to the 256-colour
+    cube and looks grey. `TT_TOPLIKE_COLOR` is tt-toplike's own supported override, so use
+    the caller's choice if it is set, or truecolor when their terminal advertises it.
+    """
+    forced = environ.get("TT_TOPLIKE_COLOR")
+    if forced:
+        return forced
+    return "truecolor" if environ.get("COLORTERM", "").strip().lower() in ("truecolor", "24bit") else None
 
 
 def synth_flags(argv: Sequence[str], interval_ms: int) -> List[str]:
@@ -126,6 +177,7 @@ def build_session(
     size: Optional[Tuple[int, int]] = None,
     attach: bool = True,
     tui: bool = False,
+    port: Optional[int] = None,
 ) -> List[List[str]]:
     """The tmux commands, in order, that make the two panes.
 
@@ -144,31 +196,46 @@ def build_session(
     named `tensixinet` is opened for the synth and split in two for tt-toplike, and the user's own pane is left as it was. The split
     and the option target `:`, the session's current window, which is the new one; the pane tags work as before, since `close` lists
     the panes of the window it runs in.
+    `port` connects the two panes over one loopback WebSocket: tt-toplike is told to bind there and the synth is told to read
+    `--feed ws://127.0.0.1:<port>/telemetry`. Without it neither pane gets a stream flag, as before.
     """
     tmux = list(tmux)
-    synth = _pane_command([sys.executable, "-m", "tensixinet", *synth_flags(synth_argv, interval_ms)],
+    synth_args = synth_flags(synth_argv, interval_ms)
+    top_args = list(toplike_args)
+    if port is not None:
+        synth_args += ["--feed", f"ws://127.0.0.1:{port}/telemetry"]
+        top_args = ["--serve", f"127.0.0.1:{port}", *top_args]
+        if not has_backend(top_args):
+            # `--serve` is refused on tt-toplike's auto (sysfs) backend, and on hybrid before its first tt-smi frame exists;
+            # json serves from the first frame. A backend the user named is kept as it is.
+            top_args[2:2] = ["--backend", "json"]
+    synth = _pane_command([sys.executable, "-m", "tensixinet", *synth_args],
                           "synth", "toplike", 'kill-pane -t "$id"', log_dir=log_dir_of(synth_argv))
-    top = _pane_command([toplike_path, "--interval", str(interval_ms), *toplike_args],
+    top = _pane_command([toplike_path, "--interval", str(interval_ms), *top_args],
                         "toplike", "synth", 'send-keys -t "$id" C-c')
     where = ["-c", cwd] if cwd else []
     caller = [f"{name}={environ[name]}" for name in PASS_ENV if environ and name in environ]
     env = [x for pair in caller for x in ("-e", pair)]
     synth_env = env + ["-e", f"{IN_SESSION}=1"]
+    top_env = list(env)
+    colour = toplike_color_env(environ or {})
+    if colour is not None:
+        top_env += ["-e", f"TT_TOPLIKE_COLOR={colour}"]
     if inside_tmux and tui:
         return [
             tmux + ["new-window", "-n", session, *where, *synth_env, synth],
-            tmux + ["split-window", "-h", "-t", ":", *where, *env, top],
+            tmux + ["split-window", "-h", "-t", ":", *where, *top_env, top],
             tmux + ["set-option", "-w", "-t", ":", "remain-on-exit", "off"],
         ]
     if inside_tmux:
         return [
             tmux + ["split-window", "-h", *where, *synth_env, synth],
-            tmux + ["split-window", "-h", *where, *env, top],
+            tmux + ["split-window", "-h", *where, *top_env, top],
             tmux + ["set-option", "-w", "remain-on-exit", "off"],
         ]
     commands = [
         tmux + ["new-session", "-d", "-s", session, *(["-x", str(size[0]), "-y", str(size[1])] if size else []), *where, *synth_env, synth],
-        tmux + ["split-window", "-h", "-t", session, *where, *env, top],
+        tmux + ["split-window", "-h", "-t", session, *where, *top_env, top],
         tmux + ["set-option", "-t", session, "remain-on-exit", "off"],
     ]
     if attach:

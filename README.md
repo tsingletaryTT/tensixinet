@@ -237,6 +237,17 @@ If the synth ends with an error, its pane waits for Enter so the message can be 
 string. It needs `--live`, tmux and tt-toplike on the PATH, and is refused with `--mock-chips` or `--kernels`. Nothing here opens `/dev/tenstorrent/*`,
 so it needs no gozer lease.
 
+The two panes share one reading: tt-toplike publishes its telemetry on a loopback WebSocket and the synth pane reads it through `--feed` instead of reading the
+chips again. `--feed ws://HOST:PORT/telemetry` also works on its own with `--live --interval`; a remote feed is trusted verbatim, like tt-toplike's `--remote`,
+so use one only on a network you trust.
+
+If your terminal advertises truecolor, the launcher passes tt-toplike's own `TT_TOPLIKE_COLOR=truecolor` to its pane, so Arcade's starfield keeps its hue
+ramp instead of falling back to the 256-colour cube. Set `TT_TOPLIKE_COLOR=256` yourself to keep the 256-colour palette.
+
+A view in tt-toplike can choose the patch too. `--view-map FILE` takes a JSON object mapping view names to saved patches, for example
+`{"defrag": "defrag"}`; a defrag patch ships in `library/patches/`. It needs `--feed` or `--with-tt-toplike`; press `?` in `--tui` for what you hear
+and when it changes.
+
 **The command line no longer accepts abbreviated flags** (`--dur 30` was `--duration 30`). An abbreviated `--with-tt-toplike` would start sessions
 without end, because the synth pane would start another. A `TENSIXINET_IN_SESSION` variable also stops a synth pane from starting a session.
 
@@ -249,24 +260,20 @@ tensixinet --live --tui --interval 100         # fast mode, one frame per phrase
 tensixinet --live --with-tt-toplike --tui      # the synth pane shows it, tt-toplike beside it
 ```
 
-`--tui` replaces the scrolling log with one full-screen picture of what is playing, drawn as the music plays. Each chip has a readings line (phase,
-temperature, power, pressure and the devices it drives), under a READINGS heading when there is a spare row. The devices are grouped by the role they play: RHYTHM, MELODY, AIR and MOD/DELAY. Each device
-shows which chip plays it and a four-cell bar for its share of the mix. The soloist and its chip are bold and the rest are dimmed, and the chip marks of each column line up. Below them are
-the five strongest cables as `source ═kind depth═▶ target` lines, a stereo line that places each device's two-letter code from left to right (`ld` is the lead, `rz` ttrollz; a legend
-under the line lists them when there is a spare row), and the run log, built
-into the same screen with the same jack colours, chip colours and device colours as the plain log. The picture is made from the same data as the
+`--tui` replaces the scrolling log with one full-screen picture of what is playing, drawn as the music plays. The picture is made from the same data as the
 Gradio page's flow chart (`FlowState`), so the two cannot disagree. It is made for 80 by 24 and redraws at most 10 times a second, changing only the cells that differ.
-At 24 rows or fewer it lists three cables, so the log has at least six rows for the reasons under each line.
 A frame with nothing new is not drawn again, and the whole screen is redrawn every 5 s (or on Ctrl-L), so a warning written over it does not stay.
 
-`q` and Ctrl-C both end the run the same way. The heading says at once that the run is stopping, the segments already made play out, and a second `q` or
-Ctrl-C stops at once. With `--tui` the player runs in its own session, so a Ctrl-C reaches only the run and not the player. On the way out the screen returns to normal and the last lines are printed, and the plain log still goes
+**Press `?` inside the TUI for the full list of keys and an explanation of every part of the picture.** That help screen is the home for all
+TUI commands and explanations. In short: `q` and Ctrl-C end the run the same way (the heading says it is stopping, the segments already made play out,
+and a second `q` or Ctrl-C stops at once); `p`/`P` save the playing patch and `s`/`S` save a style snapshot (named `<take>-snapshot`) to the library;
+`Ctrl-L` redraws the screen; `?` toggles the help. None of the save keys ends the run, and the heading shows for a few seconds where a file went or why a save failed.
+
+With `--tui` the player runs in its own session, so a Ctrl-C reaches only the run and not the player. On the way out the screen returns to normal and the last lines are printed, and the plain log still goes
 to the `.txt` file and the JSONL as before. `NO_COLOR` and `--color` are respected. `--tui` needs a terminal: with its output going to a pipe or a file it is refused.
 
-`p` saves the patch that is playing and `s` saves it as a style (a snapshot of the sound, named `<take>-snapshot`);
-`P` and `S` do the same. Neither key ends the run. Both write to the library (`library/` by default, or `--library DIR`)
-and the heading shows for a few seconds where the file went, or why the save failed. Replay a saved patch with
-`--patch NAME`, or draw in a saved style with `--style NAME`; both accept a bare name from the library or a full path.
+Saved patches and styles go to the library (`library/` by default, or `--library DIR`). Replay a saved patch with `--patch NAME`, or draw in a saved style
+with `--style NAME`; both accept a bare name from the library or a full path.
 
 Limits, as measured so far:
 
@@ -380,6 +387,8 @@ register. The first prototype read those bytes as independent sensors and lost h
 | `--interval MS` | With `--live`: read the chips every MS ms, 10 to 1000 (blocks are at least 100 ms). See [Fast sampling](#fast-sampling---interval) |
 | `--with-tt-toplike` | With `--live`: start a tmux session with the synth and tt-toplike at the same `--interval` (100 ms by default) |
 | `--toplike-args ARGS` | With `--with-tt-toplike`: extra arguments for tt-toplike, as one quoted string |
+| `--feed URL` | With `--live`: read telemetry from a tt-toplike `/telemetry` WebSocket (`ws://` or `wss://`) instead of the chips; `--with-tt-toplike` supplies it to the synth pane |
+| `--view-map FILE` | With `--feed` or `--with-tt-toplike`: JSON mapping a tt-toplike view name to a saved patch, switched at the next phrase boundary |
 | `--tui` | With `--live`: draw the chips, the devices by role, who has the floor, the strongest cables, the stereo field and the log full screen; `q` or Ctrl-C ends the run. `p`/`s` save the playing patch / style to the library. See [Full screen](#full-screen---tui) |
 | `--player NAME` | With `--live`: `auto` (the default), `none`, `paplay`, `aplay` or `ffplay` |
 | `--only DEVICES` | Audition: play only these devices (comma separated, for example `--only ttchoir,ttavdog`). The others are silent and there is no turn-taking, so you hear each device as it is |

@@ -170,6 +170,8 @@ def run_fast(
     sleep: Callable[[float], None] = time.sleep,
     session_factory: Callable = InstrumentSession,
     on_segment: Optional[Callable[[float, Optional[FlowState]], None]] = None,
+    on_view: Optional[Callable[[str, int], None]] = None,
+    view_patches: Optional[dict] = None,
 ) -> int:
     """Play the chips for `duration` seconds (until Ctrl-C when None), reading them every block. Returns the number of blocks played.
 
@@ -182,12 +184,23 @@ def run_fast(
     `segment` is the phrase number, and `seconds` counts from the session's first block, so it starts again at 0 after the block is lengthened
     or shortened). A session without that property gives None. The tail after the last block gets no call. The hook must only store what it
     is given and return. The sound never depends on it: if it raises, one "tui" line names the error, the hook is not called again, and the
-    run goes on, as in `run_live`."""
+    run goes on, as in `run_live`.
+
+    `on_view` (when tt-toplike's stream supplies it) is called on this loop's thread just before the same block is queued, with
+    `(view_name, seq)` for each new view from the source's `drain_views()`. A `seq` already seen is skipped, and a source without
+    `drain_views()` (a `FastSource`, say) is a no-op. It has the same contract as `on_segment`: store only what it is given and
+    return quickly; if it raises, one "tui" line names the error, it is not called again, and the sound is unchanged.
+
+    `view_patches`, when given, maps view names to saved `Patch` objects. A mapped view sets a pending patch here; at the next
+    phrase boundary the playing session switches to it with `use_patch()`, so the phrase change is never cut short and no second
+    session is built. An unmapped view leaves the patch alone."""
     buffer_s = player_buffer_s(player_name, sink, latency_ms)
     lead_s = lead_for(sample_rate)
     tracker = Tracker(window_s=RATE_WINDOW_S, hold=True)  # hold: a reading between two measured rates carries the last one
     state = dict(last=None, lost=False, count=None)  # the last good raw reading, whether the readings are lost, the chip count
     block_index = [0]
+    last_view_seq = [0]  # the newest view already handed over; a repeated or older seq changes nothing
+    pending_patch = [None]  # (view name, Patch) waiting for the next phrase boundary; set by a mapped view
 
     def read(now: float) -> List[Telemetry]:
         """The session's input: the readings tracked, or the last good ones played again with no movement when a reading is empty."""
@@ -319,6 +332,16 @@ def run_fast(
         while target is None or played_samples < target:
             if failures:
                 break
+            # a view that arrived on an earlier block changes the patch here, just before the next phrase is rendered. Doing it at the
+            # boundary keeps the playing phrase (and its body) on the patch it started with, so the listener hears a crossfade, not a cut.
+            if (pending_patch[0] is not None and hasattr(session, "phrase_ends_within") and hasattr(session, "use_patch")
+                    and session.phrase_ends_within()):
+                name, mapped = pending_patch[0]
+                session.use_patch(mapped)
+                log.event("live", f"switched to {name}, patch is now {name}",
+                          f"the tt-toplike view changed; the next phrase plays the saved patch mapped to {name}, crossfaded in at the "
+                          "phrase boundary so the music is never cut", block=blocks)
+                pending_patch[0] = None
             # wait until at most the lead is queued ahead of the listener, so the reading is as fresh as it can be
             if t0 is not None:
                 over = delivered - (clock() - t0) - lead_s
@@ -353,6 +376,20 @@ def run_fast(
                 except Exception as e:  # the picture is a by-product: its trouble never reaches the audio
                     on_segment = None
                     log.event("tui", f"the terminal view stopped: {e}", "the music goes on without it", block=blocks)
+            if (on_view is not None or view_patches) and hasattr(source, "drain_views"):  # same thread and moment as on_segment
+                try:
+                    for name, seq in source.drain_views():
+                        if seq <= last_view_seq[0]:
+                            continue
+                        last_view_seq[0] = seq
+                        if on_view is not None:
+                            on_view(name, seq)
+                        if view_patches and name in view_patches:
+                            pending_patch[0] = (name, view_patches[name])
+                except Exception as e:  # the view chooses what to play next; its trouble never reaches what is playing now
+                    on_view = None
+                    view_patches = None
+                    log.event("tui", f"the view hook stopped: {e}", "the music goes on without it", block=blocks)
             audio_queue.put(audio)
             delivered += len(audio) / sample_rate
             played_samples += len(audio)

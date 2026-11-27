@@ -1506,6 +1506,155 @@ def test_the_session_commands_use_the_found_toplike_path_and_the_callers_path(tm
     assert "PATH=/caller/bin" in ran[1] and "TENSIXINET_IN_SESSION=1" in ran[1]
 
 
+# --- --feed: tt-toplike's telemetry stream instead of reading the chips again ---------------------------------------------------
+
+FEED = "ws://127.0.0.1:8770/telemetry"
+
+
+@pytest.mark.parametrize("extra,words", [
+    ([], "--feed needs --live"),
+    (["--live", "--mock-chips", "2"], "--feed cannot be used with --mock-chips"),
+    (["--live", "--kernels", "host"], "--feed cannot be used with --kernels"),
+    (["--live", "--with-tt-toplike"], "--feed is supplied by --with-tt-toplike"),
+])
+def test_feed_refuses_flags_that_cannot_work(tmp_path, capsys, extra, words):
+    with pytest.raises(SystemExit) as e:
+        main(["--feed", FEED, "--log-dir", str(tmp_path / "logs"), *extra])
+    assert e.value.code == 2 and words in capsys.readouterr().err
+
+
+def test_feed_needs_a_websocket_url(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(["--live", "--feed", "http://127.0.0.1:8770/telemetry", "--log-dir", str(tmp_path / "logs")])
+    assert e.value.code == 2 and "--feed needs a ws:// or wss:// URL" in capsys.readouterr().err
+
+
+def test_feed_selects_the_stream_source_and_stops_it(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    made = []
+
+    class FakeStream:
+        def __init__(self, url, **kw):
+            self.url, self.started, self.stopped = url, 0, 0
+            self.fast, self.note = True, "Readings come from tt-toplike's stream (2 chips)."
+            made.append(self)
+
+        def start(self):
+            self.started += 1
+
+        def stop(self):
+            self.stopped += 1
+
+        def sample(self):
+            return mock_telemetry(2)
+
+    monkeypatch.setattr(cli, "ToplikeSource", FakeStream)
+    monkeypatch.setattr(cli, "FastSource", lambda **kw: pytest.fail("no hwmon reader when --feed is given"))
+    argv = ["--live", "--interval", "100", "--feed", FEED, "--duration", "0.5", "--sample-rate", "8000",
+            "--out", str(tmp_path / "o.wav"), "--log-dir", str(tmp_path / "logs"), "--no-banner"]
+    code = main(argv, make_sink=lambda player, rate, out, channels=1, **o: (MemorySink(), "a memory sink"))
+    assert code == 0 and len(made) == 1 and made[0].url == FEED
+    assert made[0].started >= 1 and made[0].stopped >= 1
+    assert any("tt-toplike's stream" in e["what"] for e in read_events(tmp_path / "logs"))
+
+
+def test_with_tt_toplike_connects_the_panes_over_one_loopback_port(tmp_path, monkeypatch):
+    import shlex
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.setattr(toplike_module, "free_port", lambda: 43210)
+    _, ran = toplike(tmp_path, "--player", "none")
+    scripts = [shlex.split(c[-1])[-1] for c in ran if c[1] in ("new-session", "split-window")]
+    synth, top = scripts
+    assert "--feed ws://127.0.0.1:43210/telemetry" in synth
+    assert "--with-tt-toplike" not in synth
+    assert "--serve 127.0.0.1:43210" in top
+
+
+@pytest.mark.parametrize("extra", [
+    ["--toplike-args", "--serve 9000"],
+    ["--toplike-args=--serve=9000"],  # argparse takes the = form, which contains no space
+    ["--toplike-args", "/serve 9000"],
+])
+def test_a_serve_in_toplike_args_is_refused(tmp_path, capsys, monkeypatch, extra):
+    monkeypatch.delenv("TMUX", raising=False)
+    with pytest.raises(SystemExit) as e:
+        toplike(tmp_path, *extra)
+    assert e.value.code == 2 and "--toplike-args cannot include --serve" in capsys.readouterr().err
+
+
+def test_with_tt_toplike_gives_tt_toplike_a_truecolor_override(tmp_path, monkeypatch):
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TT_TOPLIKE_COLOR", raising=False)
+    monkeypatch.setenv("COLORTERM", "truecolor")
+    _, ran = toplike(tmp_path)
+    top = next(c for c in ran if c[1] == "split-window")
+    synth = next(c for c in ran if c[1] == "new-session")
+    assert "-e" in top and "TT_TOPLIKE_COLOR=truecolor" in top
+    assert not any("TT_TOPLIKE_COLOR" in word for word in synth)  # the synth has its own --color flag
+
+
+# --- --view-map: which tt-toplike view chooses which saved patch ---------------------------------------------------------
+
+
+from tensixinet.music.patch import DEFAULT_PATCH, save_patch  # noqa: E402
+
+
+def view_map(tmp_path, mapping=None):
+    patch = tmp_path / "defrag.json"
+    save_patch(DEFAULT_PATCH, patch)
+    path = tmp_path / "views.json"
+    path.write_text(json.dumps(mapping if mapping is not None else {"defrag": str(patch)}))
+    return path
+
+
+def test_view_map_needs_a_stream_to_follow(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(args(tmp_path, "--live", "--mock-chips", "2", "--view-map", str(tmp_path / "views.json")))
+    assert e.value.code == 2 and "--view-map needs --feed or --with-tt-toplike" in capsys.readouterr().err
+
+
+def test_view_map_with_an_unknown_patch_is_a_command_line_error(tmp_path, capsys):
+    path = view_map(tmp_path, {"defrag": "no-such-patch"})
+    with pytest.raises(SystemExit) as e:
+        main(["--live", "--feed", FEED, "--log-dir", str(tmp_path / "logs"), "--view-map", str(path)])
+    assert e.value.code == 2 and "cannot find patch" in capsys.readouterr().err
+
+
+def test_view_map_reaches_run_fast(tmp_path, monkeypatch):
+    import tensixinet.cli as cli
+    seen = {}
+
+    def fake_run_fast(source, sink, log, *a, **kw):
+        seen.update(kw)
+        return 0
+
+    monkeypatch.setattr(cli, "ToplikeSource", lambda url, **kw: FakeStream())
+    monkeypatch.setattr(cli, "run_fast", fake_run_fast)
+
+    class FakeStream:
+        fast, note = True, "tt-toplike's stream"
+        def start(self): pass
+        def stop(self): pass
+        def sample(self): return mock_telemetry(2)
+
+    path = view_map(tmp_path)
+    code = main(["--live", "--interval", "100", "--feed", FEED, "--duration", "0.5", "--sample-rate", "8000",
+                 "--out", str(tmp_path / "o.wav"), "--log-dir", str(tmp_path / "logs"), "--view-map", str(path)],
+                make_sink=lambda *a, **kw: (MemorySink(), "a memory sink"))
+    assert code == 0
+    assert set(seen["view_patches"]) == {"defrag"}
+    assert seen["view_patches"]["defrag"].seed == DEFAULT_PATCH.seed
+
+
+def test_with_tt_toplike_passes_view_map_through_to_the_synth_pane(tmp_path, monkeypatch):
+    import shlex
+    monkeypatch.delenv("TMUX", raising=False)
+    path = view_map(tmp_path)
+    _, ran = toplike(tmp_path, "--view-map", str(path))
+    synth = shlex.split(next(c for c in ran if c[1] == "new-session")[-1])[-1]
+    assert f"--view-map {path}" in synth
+
+
 # --- --tui: the full-screen view of what is heard ------------------------------------------------------------------------------
 
 import re  # noqa: E402

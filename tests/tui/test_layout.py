@@ -803,3 +803,33 @@ def test_a_taller_screen_never_gives_the_log_fewer_rows_but_where_the_cables_go_
                     for h in heights}
             for h in heights[1:]:
                 assert logs[h] >= logs[h - 1] - (1 if h == TARGET[1] + 1 else 0), (n, w, h, logs)
+
+
+# --- help ----------------------------------------------------------------------------------------------------------------------
+
+def test_help_shows_the_commands_instead_of_the_instruments():
+    _, s = _state()
+    f = render(s, log_rows_of(3), 80, 24, True, help=True)
+    text = "\n".join(f.text())
+    assert "?" in text and "Ctrl-L" in text and "READINGS" in text
+    assert "segment 3" not in text and "log line 0" not in text
+    assert len(f.cells()) == 24  # the rows the help does not use are still part of the frame
+
+
+def test_help_explains_how_a_tt_toplike_view_chooses_the_patch():
+    _, s = _state()
+    text = "\n".join(render(s, [], 80, 24, True, help=True).text())
+    assert "--view-map" in text and "phrase boundary" in text and "unmapped" in text
+
+
+def test_help_is_off_unless_it_is_asked_for():
+    _, s = _state()
+    assert "segment 3" in "\n".join(render(s, [], 80, 24, True).text())
+
+
+def test_help_wraps_to_the_terminal_width_and_fits_inside_it():
+    for w, h in ((60, 16), (80, 24), (132, 40)):
+        _, s = _state()
+        f = render(s, [], w, h, True, help=True)
+        assert len(f.text()) <= h and all(len(line) <= w for line in f.text()), (w, h)
+        assert all(len(r) == w for r in f.cells()) and len(f.cells()) == h

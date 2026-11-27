@@ -38,6 +38,7 @@ Chips are always found by their own `index`, so a list of chips numbered other t
 """
 from __future__ import annotations
 
+import textwrap
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..music.evict import PRESENCE
@@ -76,6 +77,31 @@ OTHER = "OTHER"  # the group of a device that GROUPS does not name
 
 FOCUS_BAR, BAR = "┃", "╎"
 LABEL_STYLE = Style("grey", dim=1)  # the optional rows (CABLES, STEREO, the legend, the READINGS heading), drawn only in spare rows
+
+# The `?` help screen. The keys are the left column; each entry explains one command or one part of the picture. This is the
+# home for every TUI command and explanation, so `?` is all a user needs while the screen is up.
+HELP_KEY_WIDTH = 12
+HELP = (
+    ("keys", (
+        ("?", "show this help; press it again to go back to the music"),
+        ("q / Q", "end the run: the segments already made play out"),
+        ("Ctrl-C", "stop at once; a second q or Ctrl-C stops the play-out"),
+        ("p / P", "save the playing patch to the library"),
+        ("s / S", "save it as a style snapshot, named <take>-snapshot"),
+        ("Ctrl-L", "draw the whole screen again"),
+    )),
+    ("the picture", (
+        ("READINGS", "one line per chip: phase, temperature, power, pressure and what it drives"),
+        ("RHYTHM / MELODY / AIR / MOD/DELAY", "devices by role; a bar shows each one's share of the mix"),
+        ("CABLES", "the strongest patch cables, source ═kind depth═▶ target"),
+        ("STEREO", "each device's two-letter code, placed left to right by where it sits"),
+        ("log", "the run log, in the same jack and device colours"),
+    )),
+    ("tt-toplike", (
+        ("--view-map", "a view in the other pane can choose the patch; the change waits for the phrase boundary, so the phrase playing now finishes first"),
+        ("unmapped", "a view with no entry in --view-map leaves the patch as it is"),
+    )),
+)
 # The READINGS heading: each word over the column it names in a readings line (see `_readings_line`).
 READINGS_HEAD = ((0, "READINGS"), (14, "temp"), (19, "power"), (25, "pressure"), (36, "drives"))
 
@@ -441,15 +467,45 @@ def _plan(state: FlowState, width: int, height: int) -> Tuple[Optional[int], boo
     return keep, fold, 0  # the log gets whatever is left
 
 
+def _help_rows(width: int, height: int) -> List[Row]:
+    """The help screen as rows: a title, then every command and every part of the picture, each key in a fixed left column and
+    its explanation wrapped in the space beside it. Cut to `height` rows so a small terminal still gets a frame that fits."""
+    rows: List[Row] = []
+
+    def line(text: str, style: Style = Style()) -> None:
+        rows.append((Span(fit(text, width), style),))
+
+    line("tensixinet --tui: help", Style("white", bold=True))
+    line("")
+    key_w = min(HELP_KEY_WIDTH, max(1, width // 2 - 1))
+    desc_w = width - key_w - 1
+    for title, entries in HELP:
+        line(title.upper(), LABEL_STYLE)
+        for key, desc in entries:
+            for i, part in enumerate(textwrap.wrap(desc, desc_w) or [""]):
+                left = key if i == 0 else ""
+                rows.append((
+                    Span(f" {left:<{key_w}}", Style("white", bold=True) if i == 0 else Style()),
+                    Span(fit(part, desc_w), Style()),
+                ))
+        line("")
+    return rows[:height]
+
+
 def render(state: Optional[FlowState], log: Sequence[Row], width: int, height: int, colour: bool, unit: str = "segment",
-           notice: Optional[str] = None) -> Frame:
+           notice: Optional[str] = None, help: bool = False) -> Frame:
     """The screen for `state` and the log pane's rows (oldest first), `width` columns by `height` rows. A `notice` (the run is
-    stopping) takes the heading's place."""
+    stopping) takes the heading's place. With `help`, the commands and the picture's explanation take the whole screen."""
     if width < MIN_COLS or height < MIN_ROWS:
         msg = f"terminal too small for --tui ({width}x{height}, needs {MIN_COLS}x{MIN_ROWS}); the run goes on"
         return Frame(((Span(fit(msg, width), Style("yellow")),),), width, height)
 
     canvas = _Canvas(width)
+    if help:
+        for spans in _help_rows(width, height):
+            canvas.put_row(canvas.add_row(), spans)
+        return Frame(canvas.rows()[:height], width, height)
+
     _heading_row(canvas, state, unit, width, notice)
     chips: Dict[int, ChipView] = {c.index: c for c in state.chips} if state else {}
     extras: List[str] = []
